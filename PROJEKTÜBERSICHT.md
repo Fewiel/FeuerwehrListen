@@ -162,7 +162,7 @@ Home.razor Auto-Refresh (alle 30s)
 
 **AttendanceEntry** (Einträge)
 - Id, AttendanceListId, NameOrId
-- EnteredAt
+- EnteredAt, IsExcused
 
 **OperationList** (Einsatzlisten)
 - Id, OperationNumber, Keyword, AlertTime
@@ -264,7 +264,7 @@ _refreshTimer = new System.Threading.Timer(async _ =>
 }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
 ```
 
-### 2. Mitglieder-Validierung
+### 2. Mitglieder-Validierung & Entschuldigt-Funktion
 
 **FindByNameOrNumberAsync:**
 ```csharp
@@ -282,6 +282,12 @@ Findet Mitglieder nach:
 - Teilname im Namen (Vorname + Nachname)
 - Teilname im Namen (Nachname + Vorname)
 - Nur aktive Mitglieder
+
+**Entschuldigt-Funktion (Anwesenheitslisten):**
+- Checkbox "Als entschuldigt eintragen" im UI
+- Separate Anzeige: "Anwesend" und "Entschuldigt"
+- PDF-Export: Getrennte Sektionen
+- API-Support: `IsExcused`-Parameter
 
 ### 3. Fahrzeug-Sortierung
 
@@ -491,6 +497,7 @@ location / {
 - ✅ PDF-Export (implementiert)
 - ✅ Statistiken (implementiert)
 - ✅ API für externe Systeme (implementiert)
+- ✅ Entschuldigt-Funktion (implementiert)
 - Excel-Export
 - Email-Benachrichtigungen
 

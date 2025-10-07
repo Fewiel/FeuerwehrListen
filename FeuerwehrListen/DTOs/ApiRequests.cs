@@ -19,6 +19,7 @@ public class CreateOperationListRequest
 public class AddAttendanceEntryRequest
 {
     public string MemberNumberOrName { get; set; } = string.Empty;
+    public bool IsExcused { get; set; } = false;
 }
 
 public class AddOperationEntryRequest

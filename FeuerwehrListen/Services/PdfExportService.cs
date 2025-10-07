@@ -246,12 +246,18 @@ public class PdfExportService
             gfx.DrawString($"Erstellt am: {list.CreatedAt:dd.MM.yyyy HH:mm}", font, XBrushes.Black, new XRect(left, y, contentWidth, 16), XStringFormats.TopLeft); y += 16;
             gfx.DrawString($"Status: {(list.Status == ListStatus.Open ? "Offen" : "Geschlossen")}", font, XBrushes.Black, new XRect(left, y, contentWidth, 16), XStringFormats.TopLeft); y += 22;
 
-            var widths = new[] { 40d, contentWidth - 200d, 80d, 80d };
+            var presentEntries = entries.Where(e => !e.IsExcused).ToList();
+            var excusedEntries = entries.Where(e => e.IsExcused).ToList();
+
+            gfx.DrawString($"Anwesend ({presentEntries.Count})", headerBold, XBrushes.Black, new XRect(left, y, contentWidth, 16), XStringFormats.TopLeft);
+            y += 20;
+
+            var widths = new[] { 40d, contentWidth - 120d, 80d };
             var attendanceHeaderBold = CreateFont("CreatoDisplay", 12, true);
-            DrawTableHeader(gfx, font, attendanceHeaderBold, left, y, widths, new[] { "#", "Name/ID", "Uhrzeit", "Hinweis" });
+            DrawTableHeader(gfx, font, attendanceHeaderBold, left, y, widths, new[] { "#", "Name/ID", "Uhrzeit" });
             y += 16;
 
-            for (int i = 0; i < entries.Count; i++)
+            for (int i = 0; i < presentEntries.Count; i++)
             {
                 if (y > page.Height - bottom - 24)
                 {
@@ -260,12 +266,47 @@ public class PdfExportService
                     gfx.Dispose(); gfx = XGraphics.FromPdfPage(page);
                     DrawHeader(gfx, "ANWESENHEITSLISTE", titleFont, left, top, contentWidth);
                     y = top + 36;
-                    DrawTableHeader(gfx, font, attendanceHeaderBold, left, y, widths, new[] { "#", "Name/ID", "Uhrzeit", "Hinweis" });
+                    DrawTableHeader(gfx, font, attendanceHeaderBold, left, y, widths, new[] { "#", "Name/ID", "Uhrzeit" });
                     y += 16;
                 }
-                var e = entries[i];
-                DrawTableRow(gfx, font, left, y, widths, new[] { (i + 1).ToString(), e.NameOrId, e.EnteredAt.ToString("HH:mm:ss"), string.Empty });
+                var e = presentEntries[i];
+                DrawTableRow(gfx, font, left, y, widths, new[] { (i + 1).ToString(), e.NameOrId, e.EnteredAt.ToString("HH:mm:ss") });
                 y += 16;
+            }
+
+            if (excusedEntries.Count > 0)
+            {
+                y += 12;
+                if (y > page.Height - bottom - 100)
+                {
+                    DrawFooter(document, page, gfx, font, left, page.Height, contentWidth, pageNumber);
+                    page = document.AddPage(); pageNumber++;
+                    gfx.Dispose(); gfx = XGraphics.FromPdfPage(page);
+                    DrawHeader(gfx, "ANWESENHEITSLISTE", titleFont, left, top, contentWidth);
+                    y = top + 36;
+                }
+
+                gfx.DrawString($"Entschuldigt ({excusedEntries.Count})", headerBold, XBrushes.Black, new XRect(left, y, contentWidth, 16), XStringFormats.TopLeft);
+                y += 20;
+                DrawTableHeader(gfx, font, attendanceHeaderBold, left, y, widths, new[] { "#", "Name/ID", "Uhrzeit" });
+                y += 16;
+
+                for (int i = 0; i < excusedEntries.Count; i++)
+                {
+                    if (y > page.Height - bottom - 24)
+                    {
+                        DrawFooter(document, page, gfx, font, left, page.Height, contentWidth, pageNumber);
+                        page = document.AddPage(); pageNumber++;
+                        gfx.Dispose(); gfx = XGraphics.FromPdfPage(page);
+                        DrawHeader(gfx, "ANWESENHEITSLISTE", titleFont, left, top, contentWidth);
+                        y = top + 36;
+                        DrawTableHeader(gfx, font, attendanceHeaderBold, left, y, widths, new[] { "#", "Name/ID", "Uhrzeit" });
+                        y += 16;
+                    }
+                    var e = excusedEntries[i];
+                    DrawTableRow(gfx, font, left, y, widths, new[] { (i + 1).ToString(), e.NameOrId, e.EnteredAt.ToString("HH:mm:ss") });
+                    y += 16;
+                }
             }
 
             DrawFooter(document, page, gfx, font, left, page.Height, contentWidth, pageNumber);

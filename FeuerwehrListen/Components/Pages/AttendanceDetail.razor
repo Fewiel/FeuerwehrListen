@@ -63,6 +63,12 @@
                                            autofocus />
                                     <button class="btn btn-primary" @onclick="AddEntry">Eintragen</button>
                                 </div>
+                                <div class="form-check mt-2">
+                                    <input class="form-check-input" type="checkbox" id="isExcusedCheck" @bind="_isExcused">
+                                    <label class="form-check-label" for="isExcusedCheck">
+                                        Als entschuldigt eintragen
+                                    </label>
+                                </div>
                                 @if (_showSuggestions && _suggestions.Count > 0)
                                 {
                                     <div class="list-group position-absolute w-100 shadow" style="z-index: 1050; max-height: 260px; overflow:auto;">
@@ -83,12 +89,17 @@
 
         <div class="row">
             <div class="col">
+                @{
+                    var presentEntries = _entries.Where(e => !e.IsExcused).ToList();
+                    var excusedEntries = _entries.Where(e => e.IsExcused).ToList();
+                }
+                
                 <div class="card">
                     <div class="card-header">
-                        <h5 class="mb-0">Eingetragene Personen (@_entries.Count)</h5>
+                        <h5 class="mb-0">Anwesend (@presentEntries.Count)</h5>
                     </div>
                     <div class="card-body">
-                        @if (_entries.Count == 0)
+                        @if (presentEntries.Count == 0)
                         {
                             <p class="text-muted">Noch keine Einträge</p>
                         }
@@ -108,7 +119,7 @@
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    @foreach (var (entry, index) in _entries.Select((e, i) => (e, i)))
+                                    @foreach (var (entry, index) in presentEntries.Select((e, i) => (e, i)))
                                     {
                                         <tr>
                                             <td>@(index + 1)</td>
@@ -130,6 +141,50 @@
                         }
                     </div>
                 </div>
+
+                @if (excusedEntries.Count > 0)
+                {
+                    <div class="card mt-3">
+                        <div class="card-header">
+                            <h5 class="mb-0">Entschuldigt (@excusedEntries.Count)</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>#</th>
+                                            <th>Name/ID</th>
+                                            <th>Eingetragen um</th>
+                                            @if (_list.Status == ListStatus.Open)
+                                            {
+                                                <th>Aktion</th>
+                                            }
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var (entry, index) in excusedEntries.Select((e, i) => (e, i)))
+                                        {
+                                            <tr>
+                                                <td>@(index + 1)</td>
+                                                <td><strong>@entry.NameOrId</strong></td>
+                                                <td>@entry.EnteredAt.ToString("HH:mm:ss")</td>
+                                                @if (_list.Status == ListStatus.Open)
+                                                {
+                                                    <td>
+                                                        <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteEntry(entry.Id)" title="Entfernen">
+                                                            🗑️ Entfernen
+                                                        </button>
+                                                    </td>
+                                                }
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                }
             </div>
         </div>
 
@@ -149,6 +204,7 @@
     private List<AttendanceEntry> _entries = new();
     private string _searchInput = string.Empty;
     private string _errorMessage = string.Empty;
+    private bool _isExcused = false;
     private ElementReference _inputElement;
     private List<Member> _suggestions = new();
     private bool _showSuggestions = false;
@@ -218,11 +274,13 @@
         {
             AttendanceListId = Id,
             NameOrId = $"{member.FirstName} {member.LastName} ({member.MemberNumber})",
-            EnteredAt = DateTime.Now
+            EnteredAt = DateTime.Now,
+            IsExcused = _isExcused
         };
 
         await EntryRepo.CreateAsync(entry);
         _searchInput = string.Empty;
+        _isExcused = false;
         await LoadData();
         
         try

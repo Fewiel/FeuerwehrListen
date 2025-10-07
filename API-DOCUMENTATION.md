@@ -206,13 +206,15 @@ GET /api/attendance/lists/{listId}/entries
       "id": 1,
       "listId": 1,
       "nameOrId": "Max Mustermann (1234)",
-      "enteredAt": "2025-10-07T19:05:00"
+      "enteredAt": "2025-10-07T19:05:00",
+      "isExcused": false
     },
     {
       "id": 2,
       "listId": 1,
       "nameOrId": "Anna Schmidt (5678)",
-      "enteredAt": "2025-10-07T19:06:30"
+      "enteredAt": "2025-10-07T19:06:30",
+      "isExcused": true
     }
   ]
 }
@@ -232,16 +234,28 @@ POST /api/attendance/lists/{listId}/entries
 **Request Body:**
 ```json
 {
-  "memberNumberOrName": "1234"
+  "memberNumberOrName": "1234",
+  "isExcused": false
 }
 ```
 
 **Alternative:** Name statt Nummer
 ```json
 {
-  "memberNumberOrName": "Max Mustermann"
+  "memberNumberOrName": "Max Mustermann",
+  "isExcused": false
 }
 ```
+
+**Als entschuldigt eintragen:**
+```json
+{
+  "memberNumberOrName": "1234",
+  "isExcused": true
+}
+```
+
+**Hinweis:** `isExcused` ist optional und standardmäßig `false`.
 
 **Response (Erfolg):**
 ```json
@@ -252,7 +266,8 @@ POST /api/attendance/lists/{listId}/entries
     "id": 3,
     "listId": 1,
     "nameOrId": "Max Mustermann (1234)",
-    "enteredAt": "2025-10-07T19:10:00"
+    "enteredAt": "2025-10-07T19:10:00",
+    "isExcused": false
   }
 }
 ```
@@ -276,10 +291,17 @@ HTTP 400 Bad Request
 
 **cURL Beispiel:**
 ```bash
+# Normaler Eintrag
 curl -X POST https://your-domain.com/api/attendance/lists/1/entries \
   -H "X-API-Key: your-api-key-here" \
   -H "Content-Type: application/json" \
-  -d '{"memberNumberOrName": "1234"}'
+  -d '{"memberNumberOrName": "1234", "isExcused": false}'
+
+# Entschuldigter Eintrag
+curl -X POST https://your-domain.com/api/attendance/lists/1/entries \
+  -H "X-API-Key: your-api-key-here" \
+  -H "Content-Type: application/json" \
+  -d '{"memberNumberOrName": "1234", "isExcused": true}'
 ```
 
 ---
@@ -1214,7 +1236,7 @@ def api_call_with_retry(url, max_retries=3):
 
 ### Version 1.0 (Oktober 2025)
 - ✅ Initiale API-Implementierung
-- ✅ Anwesenheitslisten-Endpunkte
+- ✅ Anwesenheitslisten-Endpunkte (inkl. Entschuldigt-Funktion)
 - ✅ Einsatzlisten-Endpunkte (inkl. Adresse & Geocoding)
 - ✅ Mitglieder-Suche (mit Live-Suche)
 - ✅ Geplante Listen
@@ -1223,6 +1245,7 @@ def api_call_with_retry(url, max_retries=3):
 - ✅ API-Key Authentifizierung
 - ✅ Swagger UI
 - ✅ Dynamische Funktionsverwaltung
+- ✅ Entschuldigt-Status für Anwesenheitslisten
 
 ### Geplant für v1.1
 - [ ] Archiv-Endpunkte (GET)

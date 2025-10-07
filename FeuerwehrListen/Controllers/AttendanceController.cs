@@ -96,7 +96,8 @@ public class AttendanceController : ControllerBase
             Id = e.Id,
             ListId = e.AttendanceListId,
             NameOrId = e.NameOrId,
-            EnteredAt = e.EnteredAt
+            EnteredAt = e.EnteredAt,
+            IsExcused = e.IsExcused
         }).ToList();
 
         return Ok(new ApiResponse<List<EntryResponse>>
@@ -124,7 +125,8 @@ public class AttendanceController : ControllerBase
         {
             AttendanceListId = listId,
             NameOrId = $"{member.FirstName} {member.LastName} ({member.MemberNumber})",
-            EnteredAt = DateTime.Now
+            EnteredAt = DateTime.Now,
+            IsExcused = request.IsExcused
         };
 
         var id = await _entryRepo.CreateAsync(entry);
@@ -138,7 +140,8 @@ public class AttendanceController : ControllerBase
                 Id = id,
                 ListId = listId,
                 NameOrId = entry.NameOrId,
-                EnteredAt = entry.EnteredAt
+                EnteredAt = entry.EnteredAt,
+                IsExcused = entry.IsExcused
             }
         });
     }

@@ -26,6 +26,7 @@ public class EntryResponse
     public int ListId { get; set; }
     public string NameOrId { get; set; } = string.Empty;
     public DateTime EnteredAt { get; set; }
+    public bool IsExcused { get; set; }
 }
 
 public class OperationEntryResponse : EntryResponse

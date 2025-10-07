@@ -17,5 +17,8 @@ public class AttendanceEntry
     
     [Column("EnteredAt")]
     public DateTime EnteredAt { get; set; }
+    
+    [Column("IsExcused")]
+    public bool IsExcused { get; set; }
 }
 

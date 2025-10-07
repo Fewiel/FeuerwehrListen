@@ -17,11 +17,13 @@ Eine moderne Blazor Server Webanwendung zur Verwaltung von Anwesenheits- und Ein
 - **Erstellen**: Titel, Einheit, Beschreibung (Datum/Uhrzeit automatisch)
 - **Live-Suche**: Intelligente Mitgliedersuche mit Dropdown-Vorschlägen
 - **Eintragen**: Mitgliedsnummer oder Name eingeben
+- **Entschuldigt-Option**: Mitglieder als entschuldigt markieren (separate Checkbox)
 - **Validierung**: Nur registrierte Mitglieder können eingetragen werden
 - **Autofocus**: Eingabefeld erhält automatisch Focus
 - **Enter-Taste**: Schnelles Eintragen per Enter
+- **Separate Anzeige**: Anwesende und Entschuldigte in getrennten Bereichen
 - **Entfernen**: Falsche Einträge können gelöscht werden (nur bei offenen Listen)
-- **PDF-Export**: Listen als PDF herunterladen
+- **PDF-Export**: Listen als PDF mit getrennten Sektionen (Anwesend/Entschuldigt)
 - **Abschließen**: Listen können geschlossen werden
 
 #### Einsatzlisten
@@ -252,10 +254,12 @@ Nach dem ersten Start:
 
 2. **Eintragen** (schnell & einfach):
    - Mitgliedsnummer eingeben (z.B. `1234`)
+   - **Optional**: "Als entschuldigt eintragen" anhaken
    - Enter drücken ✅
    - ODER Namen eingeben (z.B. `Max`)
    - Enter drücken ✅
    - Falls Mitglied nicht gefunden: Fehlermeldung
+   - **Anzeige**: Anwesende und Entschuldigte werden getrennt aufgelistet
 
 3. **Eintrag korrigieren**:
    - 🗑️ Button klicken zum Entfernen
@@ -484,6 +488,7 @@ Details siehe [API-DOCUMENTATION.md](API-DOCUMENTATION.md)
 - ✅ Geocoding & Kartenintegration
 - ✅ Dynamische Funktionsverwaltung
 - ✅ Live-Suche mit Auto-Complete
+- ✅ Entschuldigt-Funktion für Anwesenheitslisten
 
 ### In Planung
 - [ ] Email-Benachrichtigungen
