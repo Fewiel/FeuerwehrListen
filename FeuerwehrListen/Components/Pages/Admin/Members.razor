@@ -1,0 +1,203 @@
+@page "/admin/members"
+@using FeuerwehrListen.Models
+@using FeuerwehrListen.Repositories
+@using FeuerwehrListen.Components.Layout
+@inject MemberRepository MemberRepo
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+
+<PageTitle>Mitgliederverwaltung</PageTitle>
+
+<AdminAuthCheck>
+    <div class="container mt-4">
+        <div class="row mb-4">
+            <div class="col">
+                <h1>Mitgliederverwaltung</h1>
+            </div>
+            <div class="col-auto">
+                <button class="btn btn-primary" @onclick="ShowCreateForm">Neues Mitglied</button>
+            </div>
+        </div>
+
+        @if (_showForm)
+        {
+            <div class="row mb-4">
+                <div class="col-md-8 offset-md-2">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">@(_editingMember?.Id > 0 ? "Mitglied bearbeiten" : "Neues Mitglied")</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-3">
+                                <label class="form-label">Mitgliedsnummer</label>
+                                <input type="text" class="form-control" @bind="_editingMember!.MemberNumber" />
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label class="form-label">Vorname</label>
+                                        <input type="text" class="form-control" @bind="_editingMember!.FirstName" />
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label class="form-label">Nachname</label>
+                                        <input type="text" class="form-control" @bind="_editingMember!.LastName" />
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" @bind="_editingMember!.IsActive" id="activeCheck" />
+                                    <label class="form-check-label" for="activeCheck">
+                                        Aktiv
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="d-flex gap-2">
+                                <button class="btn btn-primary" @onclick="SaveMember">Speichern</button>
+                                <button class="btn btn-secondary" @onclick="CancelEdit">Abbrechen</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <div class="row">
+            <div class="col">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Alle Mitglieder (@_members.Count)</h5>
+                    </div>
+                    <div class="card-body">
+                        @if (_members.Count == 0)
+                        {
+                            <p class="text-muted">Keine Mitglieder vorhanden</p>
+                        }
+                        else
+                        {
+                            <div class="table-responsive">
+                                <table class="table table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>Mitgliedsnummer</th>
+                                            <th>Name</th>
+                                            <th>Status</th>
+                                            <th>Erstellt</th>
+                                            <th>Aktionen</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var member in _members)
+                                        {
+                                            <tr>
+                                                <td><strong>@member.MemberNumber</strong></td>
+                                                <td>@member.FirstName @member.LastName</td>
+                                                <td>
+                                                    @if (member.IsActive)
+                                                    {
+                                                        <span class="badge bg-success">Aktiv</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="badge bg-secondary">Inaktiv</span>
+                                                    }
+                                                </td>
+                                                <td>@member.CreatedAt.ToString("dd.MM.yyyy")</td>
+                                                <td>
+                                                    <button class="btn btn-sm btn-outline-primary" @onclick="() => EditMember(member)">Bearbeiten</button>
+                                                    <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteMember(member.Id)">Löschen</button>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mt-3">
+            <div class="col">
+                <button class="btn btn-secondary" @onclick='() => Navigation.NavigateTo("/")'>Zurück zur Übersicht</button>
+            </div>
+        </div>
+    </div>
+</AdminAuthCheck>
+
+@code {
+    private List<Member> _members = new();
+    private Member? _editingMember;
+    private bool _showForm = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadMembers();
+    }
+
+    private async Task LoadMembers()
+    {
+        _members = await MemberRepo.GetAllAsync();
+    }
+
+    private void ShowCreateForm()
+    {
+        _editingMember = new Member
+        {
+            IsActive = true,
+            CreatedAt = DateTime.Now
+        };
+        _showForm = true;
+    }
+
+    private void EditMember(Member member)
+    {
+        _editingMember = new Member
+        {
+            Id = member.Id,
+            MemberNumber = member.MemberNumber,
+            FirstName = member.FirstName,
+            LastName = member.LastName,
+            IsActive = member.IsActive,
+            CreatedAt = member.CreatedAt
+        };
+        _showForm = true;
+    }
+
+    private async Task SaveMember()
+    {
+        if (_editingMember == null || string.IsNullOrWhiteSpace(_editingMember.MemberNumber) ||
+            string.IsNullOrWhiteSpace(_editingMember.FirstName) || string.IsNullOrWhiteSpace(_editingMember.LastName))
+            return;
+
+        if (_editingMember.Id == 0)
+        {
+            await MemberRepo.CreateAsync(_editingMember);
+        }
+        else
+        {
+            await MemberRepo.UpdateAsync(_editingMember);
+        }
+
+        _showForm = false;
+        _editingMember = null;
+        await LoadMembers();
+    }
+
+    private void CancelEdit()
+    {
+        _showForm = false;
+        _editingMember = null;
+    }
+
+    private async Task DeleteMember(int id)
+    {
+        await MemberRepo.DeleteAsync(id);
+        await LoadMembers();
+    }
+}
+
+

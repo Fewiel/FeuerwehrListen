@@ -1,0 +1,160 @@
+﻿@using FeuerwehrListen.Services
+@inject AuthenticationService AuthService
+@rendermode InteractiveServer
+
+<div class="sidebar-header">
+    <h4 class="px-3 py-3 mb-0">🚒 Feuerwehr Listen</h4>
+</div>
+
+<div class="nav-scrollable">
+    <nav class="flex-column">
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
+                <span class="icon">🏠</span> Übersicht
+            </NavLink>
+        </div>
+
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="create-attendance">
+                <span class="icon">➕</span> Neue Anwesenheitsliste
+            </NavLink>
+        </div>
+
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="create-operation">
+                <span class="icon">🚨</span> Neue Einsatzliste
+            </NavLink>
+        </div>
+
+        @if (AuthService.IsAdmin)
+        {
+            <hr class="my-3 mx-3" />
+
+            <div class="nav-item px-3">
+                <div class="nav-link-header">
+                    Admin-Bereich
+                </div>
+            </div>
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="admin/closed-lists">
+                    <span class="icon">✓</span> Abgeschlossene Listen
+                </NavLink>
+            </div>
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="admin/archive">
+                    <span class="icon">📦</span> Archiv
+                </NavLink>
+            </div>
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="admin/members">
+                    <span class="icon">👤</span> Mitglieder
+                </NavLink>
+            </div>
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="admin/vehicles">
+                    <span class="icon">🚒</span> Fahrzeuge
+                </NavLink>
+            </div>
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="admin/functions">
+                    <span class="icon">🧩</span> Funktionen
+                </NavLink>
+            </div>
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="admin/users">
+                    <span class="icon">👥</span> Benutzer
+                </NavLink>
+            </div>
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="admin/apikeys">
+                    <span class="icon">🔑</span> API Keys
+                </NavLink>
+            </div>
+
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="admin/statistics">
+                <span class="icon">📊</span> Statistiken
+            </NavLink>
+        </div>
+
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="admin/scheduled">
+                <span class="icon">📅</span> Geplante Listen
+            </NavLink>
+        </div>
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="admin/service-status">
+                    <span class="icon">🔧</span> Service Status
+                </NavLink>
+            </div>
+
+            <hr class="my-3 mx-3" />
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="admin/change-password">
+                    <span class="icon">🔐</span> Passwort ändern
+                </NavLink>
+            </div>
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="logout">
+                    <span class="icon">🚪</span> Logout
+                </NavLink>
+            </div>
+        }
+        else
+        {
+            <hr class="my-3 mx-3" />
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="login">
+                    <span class="icon">🔓</span> Login
+                </NavLink>
+            </div>
+        }
+    </nav>
+</div>
+
+@implements IDisposable
+
+@code {
+    protected override void OnInitialized()
+    {
+        AuthService.OnAuthStateChanged += OnAuthStateChanged;
+    }
+
+    private void OnAuthStateChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    private async Task HandleLogout()
+    {
+        try
+        {
+            AuthService.Logout();
+            await InvokeAsync(StateHasChanged);
+            await Task.Delay(50);
+            Navigation.NavigateTo("/login", true);
+        }
+        catch (Exception ex)
+        {
+            // optional: UI-Fehlermeldung (keine Console-Ausgabe)
+        }
+    }
+
+    public void Dispose()
+    {
+        AuthService.OnAuthStateChanged -= OnAuthStateChanged;
+    }
+}
+
+@inject NavigationManager Navigation

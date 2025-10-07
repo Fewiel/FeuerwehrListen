@@ -1,0 +1,661 @@
+@page "/operation/{Id:int}"
+@using FeuerwehrListen.Models
+@using FeuerwehrListen.Services
+@using FeuerwehrListen.Repositories
+@inject OperationListRepository OperationRepo
+@inject OperationEntryRepository EntryRepo
+@inject VehicleRepository VehicleRepo
+@inject OperationFunctionRepository FunctionRepo
+@inject OperationEntryFunctionRepository EntryFunctionRepo
+@inject MemberRepository MemberRepo
+@inject PdfExportService PdfService
+@inject NavigationManager Navigation
+@inject GeocodingService Geocoder
+@rendermode InteractiveServer
+
+<PageTitle>Einsatzliste - @_list?.OperationNumber</PageTitle>
+
+@if (_list != null)
+{
+    <div class="container mt-4">
+        <div class="row mb-4 align-items-start">
+            <div class="col">
+                <h1>Einsatz @_list.OperationNumber</h1>
+                <p class="lead">Stichwort: @_list.Keyword</p>
+                <p>Alarmierung: @_list.AlertTime.ToString("dd.MM.yyyy HH:mm")</p>
+                <small class="text-muted">Erstellt: @_list.CreatedAt.ToString("dd.MM.yyyy HH:mm")</small>
+            </div>
+            <div class="col-auto">
+                @if (_list.Status == ListStatus.Open)
+                {
+                    <button class="btn btn-warning me-2" @onclick="CloseList">Liste abschließen</button>
+                }
+                else
+                {
+                    <span class="badge bg-secondary fs-5 me-2">Abgeschlossen</span>
+                }
+                <button class="btn btn-outline-primary me-2" @onclick="() => _editOpen = true">
+                    <i class="bi bi-pencil-square"></i> Einsatz bearbeiten
+                </button>
+                <button class="btn btn-primary" @onclick="ExportPdf">
+                    <i class="bi bi-file-earmark-pdf"></i> PDF Export
+                </button>
+            </div>
+        </div>
+
+        @if (_list.Status == ListStatus.Open)
+        {
+            <div class="row mb-4">
+                <div class="col-md-10 offset-md-1">
+                    <div class="card">
+                        <div class="card-body">
+                            <h5 class="card-title">Eintragen</h5>
+                            @if (!string.IsNullOrEmpty(_errorMessage))
+                            {
+                                <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                                    @_errorMessage
+                                    <button type="button" class="btn-close" @onclick="() => _errorMessage = string.Empty"></button>
+                                </div>
+                            }
+                            <div class="row">
+                                <div class="col-md-8">
+                            <div class="mb-3 position-relative">
+                                <label class="form-label">Mitgliedsnummer oder Name</label>
+                                <input type="text" 
+                                       class="form-control" 
+                                       value="@_nameOrId"
+                                       @oninput="OnSearchInput"
+                                       @onkeyup="HandleKeyPress"
+                                       @ref="_inputElement"
+                                       autocomplete="off"
+                                       autofocus />
+                                @if (_showSuggestions && _suggestions.Count > 0)
+                                {
+                                    <div class="list-group position-absolute w-100 shadow" style="z-index: 1050; max-height: 260px; overflow:auto;">
+                                        @foreach (var m in _suggestions)
+                                        {
+                                            <button type="button" class="list-group-item list-group-item-action" @onclick="() => SelectSuggestion(m)">
+                                                @m.FirstName @m.LastName (@m.MemberNumber)
+                                            </button>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                                    <div class="mb-2 d-flex align-items-center justify-content-between">
+                                        <label class="form-label mb-0">Fahrzeug</label>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="noVehicle" @bind="_noVehicle" />
+                                            <label class="form-check-label" for="noVehicle">Ohne Fahrzeug</label>
+                                        </div>
+                                    </div>
+                                    <select class="form-select" @bind="_vehicleId" disabled="@_noVehicle">
+                                        <option value="0">-- Fahrzeug auswählen --</option>
+                                        @foreach (var vehicle in _vehicles)
+                                        {
+                                            <option value="@vehicle.Id">@vehicle.Name (@vehicle.CallSign)</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div class="col-md-4">
+                                    @if (!string.IsNullOrWhiteSpace(_list?.Address))
+                                    {
+                                        <div class="mb-2 d-flex justify-content-between align-items-center">
+                                            <strong>Karte</strong>
+                                            <small class="text-muted">@_list.Address</small>
+                                        </div>
+                                        <div class="ratio ratio-4x3">
+                                            <iframe src="@GetOsmEmbedUrlWithMarker(_list.Address, _list.Latitude, _list.Longitude)" style="border:0; width:100%; height:100%"></iframe>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div class="text-muted small">Keine Adresse hinterlegt</div>
+                                    }
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-12">
+                                    <div class="mb-2">
+                                        <label class="form-label">Funktionen (Mehrfachauswahl)</label>
+                                        <div class="d-flex flex-wrap gap-3">
+                                            @foreach (var f in _allFunctions)
+                                            {
+                                                var checkedVal = _selectedFunctionIds.Contains(f.Id);
+                                                <div class="form-check">
+                                                    <input class="form-check-input" type="checkbox" id="func_@f.Id" checked="@checkedVal" @onchange="(e) => ToggleFunction(f.Id, (bool)e.Value)" />
+                                                    <label class="form-check-label" for="func_@f.Id">@f.Name</label>
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" @bind="_withBreathingApparatus" id="breathingCheck" />
+                                    <label class="form-check-label" for="breathingCheck">
+                                        Unter Atemschutz
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="d-grid gap-2">
+                                <button class="btn btn-danger btn-lg w-100" @onclick="AddEntry" disabled="@(!CanSubmit)" title="Mit Enter eintragen">Mit Enter eintragen</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <div class="row">
+            <div class="col">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Eingetragene Einsatzkräfte (@_entries.Count)</h5>
+                    </div>
+                    <div class="card-body">
+                        @if (!string.IsNullOrWhiteSpace(_list?.Address))
+                        {
+                            <div class="mb-3">
+                                <strong>Adresse:</strong> @_list.Address
+                            </div>
+                        }
+                        @if (_entries.Count == 0)
+                        {
+                            <p class="text-muted">Noch keine Einträge</p>
+                        }
+                        else
+                        {
+                            var vehicleGroups = _entries.Where(e => !string.IsNullOrWhiteSpace(e.Vehicle))
+                                .GroupBy(e => e.Vehicle)
+                                .OrderBy(g => g.Key);
+
+                            foreach (var vehicleGroup in vehicleGroups)
+                            {
+                                <div class="mb-4">
+                                    <h6 class="text-danger fw-bold mb-3">
+                                        <i class="bi bi-truck"></i> @vehicleGroup.Key (@vehicleGroup.Count())
+                                    </h6>
+                                    <div class="table-responsive">
+                                        <table class="table table-hover table-sm">
+                                            <thead>
+                                                <tr>
+                                                    <th>#</th>
+                                                    <th>Name/ID</th>
+                                                    <th>Funktionen</th>
+                                                    <th>Unter Atemschutz</th>
+                                                    <th>Eingetragen um</th>
+                                                    @if (_list.Status == ListStatus.Open)
+                                                    {
+                                                        <th>Aktion</th>
+                                                    }
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @foreach (var (entry, index) in vehicleGroup.Select((e, i) => (e, i)))
+                                                {
+                                                    var funcs = _functionsByEntryId.TryGetValue(entry.Id, out var list)
+                                                        ? string.Join(", ", list.Select(x => x.Name))
+                                                        : GetFunctionName(entry.Function);
+                                                    <tr>
+                                                        <td>@(index + 1)</td>
+                                                        <td><strong>@entry.NameOrId</strong></td>
+                                                        <td>@funcs</td>
+                                                        <td>
+                                                            @if (entry.WithBreathingApparatus)
+                                                            {
+                                                                <span class="badge bg-warning">Ja</span>
+                                                            }
+                                                            else
+                                                            {
+                                                                <span class="badge bg-secondary">Nein</span>
+                                                            }
+                                                        </td>
+                                                        <td>@entry.EnteredAt.ToString("HH:mm:ss")</td>
+                                                        @if (_list.Status == ListStatus.Open)
+                                                        {
+                                                            <td>
+                                                                <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteEntry(entry.Id)" title="Entfernen">
+                                                                    🗑️
+                                                                </button>
+                                                            </td>
+                                                        }
+                                                    </tr>
+                                                }
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            }
+
+                            var noVehicleEntries = _entries.Where(e => string.IsNullOrWhiteSpace(e.Vehicle)).ToList();
+                            if (noVehicleEntries.Count > 0)
+                            {
+                                <div class="mb-4">
+                                    <h6 class="text-danger fw-bold mb-3">
+                                        <i class="bi bi-people"></i> Ohne Fahrzeug (@noVehicleEntries.Count)
+                                    </h6>
+                                    <div class="table-responsive">
+                                        <table class="table table-hover table-sm">
+                                            <thead>
+                                                <tr>
+                                                    <th>#</th>
+                                                    <th>Name/ID</th>
+                                                    <th>Funktionen</th>
+                                                    <th>Unter Atemschutz</th>
+                                                    <th>Eingetragen um</th>
+                                                    @if (_list.Status == ListStatus.Open)
+                                                    {
+                                                        <th>Aktion</th>
+                                                    }
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @foreach (var (entry, index) in noVehicleEntries.Select((e, i) => (e, i)))
+                                                {
+                                                    var funcs = _functionsByEntryId.TryGetValue(entry.Id, out var list)
+                                                        ? string.Join(", ", list.Select(x => x.Name))
+                                                        : GetFunctionName(entry.Function);
+                                                    <tr>
+                                                        <td>@(index + 1)</td>
+                                                        <td><strong>@entry.NameOrId</strong></td>
+                                                        <td>@funcs</td>
+                                                        <td>
+                                                            @if (entry.WithBreathingApparatus)
+                                                            {
+                                                                <span class="badge bg-warning">Ja</span>
+                                                            }
+                                                            else
+                                                            {
+                                                                <span class="badge bg-secondary">Nein</span>
+                                                            }
+                                                        </td>
+                                                        <td>@entry.EnteredAt.ToString("HH:mm:ss")</td>
+                                                        @if (_list.Status == ListStatus.Open)
+                                                        {
+                                                            <td>
+                                                                <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteEntry(entry.Id)" title="Entfernen">
+                                                                    🗑️
+                                                                </button>
+                                                            </td>
+                                                        }
+                                                    </tr>
+                                                }
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mt-3">
+            <div class="col">
+                <button class="btn btn-secondary" @onclick='() => Navigation.NavigateTo("/")'>Zurück zur Übersicht</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public int Id { get; set; }
+
+    private OperationList? _list;
+    private List<OperationEntry> _entries = new();
+    private List<Vehicle> _vehicles = new();
+    private string _nameOrId = string.Empty;
+    private string _errorMessage = string.Empty;
+    private int _vehicleId = 0;
+    private bool _noVehicle = false;
+    private OperationFunction _function = OperationFunction.Trupp;
+    private bool _withBreathingApparatus = false;
+    private ElementReference _inputElement;
+    private List<OperationFunctionDef> _allFunctions = new();
+    private HashSet<int> _selectedFunctionIds = new();
+    private Dictionary<int, List<OperationFunctionDef>> _functionsByEntryId = new();
+    private string _address = string.Empty;
+    private bool _editOpen = false;
+    private string _editOperationNumber = string.Empty;
+    private string _editKeyword = string.Empty;
+    private string _editAddress = string.Empty;
+    private bool _geocodingInProgress = false;
+    private List<Member> _suggestions = new();
+    private bool _showSuggestions = false;
+    private CancellationTokenSource? _searchCts;
+    private bool CanSubmit => _list?.Status == ListStatus.Open
+        && !string.IsNullOrWhiteSpace(_nameOrId)
+        && (_noVehicle || _vehicleId != 0);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+        _vehicles = await VehicleRepo.GetActiveAsync();
+        _allFunctions = await FunctionRepo.GetAllAsync();
+        await LoadFunctionMap();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender || _list?.Status == ListStatus.Open)
+        {
+            try
+            {
+                await _inputElement.FocusAsync();
+            }
+            catch { }
+        }
+    }
+
+    private async Task LoadData()
+    {
+        _list = await OperationRepo.GetByIdAsync(Id);
+        if (_list != null)
+        {
+            _entries = await EntryRepo.GetByListIdAsync(Id);
+            _address = _list.Address ?? string.Empty;
+            _editOperationNumber = _list.OperationNumber;
+            _editKeyword = _list.Keyword;
+            _editAddress = _list.Address ?? string.Empty;
+        }
+    }
+
+    private async Task LoadFunctionMap()
+    {
+        var ids = _entries.Select(e => e.Id).ToList();
+        _functionsByEntryId = await EntryFunctionRepo.GetFunctionsForEntriesAsync(ids);
+        StateHasChanged();
+    }
+
+    private async Task AddEntry()
+    {
+        if (string.IsNullOrWhiteSpace(_nameOrId) || _list?.Status != ListStatus.Open)
+            return;
+
+        _errorMessage = string.Empty;
+        
+        if (!_noVehicle && _vehicleId == 0)
+        {
+            _errorMessage = "Bitte Fahrzeug auswählen oder 'Ohne Fahrzeug' aktivieren!";
+            return;
+        }
+        
+        var input = _nameOrId;
+        var openIdx = input.LastIndexOf('(');
+        var closeIdx = input.LastIndexOf(')');
+        if (openIdx >= 0 && closeIdx > openIdx)
+        {
+            var inside = input.Substring(openIdx + 1, closeIdx - openIdx - 1).Trim();
+            if (!string.IsNullOrEmpty(inside))
+            {
+                var byNum = await MemberRepo.GetByMemberNumberAsync(inside);
+                if (byNum != null)
+                {
+                    input = inside;
+                }
+            }
+        }
+
+        var member = await MemberRepo.FindByNameOrNumberAsync(input);
+        if (member == null)
+        {
+            _errorMessage = $"Mitglied '{_nameOrId}' nicht gefunden!";
+            try
+            {
+                await _inputElement.FocusAsync();
+            }
+            catch { }
+            return;
+        }
+
+        var selectedVehicle = _noVehicle || _vehicleId == 0 ? null : _vehicles.FirstOrDefault(v => v.Id == _vehicleId);
+
+        var displayName = $"{member.FirstName} {member.LastName} ({member.MemberNumber})";
+        if (_entries.Any(e => e.NameOrId.EndsWith($"({member.MemberNumber})") || e.NameOrId.Equals(displayName, StringComparison.OrdinalIgnoreCase)))
+        {
+            _errorMessage = "Dieses Mitglied ist bereits eingetragen.";
+            return;
+        }
+
+        var entry = new OperationEntry
+        {
+            OperationListId = Id,
+            NameOrId = displayName,
+            Vehicle = selectedVehicle?.Name ?? string.Empty,
+            Function = _function,
+            WithBreathingApparatus = _withBreathingApparatus,
+            EnteredAt = DateTime.Now
+        };
+
+        var newId = await EntryRepo.CreateAsync(entry);
+        await EntryFunctionRepo.SetFunctionsForEntryAsync(newId, _selectedFunctionIds);
+        _nameOrId = string.Empty;
+        _vehicleId = 0;
+        _noVehicle = false;
+        _function = OperationFunction.Trupp;
+        _withBreathingApparatus = false;
+        _selectedFunctionIds.Clear();
+        await LoadData();
+        await LoadFunctionMap();
+        
+        try
+        {
+            await _inputElement.FocusAsync();
+        }
+        catch { }
+    }
+
+    private async Task HandleKeyPress(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            if (!_noVehicle && _vehicleId == 0)
+            {
+                _errorMessage = "Bitte Fahrzeug auswählen oder 'Ohne Fahrzeug' aktivieren!";
+                return;
+            }
+            await AddEntry();
+        }
+    }
+
+    private async Task OnSearchInput(ChangeEventArgs e)
+    {
+        _nameOrId = e.Value?.ToString() ?? string.Empty;
+        _showSuggestions = false;
+        _searchCts?.Cancel();
+        _searchCts = new CancellationTokenSource();
+        var token = _searchCts.Token;
+        try
+        {
+            await Task.Delay(200, token);
+            if (token.IsCancellationRequested) return;
+            if (string.IsNullOrWhiteSpace(_nameOrId) || _nameOrId.Length < 2)
+            {
+                _suggestions.Clear();
+                return;
+            }
+            var results = await MemberRepo.SearchAsync(_nameOrId, 10);
+            if (!token.IsCancellationRequested)
+            {
+                _suggestions = results;
+                _showSuggestions = _suggestions.Count > 0;
+                StateHasChanged();
+            }
+        }
+        catch { }
+    }
+
+    private void SelectSuggestion(Member m)
+    {
+        _nameOrId = $"{m.FirstName} {m.LastName} ({m.MemberNumber})";
+        _showSuggestions = false;
+    }
+
+    private async Task DeleteEntry(int entryId)
+    {
+        if (_list?.Status != ListStatus.Open)
+            return;
+
+        try
+        {
+            await EntryRepo.DeleteAsync(entryId);
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Fehler beim Löschen: {ex.Message}";
+        }
+    }
+
+    private async Task CloseList()
+    {
+        if (_list == null) return;
+
+        _list.Address = string.IsNullOrWhiteSpace(_address) ? null : _address.Trim();
+        _list.Status = ListStatus.Closed;
+        _list.ClosedAt = DateTime.Now;
+        await OperationRepo.UpdateAsync(_list);
+        await LoadData();
+    }
+
+    private async Task SaveAddress()
+    {
+        if (_list == null) return;
+        _list.Address = string.IsNullOrWhiteSpace(_address) ? null : _address.Trim();
+        await OperationRepo.UpdateAsync(_list);
+        await LoadData();
+    }
+
+    private async Task SaveEdit()
+    {
+        if (_list == null) return;
+        _list.OperationNumber = _editOperationNumber?.Trim() ?? string.Empty;
+        _list.Keyword = _editKeyword?.Trim() ?? string.Empty;
+        _list.Address = string.IsNullOrWhiteSpace(_editAddress) ? null : _editAddress.Trim();
+        if (!string.IsNullOrWhiteSpace(_list.Address))
+        {
+            _geocodingInProgress = true;
+            var (lat, lon) = await Geocoder.GeocodeAsync(_list.Address);
+            _list.Latitude = lat;
+            _list.Longitude = lon;
+            _geocodingInProgress = false;
+        }
+        else
+        {
+            _list.Latitude = null;
+            _list.Longitude = null;
+        }
+        await OperationRepo.UpdateAsync(_list);
+        _editOpen = false;
+        await LoadData();
+    }
+
+    private async Task ExportPdf()
+    {
+        try
+        {
+            var path = $"/api/export/operation/{_list.Id}/pdf";
+            var token = await CreateDownloadToken(path);
+            var url = $"api/export/operation/{_list.Id}/pdf?token={Uri.EscapeDataString(token)}";
+            await OpenInNewTab(url);
+        }
+        catch (Exception ex)
+        {
+        }
+    }
+
+    private Task<string> CreateDownloadToken(string path)
+    {
+        var baseUri = Navigation.BaseUri.TrimEnd('/');
+        var tokenEndpoint = $"{baseUri}/token?path={Uri.EscapeDataString(path)}";
+        return FetchToken(tokenEndpoint);
+    }
+
+    private static async Task<string> FetchToken(string url)
+    {
+        using var http = new HttpClient();
+        return await http.GetStringAsync(url);
+    }
+
+    [Inject] private IJSRuntime JS { get; set; } = default!;
+    private async Task OpenInNewTab(string relativeUrl)
+    {
+        var baseUri = Navigation.BaseUri.TrimEnd('/');
+        var full = $"{baseUri}/{relativeUrl}";
+        await JS.InvokeVoidAsync("window.open", full, "_blank");
+    }
+
+    private string GetFunctionName(OperationFunction function) => function switch
+    {
+        OperationFunction.Maschinist => "Maschinist",
+        OperationFunction.Gruppenfuehrer => "Gruppenführer",
+        OperationFunction.Trupp => "Trupp",
+        _ => "Unbekannt"
+    };
+
+    private string GetOsmEmbedUrl(string address)
+    {
+        var encoded = Uri.EscapeDataString(address);
+        return $"https://www.openstreetmap.org/export/embed.html?search={encoded}&layer=mapnik";
+    }
+    private string GetOsmEmbedUrlWithMarker(string address, double? lat, double? lon)
+    {
+        if (lat.HasValue && lon.HasValue)
+        {
+            var latVal = lat.Value;
+            var lonVal = lon.Value;
+            var latDelta = 0.012;
+            var lonDelta = 0.018;
+            var minLat = (latVal - latDelta).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            var maxLat = (latVal + latDelta).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            var minLon = (lonVal - lonDelta).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            var maxLon = (lonVal + lonDelta).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            var latitude = latVal.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            var longitude = lonVal.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            return $"https://www.openstreetmap.org/export/embed.html?layer=mapnik&marker={latitude}%2C{longitude}&bbox={minLon}%2C{minLat}%2C{maxLon}%2C{maxLat}";
+        }
+        return GetOsmEmbedUrl(address);
+    }
+    private void ToggleFunction(int id, bool isChecked)
+    {
+        if (isChecked)
+            _selectedFunctionIds.Add(id);
+        else
+            _selectedFunctionIds.Remove(id);
+    }
+}
+
+@if (_editOpen && _list != null)
+{
+    <div class="modal fade show" style="display:block; background: rgba(0,0,0,.35);" tabindex="-1" role="dialog" data-bs-theme="dark">
+        <div class="modal-dialog modal-dialog-scrollable">
+            <div class="modal-content bg-dark text-light border-secondary">
+                <div class="modal-header border-secondary">
+                    <h5 class="modal-title">Einsatz bearbeiten</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="() => _editOpen = false"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Einsatznummer</label>
+                        <input type="text" class="form-control bg-dark text-light border-secondary" @bind="_editOperationNumber" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Stichwort</label>
+                        <input type="text" class="form-control bg-dark text-light border-secondary" @bind="_editKeyword" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Adresse</label>
+                        <input type="text" class="form-control bg-dark text-light border-secondary" @bind="_editAddress" placeholder="Straße Hausnummer, PLZ Ort" />
+                    </div>
+                </div>
+                <div class="modal-footer border-secondary">
+                    <button class="btn btn-secondary" @onclick="() => _editOpen = false">Abbrechen</button>
+                    <button class="btn btn-primary" @onclick="SaveEdit">Speichern</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}

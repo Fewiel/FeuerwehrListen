@@ -1,0 +1,172 @@
+@page "/admin/functions"
+@using FeuerwehrListen.Models
+@using FeuerwehrListen.Repositories
+@using FeuerwehrListen.Components.Layout
+@inject OperationFunctionRepository FunctionRepo
+@rendermode InteractiveServer
+
+<PageTitle>Funktionen - Admin</PageTitle>
+
+<AdminAuthCheck>
+
+<div class="container mt-4">
+    <div class="row mb-4">
+        <div class="col">
+            <h1>Funktionen</h1>
+        </div>
+        <div class="col-auto">
+            <button class="btn btn-primary" @onclick="ShowAddForm">
+                <i class="bi bi-plus-circle"></i> Neue Funktion
+            </button>
+        </div>
+    </div>
+
+    @if (_showForm)
+    {
+        <div class="row mb-4">
+            <div class="col-md-8 offset-md-2">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">@(_editing != null ? "Funktion bearbeiten" : "Neue Funktion anlegen")</h5>
+                        <div class="mb-3">
+                            <label class="form-label">Name</label>
+                            <input type="text" class="form-control" @bind="_name" placeholder="z.B. Atemschutzgeräteträger" />
+                        </div>
+                        <div class="form-check mb-3">
+                            <input class="form-check-input" type="checkbox" id="isDefault" @bind="_isDefault" />
+                            <label class="form-check-label" for="isDefault">
+                                Standardfunktion
+                            </label>
+                        </div>
+                        <button class="btn btn-primary me-2" @onclick="Save">Speichern</button>
+                        <button class="btn btn-secondary" @onclick="Cancel">Abbrechen</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    <div class="row">
+        <div class="col">
+            <div class="card">
+                <div class="card-body">
+                    @if (_items.Count == 0)
+                    {
+                        <p class="text-muted">Keine Funktionen vorhanden</p>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Standard</th>
+                                        <th>Aktionen</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var item in _items)
+                                    {
+                                        <tr>
+                                            <td><strong>@item.Name</strong></td>
+                                            <td>
+                                                @if (item.IsDefault)
+                                                {
+                                                    <span class="badge bg-success">Ja</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-secondary">Nein</span>
+                                                }
+                                            </td>
+                                            <td>
+                                                <button class="btn btn-sm btn-primary me-2" @onclick="() => Edit(item)">Bearbeiten</button>
+                                                <button class="btn btn-sm btn-danger" @onclick="() => Delete(item.Id)">Löschen</button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+</AdminAuthCheck>
+
+@code {
+    private List<OperationFunctionDef> _items = new();
+    private bool _showForm = false;
+    private OperationFunctionDef? _editing = null;
+    private string _name = string.Empty;
+    private bool _isDefault = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadItems();
+    }
+
+    private async Task LoadItems()
+    {
+        _items = await FunctionRepo.GetAllAsync();
+    }
+
+    private void ShowAddForm()
+    {
+        _showForm = true;
+        _editing = null;
+        _name = string.Empty;
+        _isDefault = false;
+    }
+
+    private void Edit(OperationFunctionDef item)
+    {
+        _showForm = true;
+        _editing = item;
+        _name = item.Name;
+        _isDefault = item.IsDefault;
+    }
+
+    private void Cancel()
+    {
+        _showForm = false;
+        _editing = null;
+    }
+
+    private async Task Save()
+    {
+        if (string.IsNullOrWhiteSpace(_name)) return;
+
+        if (_editing != null)
+        {
+            _editing.Name = _name.Trim();
+            _editing.IsDefault = _isDefault;
+            await FunctionRepo.UpdateAsync(_editing);
+        }
+        else
+        {
+            var def = new OperationFunctionDef
+            {
+                Name = _name.Trim(),
+                IsDefault = _isDefault
+            };
+            await FunctionRepo.CreateAsync(def);
+        }
+
+        _showForm = false;
+        _editing = null;
+        await LoadItems();
+    }
+
+    private async Task Delete(int id)
+    {
+        await FunctionRepo.DeleteAsync(id);
+        await LoadItems();
+    }
+}
+
+

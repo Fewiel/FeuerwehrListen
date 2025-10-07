@@ -1,0 +1,190 @@
+@page "/admin/service-status"
+@using FeuerwehrListen.Models
+@using FeuerwehrListen.Repositories
+@using FeuerwehrListen.Components.Layout
+@inject ScheduledListRepository ScheduledRepo
+@inject ILogger<ServiceStatus> Logger
+@rendermode InteractiveServer
+
+<PageTitle>Service Status - Admin</PageTitle>
+
+<AdminAuthCheck>
+
+<div class="container mt-4">
+    <div class="row mb-4">
+        <div class="col">
+            <h1>Background Service Status</h1>
+        </div>
+        <div class="col-auto">
+            <button class="btn btn-primary" @onclick="RefreshStatus">Aktualisieren</button>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Aktuelle Serverzeit</h5>
+                </div>
+                <div class="card-body">
+                    <h3>@DateTime.Now.ToString("dd.MM.yyyy HH:mm:ss")</h3>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Fällige Geplante Listen</h5>
+                </div>
+                <div class="card-body">
+                    @if (_dueSchedules.Count == 0)
+                    {
+                        <p class="text-success">✅ Keine fälligen Listen</p>
+                    }
+                    else
+                    {
+                        <div class="alert alert-warning">
+                            <strong>⚠️ @_dueSchedules.Count Listen sind fällig!</strong>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>Titel/Nummer</th>
+                                        <th>Ereigniszeit</th>
+                                        <th>Sollte öffnen um</th>
+                                        <th>Ist fällig?</th>
+                                        <th>Verarbeitet?</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var schedule in _dueSchedules)
+                                    {
+                                        var openTime = schedule.ScheduledEventTime.AddMinutes(-schedule.MinutesBeforeEvent);
+                                        var isDue = openTime <= DateTime.Now;
+                                        <tr>
+                                            <td>@schedule.Id</td>
+                                            <td>@(schedule.Type == ScheduledListType.Attendance ? schedule.Title : schedule.OperationNumber)</td>
+                                            <td>@schedule.ScheduledEventTime.ToString("dd.MM.yyyy HH:mm:ss")</td>
+                                            <td>@openTime.ToString("dd.MM.yyyy HH:mm:ss")</td>
+                                            <td>
+                                                @if (isDue)
+                                                {
+                                                    <span class="badge bg-danger">JA</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-warning">NEIN</span>
+                                                }
+                                            </td>
+                                            <td>
+                                                @if (schedule.IsProcessed)
+                                                {
+                                                    <span class="badge bg-success">JA</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-danger">NEIN</span>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Debug: Alle Geplanten Listen</h5>
+                </div>
+                <div class="card-body">
+                    @if (_allSchedules.Count == 0)
+                    {
+                        <p class="text-muted">Keine geplanten Listen</p>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>Titel/Nummer</th>
+                                        <th>Ereigniszeit</th>
+                                        <th>Min. vorher</th>
+                                        <th>Öffnet um</th>
+                                        <th>Verarbeitet?</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var schedule in _allSchedules)
+                                    {
+                                        var openTime = schedule.ScheduledEventTime.AddMinutes(-schedule.MinutesBeforeEvent);
+                                        <tr class="@(schedule.IsProcessed ? "table-secondary" : openTime <= DateTime.Now ? "table-danger" : "table-warning")">
+                                            <td>@schedule.Id</td>
+                                            <td>@(schedule.Type == ScheduledListType.Attendance ? schedule.Title : schedule.OperationNumber)</td>
+                                            <td>@schedule.ScheduledEventTime.ToString("dd.MM.yyyy HH:mm:ss")</td>
+                                            <td>@schedule.MinutesBeforeEvent</td>
+                                            <td>@openTime.ToString("dd.MM.yyyy HH:mm:ss")</td>
+                                            <td>@(schedule.IsProcessed ? "Ja" : "Nein")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+</AdminAuthCheck>
+
+@code {
+    private List<ScheduledList> _dueSchedules = new();
+    private List<ScheduledList> _allSchedules = new();
+    private System.Threading.Timer? _refreshTimer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshStatus();
+        
+        _refreshTimer = new System.Threading.Timer(async _ => 
+        {
+            await InvokeAsync(async () => 
+            {
+                await RefreshStatus();
+                StateHasChanged();
+            });
+        }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+    }
+
+    private async Task RefreshStatus()
+    {
+        _dueSchedules = await ScheduledRepo.GetDueAsync();
+        _allSchedules = await ScheduledRepo.GetAllAsync();
+        
+        Logger.LogInformation($"Service Status Check: Found {_dueSchedules.Count} due schedules");
+    }
+
+    public void Dispose()
+    {
+        _refreshTimer?.Dispose();
+    }
+}
+
+@implements IDisposable
+
+

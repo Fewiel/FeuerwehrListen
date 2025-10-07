@@ -1,0 +1,67 @@
+@page "/create-attendance"
+@using FeuerwehrListen.Models
+@using FeuerwehrListen.Repositories
+@inject AttendanceListRepository AttendanceRepo
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+
+<PageTitle>Neue Anwesenheitsliste</PageTitle>
+
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-8 offset-md-2">
+            <div class="card">
+                <div class="card-header">
+                    <h3>Neue Anwesenheitsliste erstellen</h3>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">Titel</label>
+                        <input type="text" class="form-control" @bind="_title" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Einheit</label>
+                        <input type="text" class="form-control" @bind="_unit" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Beschreibung</label>
+                        <textarea class="form-control" rows="3" @bind="_description"></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Datum & Uhrzeit (automatisch)</label>
+                        <input type="text" class="form-control" value="@DateTime.Now.ToString("dd.MM.yyyy HH:mm")" disabled />
+                    </div>
+                    <div class="d-grid gap-2">
+                        <button class="btn btn-primary btn-lg" @onclick="CreateList">Liste erstellen</button>
+                        <button class="btn btn-secondary" @onclick='() => Navigation.NavigateTo("/")'>Abbrechen</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string _title = string.Empty;
+    private string _unit = string.Empty;
+    private string _description = string.Empty;
+
+    private async Task CreateList()
+    {
+        if (string.IsNullOrWhiteSpace(_title) || string.IsNullOrWhiteSpace(_unit))
+            return;
+
+        var newList = new AttendanceList
+        {
+            Title = _title,
+            Unit = _unit,
+            Description = _description,
+            CreatedAt = DateTime.Now,
+            Status = ListStatus.Open
+        };
+
+        var id = await AttendanceRepo.CreateAsync(newList);
+        Navigation.NavigateTo($"/attendance/{id}");
+    }
+}
+

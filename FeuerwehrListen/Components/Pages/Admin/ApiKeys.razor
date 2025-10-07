@@ -1,0 +1,153 @@
+@page "/admin/apikeys"
+@using FeuerwehrListen.Models
+@using FeuerwehrListen.Repositories
+@using FeuerwehrListen.Components.Layout
+@inject ApiKeyRepository ApiKeyRepo
+@rendermode InteractiveServer
+
+<PageTitle>API Keys - Admin</PageTitle>
+
+<AdminAuthCheck>
+
+<div class="container mt-4">
+    <div class="row mb-4">
+        <div class="col">
+            <h1>API Keys</h1>
+        </div>
+        <div class="col-auto">
+            <button class="btn btn-primary" @onclick="ShowAddForm">
+                <i class="bi bi-plus-circle"></i> Neuer API Key
+            </button>
+        </div>
+    </div>
+
+    @if (_showAddForm)
+    {
+        <div class="row mb-4">
+            <div class="col-md-8 offset-md-2">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">Neuen API Key anlegen</h5>
+                        <div class="mb-3">
+                            <label class="form-label">Beschreibung</label>
+                            <input type="text" class="form-control" @bind="_description" />
+                        </div>
+                        <button class="btn btn-primary me-2" @onclick="AddApiKey">Erstellen</button>
+                        <button class="btn btn-secondary" @onclick="() => _showAddForm = false">Abbrechen</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    <div class="row">
+        <div class="col">
+            <div class="card">
+                <div class="card-body">
+                    @if (_apiKeys.Count == 0)
+                    {
+                        <p class="text-muted">Keine API Keys vorhanden</p>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Key</th>
+                                        <th>Beschreibung</th>
+                                        <th>Status</th>
+                                        <th>Erstellt am</th>
+                                        <th>Aktionen</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var apiKey in _apiKeys)
+                                    {
+                                        <tr>
+                                            <td><code>@apiKey.Key</code></td>
+                                            <td>@apiKey.Description</td>
+                                            <td>
+                                                @if (apiKey.IsActive)
+                                                {
+                                                    <span class="badge bg-success">Aktiv</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-secondary">Inaktiv</span>
+                                                }
+                                            </td>
+                                            <td>@apiKey.CreatedAt.ToString("dd.MM.yyyy")</td>
+                                            <td>
+                                                <button class="btn btn-sm btn-warning me-2" @onclick="() => ToggleApiKey(apiKey)">
+                                                    @(apiKey.IsActive ? "Deaktivieren" : "Aktivieren")
+                                                </button>
+                                                <button class="btn btn-sm btn-danger" @onclick="() => DeleteApiKey(apiKey.Id)">Löschen</button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+</AdminAuthCheck>
+
+@code {
+    private List<ApiKey> _apiKeys = new();
+    private bool _showAddForm = false;
+    private string _description = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadApiKeys();
+    }
+
+    private async Task LoadApiKeys()
+    {
+        _apiKeys = await ApiKeyRepo.GetAllAsync();
+    }
+
+    private void ShowAddForm()
+    {
+        _showAddForm = true;
+        _description = string.Empty;
+    }
+
+    private async Task AddApiKey()
+    {
+        if (string.IsNullOrWhiteSpace(_description))
+            return;
+
+        var apiKey = new ApiKey
+        {
+            Key = Guid.NewGuid().ToString("N"),
+            Description = _description.Trim(),
+            CreatedAt = DateTime.Now,
+            IsActive = true
+        };
+
+        await ApiKeyRepo.CreateAsync(apiKey);
+        _showAddForm = false;
+        await LoadApiKeys();
+    }
+
+    private async Task ToggleApiKey(ApiKey apiKey)
+    {
+        apiKey.IsActive = !apiKey.IsActive;
+        await ApiKeyRepo.UpdateAsync(apiKey);
+        await LoadApiKeys();
+    }
+
+    private async Task DeleteApiKey(int id)
+    {
+        await ApiKeyRepo.DeleteAsync(id);
+        await LoadApiKeys();
+    }
+}
+

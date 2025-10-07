@@ -1,0 +1,125 @@
+﻿@page "/"
+@using FeuerwehrListen.Models
+@using FeuerwehrListen.Repositories
+@inject AttendanceListRepository AttendanceRepo
+@inject OperationListRepository OperationRepo
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+
+<PageTitle>Übersicht - Feuerwehr Listen</PageTitle>
+
+<div class="container mt-4">
+    <div class="row mb-4">
+        <div class="col">
+            <h1>Offene Listen</h1>
+            <p class="text-muted">
+                <small>
+                    <i class="bi bi-arrow-clockwise"></i> Automatische Aktualisierung alle 30 Sekunden
+                </small>
+            </p>
+        </div>
+        <div class="col-auto">
+            <button class="btn btn-primary me-2" @onclick='() => Navigation.NavigateTo("/create-attendance")'>
+                <i class="bi bi-plus-circle"></i> Neue Anwesenheitsliste
+            </button>
+            <button class="btn btn-danger" @onclick='() => Navigation.NavigateTo("/create-operation")'>
+                <i class="bi bi-plus-circle"></i> Neue Einsatzliste
+            </button>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">Anwesenheitslisten</h5>
+                </div>
+                <div class="card-body">
+                    @if (_attendanceLists.Count == 0)
+                    {
+                        <p class="text-muted">Keine offenen Anwesenheitslisten</p>
+                    }
+                    else
+                    {
+                        <div class="list-group">
+                            @foreach (var list in _attendanceLists)
+                            {
+                                <a href="/attendance/@list.Id" class="list-group-item list-group-item-action">
+                                    <div class="d-flex w-100 justify-content-between">
+                                        <h6 class="mb-1">@list.Title</h6>
+                                        <small>@list.CreatedAt.ToString("dd.MM.yyyy HH:mm")</small>
+                                    </div>
+                                    <p class="mb-1"><strong>@list.Unit</strong></p>
+                                    <small class="text-muted">@list.Description</small>
+                                </a>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">Einsatzlisten</h5>
+                </div>
+                <div class="card-body">
+                    @if (_operationLists.Count == 0)
+                    {
+                        <p class="text-muted">Keine offenen Einsatzlisten</p>
+                    }
+                    else
+                    {
+                        <div class="list-group">
+                            @foreach (var list in _operationLists)
+                            {
+                                <a href="/operation/@list.Id" class="list-group-item list-group-item-action">
+                                    <div class="d-flex w-100 justify-content-between">
+                                        <h6 class="mb-1">@list.OperationNumber</h6>
+                                        <small>@list.AlertTime.ToString("dd.MM.yyyy HH:mm")</small>
+                                    </div>
+                                    <p class="mb-1"><strong>@list.Keyword</strong></p>
+                                    <small class="text-muted">Erstellt: @list.CreatedAt.ToString("dd.MM.yyyy HH:mm")</small>
+                                </a>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<AttendanceList> _attendanceLists = new();
+    private List<OperationList> _operationLists = new();
+    private System.Threading.Timer? _refreshTimer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadLists();
+        
+        _refreshTimer = new System.Threading.Timer(async _ => 
+        {
+            await InvokeAsync(async () => 
+            {
+                await LoadLists();
+                StateHasChanged();
+            });
+        }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+    }
+
+    private async Task LoadLists()
+    {
+        _attendanceLists = await AttendanceRepo.GetOpenAsync();
+        _operationLists = await OperationRepo.GetOpenAsync();
+    }
+
+    public void Dispose()
+    {
+        _refreshTimer?.Dispose();
+    }
+}
+
+@implements IDisposable

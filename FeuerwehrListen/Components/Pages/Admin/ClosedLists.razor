@@ -1,0 +1,129 @@
+@page "/admin/closed-lists"
+@using FeuerwehrListen.Models
+@using FeuerwehrListen.Repositories
+@using FeuerwehrListen.Components.Layout
+@inject AttendanceListRepository AttendanceRepo
+@inject OperationListRepository OperationRepo
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+
+<PageTitle>Abgeschlossene Listen - Admin</PageTitle>
+
+<AdminAuthCheck>
+
+<div class="container mt-4">
+    <div class="row mb-4">
+        <div class="col">
+            <h1>Abgeschlossene Listen</h1>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">Anwesenheitslisten</h5>
+                </div>
+                <div class="card-body">
+                    @if (_closedAttendance.Count == 0)
+                    {
+                        <p class="text-muted">Keine abgeschlossenen Listen</p>
+                    }
+                    else
+                    {
+                        <div class="list-group">
+                            @foreach (var list in _closedAttendance)
+                            {
+                                <div class="list-group-item">
+                                    <div class="d-flex w-100 justify-content-between">
+                                        <h6 class="mb-1">@list.Title</h6>
+                                        <small>@list.ClosedAt?.ToString("dd.MM.yyyy HH:mm")</small>
+                                    </div>
+                                    <p class="mb-1"><strong>@list.Unit</strong></p>
+                                    <div class="mt-2">
+                                        <a href="/attendance/@list.Id" class="btn btn-sm btn-primary me-2">Ansehen</a>
+                                        <button class="btn btn-sm btn-warning" @onclick="() => ArchiveAttendanceList(list.Id)">Archivieren</button>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">Einsatzlisten</h5>
+                </div>
+                <div class="card-body">
+                    @if (_closedOperation.Count == 0)
+                    {
+                        <p class="text-muted">Keine abgeschlossenen Listen</p>
+                    }
+                    else
+                    {
+                        <div class="list-group">
+                            @foreach (var list in _closedOperation)
+                            {
+                                <div class="list-group-item">
+                                    <div class="d-flex w-100 justify-content-between">
+                                        <h6 class="mb-1">@list.OperationNumber</h6>
+                                        <small>@list.ClosedAt?.ToString("dd.MM.yyyy HH:mm")</small>
+                                    </div>
+                                    <p class="mb-1"><strong>@list.Keyword</strong></p>
+                                    <div class="mt-2">
+                                        <a href="/operation/@list.Id" class="btn btn-sm btn-danger me-2">Ansehen</a>
+                                        <button class="btn btn-sm btn-warning" @onclick="() => ArchiveOperationList(list.Id)">Archivieren</button>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+</AdminAuthCheck>
+
+@code {
+    private List<AttendanceList> _closedAttendance = new();
+    private List<OperationList> _closedOperation = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadLists();
+    }
+
+    private async Task LoadLists()
+    {
+        _closedAttendance = await AttendanceRepo.GetClosedAsync();
+        _closedOperation = await OperationRepo.GetClosedAsync();
+    }
+
+    private async Task ArchiveAttendanceList(int id)
+    {
+        var list = await AttendanceRepo.GetByIdAsync(id);
+        if (list != null)
+        {
+            list.IsArchived = true;
+            await AttendanceRepo.UpdateAsync(list);
+            await LoadLists();
+        }
+    }
+
+    private async Task ArchiveOperationList(int id)
+    {
+        var list = await OperationRepo.GetByIdAsync(id);
+        if (list != null)
+        {
+            list.IsArchived = true;
+            await OperationRepo.UpdateAsync(list);
+            await LoadLists();
+        }
+    }
+}
+

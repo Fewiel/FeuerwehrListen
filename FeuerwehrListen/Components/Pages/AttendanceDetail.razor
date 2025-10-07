@@ -1,0 +1,338 @@
+@page "/attendance/{Id:int}"
+@using FeuerwehrListen.Models
+@using FeuerwehrListen.Services
+@using FeuerwehrListen.Repositories
+@inject AttendanceListRepository AttendanceRepo
+@inject AttendanceEntryRepository EntryRepo
+@inject MemberRepository MemberRepo
+@inject PdfExportService PdfService
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+
+<PageTitle>Anwesenheitsliste - @_list?.Title</PageTitle>
+
+@if (_list != null)
+{
+    <div class="container mt-4">
+        <div class="row mb-4">
+            <div class="col">
+                <h1>@_list.Title</h1>
+                <p class="lead">@_list.Unit</p>
+                <p>@_list.Description</p>
+                <small class="text-muted">Erstellt: @_list.CreatedAt.ToString("dd.MM.yyyy HH:mm")</small>
+            </div>
+            <div class="col-auto">
+                @if (_list.Status == ListStatus.Open)
+                {
+                    <button class="btn btn-warning me-2" @onclick="CloseList">Liste abschließen</button>
+                }
+                else
+                {
+                    <span class="badge bg-secondary fs-5 me-2">Abgeschlossen</span>
+                }
+                <button class="btn btn-primary" @onclick="ExportPdf">
+                    <i class="bi bi-file-earmark-pdf"></i> PDF Export
+                </button>
+            </div>
+        </div>
+
+        @if (_list.Status == ListStatus.Open)
+        {
+            <div class="row mb-4">
+                <div class="col-md-8 offset-md-2">
+                    <div class="card">
+                        <div class="card-body">
+                            <h5 class="card-title">Eintragen</h5>
+                            @if (!string.IsNullOrEmpty(_errorMessage))
+                            {
+                                <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                                    @_errorMessage
+                                    <button type="button" class="btn-close" @onclick="() => _errorMessage = string.Empty"></button>
+                                </div>
+                            }
+                            <div class="mb-3 position-relative">
+                                <div class="input-group input-group-lg">
+                                    <input type="text" 
+                                           class="form-control" 
+                                           placeholder="Mitgliedsnummer oder Name eingeben" 
+                                           value="@_searchInput"
+                                           @oninput="OnSearchInput"
+                                           @onkeyup="HandleKeyPress"
+                                           @ref="_inputElement"
+                                           autocomplete="off"
+                                           autofocus />
+                                    <button class="btn btn-primary" @onclick="AddEntry">Eintragen</button>
+                                </div>
+                                @if (_showSuggestions && _suggestions.Count > 0)
+                                {
+                                    <div class="list-group position-absolute w-100 shadow" style="z-index: 1050; max-height: 260px; overflow:auto;">
+                                        @foreach (var m in _suggestions)
+                                        {
+                                            <button type="button" class="list-group-item list-group-item-action" @onclick="() => SelectSuggestion(m)">
+                                                @m.FirstName @m.LastName (@m.MemberNumber)
+                                            </button>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <div class="row">
+            <div class="col">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Eingetragene Personen (@_entries.Count)</h5>
+                    </div>
+                    <div class="card-body">
+                        @if (_entries.Count == 0)
+                        {
+                            <p class="text-muted">Noch keine Einträge</p>
+                        }
+                        else
+                        {
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>Name/ID</th>
+                                        <th>Eingetragen um</th>
+                                        @if (_list.Status == ListStatus.Open)
+                                        {
+                                            <th>Aktion</th>
+                                        }
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var (entry, index) in _entries.Select((e, i) => (e, i)))
+                                    {
+                                        <tr>
+                                            <td>@(index + 1)</td>
+                                            <td><strong>@entry.NameOrId</strong></td>
+                                            <td>@entry.EnteredAt.ToString("HH:mm:ss")</td>
+                                            @if (_list.Status == ListStatus.Open)
+                                            {
+                                                <td>
+                                                    <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteEntry(entry.Id)" title="Entfernen">
+                                                        🗑️ Entfernen
+                                                    </button>
+                                                </td>
+                                            }
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mt-3">
+            <div class="col">
+                <button class="btn btn-secondary" @onclick='() => Navigation.NavigateTo("/")'>Zurück zur Übersicht</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public int Id { get; set; }
+
+    private AttendanceList? _list;
+    private List<AttendanceEntry> _entries = new();
+    private string _searchInput = string.Empty;
+    private string _errorMessage = string.Empty;
+    private ElementReference _inputElement;
+    private List<Member> _suggestions = new();
+    private bool _showSuggestions = false;
+    private CancellationTokenSource? _searchCts;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender || _list?.Status == ListStatus.Open)
+        {
+            try
+            {
+                await _inputElement.FocusAsync();
+            }
+            catch { }
+        }
+    }
+
+    private async Task LoadData()
+    {
+        _list = await AttendanceRepo.GetByIdAsync(Id);
+        if (_list != null)
+        {
+            _entries = await EntryRepo.GetByListIdAsync(Id);
+        }
+    }
+
+    private async Task AddEntry()
+    {
+        if (string.IsNullOrWhiteSpace(_searchInput) || _list?.Status != ListStatus.Open)
+            return;
+
+        _errorMessage = string.Empty;
+        var input = _searchInput;
+        var openIdx = input.LastIndexOf('(');
+        var closeIdx = input.LastIndexOf(')');
+        if (openIdx >= 0 && closeIdx > openIdx)
+        {
+            var inside = input.Substring(openIdx + 1, closeIdx - openIdx - 1).Trim();
+            if (!string.IsNullOrEmpty(inside))
+            {
+                var byNum = await MemberRepo.GetByMemberNumberAsync(inside);
+                if (byNum != null)
+                {
+                    input = inside;
+                }
+            }
+        }
+
+        var member = await MemberRepo.FindByNameOrNumberAsync(input);
+        if (member == null)
+        {
+            _errorMessage = $"Mitglied '{_searchInput}' nicht gefunden!";
+            try
+            {
+                await _inputElement.FocusAsync();
+            }
+            catch { }
+            return;
+        }
+
+        var entry = new AttendanceEntry
+        {
+            AttendanceListId = Id,
+            NameOrId = $"{member.FirstName} {member.LastName} ({member.MemberNumber})",
+            EnteredAt = DateTime.Now
+        };
+
+        await EntryRepo.CreateAsync(entry);
+        _searchInput = string.Empty;
+        await LoadData();
+        
+        try
+        {
+            await _inputElement.FocusAsync();
+        }
+        catch { }
+    }
+
+    private async Task HandleKeyPress(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await AddEntry();
+        }
+    }
+
+    private async Task OnSearchInput(ChangeEventArgs e)
+    {
+        _searchInput = e.Value?.ToString() ?? string.Empty;
+        _showSuggestions = false;
+        _searchCts?.Cancel();
+        _searchCts = new CancellationTokenSource();
+        var token = _searchCts.Token;
+        try
+        {
+            await Task.Delay(200, token);
+            if (token.IsCancellationRequested) return;
+            if (string.IsNullOrWhiteSpace(_searchInput) || _searchInput.Length < 2)
+            {
+                _suggestions.Clear();
+                return;
+            }
+            var results = await MemberRepo.SearchAsync(_searchInput, 10);
+            if (!token.IsCancellationRequested)
+            {
+                _suggestions = results;
+                _showSuggestions = _suggestions.Count > 0;
+                StateHasChanged();
+            }
+        }
+        catch { }
+    }
+
+    private void SelectSuggestion(Member m)
+    {
+        _searchInput = $"{m.FirstName} {m.LastName} ({m.MemberNumber})";
+        _showSuggestions = false;
+    }
+
+    private async Task DeleteEntry(int entryId)
+    {
+        if (_list?.Status != ListStatus.Open)
+            return;
+
+        try
+        {
+            await EntryRepo.DeleteAsync(entryId);
+            _errorMessage = string.Empty;
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Fehler beim Löschen: {ex.Message}";
+        }
+    }
+
+    private async Task CloseList()
+    {
+        if (_list == null) return;
+
+        _list.Status = ListStatus.Closed;
+        _list.ClosedAt = DateTime.Now;
+        await AttendanceRepo.UpdateAsync(_list);
+        await LoadData();
+    }
+
+    private async Task ExportPdf()
+    {
+        try
+        {
+            var path = $"/api/export/attendance/{_list.Id}/pdf";
+            var token = await CreateDownloadToken(path);
+            var url = $"api/export/attendance/{_list.Id}/pdf?token={Uri.EscapeDataString(token)}";
+            await OpenInNewTab(url);
+        }
+        catch (Exception ex)
+        {
+        }
+    }
+
+    private Task<string> CreateDownloadToken(string path)
+    {
+        var baseUri = Navigation.BaseUri.TrimEnd('/');
+        var tokenEndpoint = $"{baseUri}/token?path={Uri.EscapeDataString(path)}";
+        return FetchToken(tokenEndpoint);
+    }
+
+    private static async Task<string> FetchToken(string url)
+    {
+        using var http = new HttpClient();
+        return await http.GetStringAsync(url);
+    }
+
+    [Inject] private IJSRuntime JS { get; set; } = default!;
+    private async Task OpenInNewTab(string relativeUrl)
+    {
+        var baseUri = Navigation.BaseUri.TrimEnd('/');
+        var full = $"{baseUri}/{relativeUrl}";
+        await JS.InvokeVoidAsync("window.open", full, "_blank");
+    }
+}
+

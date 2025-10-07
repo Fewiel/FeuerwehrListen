@@ -1,0 +1,293 @@
+@page "/admin/scheduled"
+@using FeuerwehrListen.Models
+@using FeuerwehrListen.Repositories
+@using FeuerwehrListen.Components.Layout
+@inject ScheduledListRepository ScheduledRepo
+@rendermode InteractiveServer
+
+<PageTitle>Geplante Listen - Admin</PageTitle>
+
+<AdminAuthCheck>
+
+<div class="container mt-4">
+    <div class="row mb-4">
+        <div class="col">
+            <h1>Geplante Listen</h1>
+            <p class="text-muted">
+                <small>
+                    <i class="bi bi-info-circle"></i> 
+                    Der Background-Service prüft alle 1 Minute, ob Listen fällig sind.
+                    <br>
+                    <strong>Aktuelle Serverzeit: @DateTime.Now.ToString("dd.MM.yyyy HH:mm:ss")</strong>
+                </small>
+            </p>
+        </div>
+        <div class="col-auto">
+            <button class="btn btn-primary" @onclick="ShowAddForm">
+                <i class="bi bi-plus-circle"></i> Neue geplante Liste
+            </button>
+        </div>
+    </div>
+
+    @if (_showAddForm)
+    {
+        <div class="row mb-4">
+            <div class="col-md-10 offset-md-1">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">Neue geplante Liste erstellen</h5>
+                        <div class="mb-3">
+                            <label class="form-label">Typ</label>
+                            <select class="form-select" @bind="_type">
+                                <option value="@ScheduledListType.Attendance">Anwesenheitsliste</option>
+                                <option value="@ScheduledListType.Operation">Einsatzliste</option>
+                            </select>
+                        </div>
+
+                        @if (_type == ScheduledListType.Attendance)
+                        {
+                            <div class="mb-3">
+                                <label class="form-label">Titel</label>
+                                <input type="text" class="form-control" @bind="_title" />
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Einheit</label>
+                                <input type="text" class="form-control" @bind="_unit" />
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Beschreibung</label>
+                                <textarea class="form-control" rows="2" @bind="_description"></textarea>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="mb-3">
+                                <label class="form-label">Einsatznummer</label>
+                                <input type="text" class="form-control" @bind="_operationNumber" />
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Stichwort</label>
+                                <input type="text" class="form-control" @bind="_keyword" />
+                            </div>
+                        }
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label">Ereigniszeit</label>
+                                    <input type="datetime-local" class="form-control" @bind="_eventTime" />
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label">Minuten vor Ereignis öffnen</label>
+                                    <input type="number" class="form-control" @bind="_minutesBefore" />
+                                </div>
+                            </div>
+                        </div>
+
+                        <button class="btn btn-primary me-2" @onclick="AddScheduledList">Speichern</button>
+                        <button class="btn btn-secondary" @onclick="() => _showAddForm = false">Abbrechen</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    <div class="row">
+        <div class="col">
+            <div class="card">
+                <div class="card-body">
+                    @if (_scheduledLists.Count == 0)
+                    {
+                        <p class="text-muted">Keine geplanten Listen</p>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Typ</th>
+                                        <th>Titel/Nummer</th>
+                                        <th>Ereigniszeit</th>
+                                        <th>Öffnet um</th>
+                                        <th>Status</th>
+                                        <th>Aktionen</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var scheduled in _scheduledLists)
+                                    {
+                                        <tr>
+                                            <td>
+                                                @if (scheduled.Type == ScheduledListType.Attendance)
+                                                {
+                                                    <span class="badge bg-primary">Anwesenheit</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-danger">Einsatz</span>
+                                                }
+                                            </td>
+                                            <td>
+                                                <strong>
+                                                    @(scheduled.Type == ScheduledListType.Attendance ? scheduled.Title : scheduled.OperationNumber)
+                                                </strong>
+                                            </td>
+                                            <td>@scheduled.ScheduledEventTime.ToString("dd.MM.yyyy HH:mm")</td>
+                                            <td>@scheduled.ScheduledEventTime.AddMinutes(-scheduled.MinutesBeforeEvent).ToString("dd.MM.yyyy HH:mm")</td>
+                                            <td>
+                                                @if (scheduled.IsProcessed)
+                                                {
+                                                    <span class="badge bg-success">Verarbeitet</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-warning">Ausstehend</span>
+                                                }
+                                            </td>
+                                            <td>
+                                                @if (!scheduled.IsProcessed)
+                                                {
+                                                    var openTime = scheduled.ScheduledEventTime.AddMinutes(-scheduled.MinutesBeforeEvent);
+                                                    var isDue = openTime <= DateTime.Now;
+                                                    
+                                                    @if (isDue)
+                                                    {
+                                                        <span class="badge bg-danger me-2">FÄLLIG!</span>
+                                                    }
+                                                    <button class="btn btn-sm btn-success me-2" @onclick="() => ProcessNow(scheduled.Id)">Jetzt öffnen</button>
+                                                    <button class="btn btn-sm btn-danger" @onclick="() => DeleteScheduledList(scheduled.Id)">Löschen</button>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+</AdminAuthCheck>
+
+@code {
+    private List<ScheduledList> _scheduledLists = new();
+    private bool _showAddForm = false;
+    private ScheduledListType _type = ScheduledListType.Attendance;
+    private string _title = string.Empty;
+    private string _unit = string.Empty;
+    private string _description = string.Empty;
+    private string _operationNumber = string.Empty;
+    private string _keyword = string.Empty;
+    private DateTime _eventTime = DateTime.Now.AddDays(1);
+    private int _minutesBefore = 30;
+    private System.Threading.Timer? _refreshTimer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadScheduledLists();
+        _refreshTimer = new System.Threading.Timer(async _ => 
+        {
+            await InvokeAsync(async () => 
+            {
+                await LoadScheduledLists();
+                StateHasChanged();
+            });
+        }, null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+    }
+
+    public void Dispose()
+    {
+        _refreshTimer?.Dispose();
+    }
+
+    private async Task LoadScheduledLists()
+    {
+        _scheduledLists = await ScheduledRepo.GetAllAsync();
+    }
+
+    private void ShowAddForm()
+    {
+        _showAddForm = true;
+        _type = ScheduledListType.Attendance;
+        _title = string.Empty;
+        _unit = string.Empty;
+        _description = string.Empty;
+        _operationNumber = string.Empty;
+        _keyword = string.Empty;
+        _eventTime = DateTime.Now.AddDays(1);
+        _minutesBefore = 30;
+    }
+
+    private async Task AddScheduledList()
+    {
+        var scheduled = new ScheduledList
+        {
+            Type = _type,
+            Title = _title.Trim(),
+            Unit = _unit.Trim(),
+            Description = _description.Trim(),
+            OperationNumber = _operationNumber.Trim(),
+            Keyword = _keyword.Trim(),
+            ScheduledEventTime = _eventTime,
+            MinutesBeforeEvent = _minutesBefore,
+            CreatedAt = DateTime.Now
+        };
+
+        await ScheduledRepo.CreateAsync(scheduled);
+        _showAddForm = false;
+        await LoadScheduledLists();
+    }
+
+    private async Task DeleteScheduledList(int id)
+    {
+        await ScheduledRepo.DeleteAsync(id);
+        await LoadScheduledLists();
+    }
+
+    private async Task ProcessNow(int id)
+    {
+        var scheduled = await ScheduledRepo.GetByIdAsync(id);
+        if (scheduled == null || scheduled.IsProcessed)
+            return;
+
+        if (scheduled.Type == ScheduledListType.Attendance)
+        {
+            var newList = new AttendanceList
+            {
+                Title = scheduled.Title,
+                Unit = scheduled.Unit,
+                Description = scheduled.Description,
+                CreatedAt = DateTime.Now,
+                Status = ListStatus.Open
+            };
+            await AttendanceRepo.CreateAsync(newList);
+        }
+        else if (scheduled.Type == ScheduledListType.Operation)
+        {
+            var newList = new OperationList
+            {
+                OperationNumber = scheduled.OperationNumber,
+                Keyword = scheduled.Keyword,
+                AlertTime = scheduled.ScheduledEventTime,
+                CreatedAt = DateTime.Now,
+                Status = ListStatus.Open
+            };
+            await OperationRepo.CreateAsync(newList);
+        }
+
+        scheduled.IsProcessed = true;
+        await ScheduledRepo.UpdateAsync(scheduled);
+        await LoadScheduledLists();
+    }
+}
+
+@inject AttendanceListRepository AttendanceRepo
+@inject OperationListRepository OperationRepo
+@implements IDisposable
+

@@ -1,0 +1,234 @@
+@page "/admin/users"
+@using FeuerwehrListen.Models
+@using FeuerwehrListen.Repositories
+@using FeuerwehrListen.Components.Layout
+@using FeuerwehrListen.Services
+@inject UserRepository UserRepo
+@rendermode InteractiveServer
+
+<PageTitle>Benutzer - Admin</PageTitle>
+
+<AdminAuthCheck>
+
+<div class="container mt-4">
+    <div class="row mb-4">
+        <div class="col">
+            <h1>Benutzer</h1>
+        </div>
+        <div class="col-auto">
+            <button class="btn btn-primary" @onclick="ShowAddForm">
+                <i class="bi bi-plus-circle"></i> Neuer Benutzer
+            </button>
+        </div>
+    </div>
+
+    @if (_showGeneratedPassword)
+    {
+        <div class="row mb-4">
+            <div class="col-md-8 offset-md-2">
+                <div class="alert alert-success alert-dismissible fade show" role="alert">
+                    <h5 class="alert-heading">✅ Benutzer erfolgreich angelegt!</h5>
+                    <hr>
+                    <p class="mb-2"><strong>Generiertes Passwort:</strong></p>
+                    <div class="d-flex align-items-center gap-2">
+                        <code class="fs-4 p-2 bg-dark text-light rounded">@_generatedPassword</code>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="CopyPassword">📋 Kopieren</button>
+                    </div>
+                    <hr>
+                    <p class="mb-0"><small>⚠️ Bitte teilen Sie dem Benutzer dieses Passwort mit. Es wird nicht erneut angezeigt!</small></p>
+                    <button type="button" class="btn-close" @onclick="() => _showGeneratedPassword = false"></button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (_showAddForm)
+    {
+        <div class="row mb-4">
+            <div class="col-md-8 offset-md-2">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">Neuen Benutzer anlegen</h5>
+                        <div class="mb-3">
+                            <label class="form-label">Benutzername</label>
+                            <input type="text" class="form-control" @bind="_username" placeholder="z.B. max.mustermann" />
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label">Vorname</label>
+                                    <input type="text" class="form-control" @bind="_firstName" />
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label">Nachname</label>
+                                    <input type="text" class="form-control" @bind="_lastName" />
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Email</label>
+                            <input type="email" class="form-control" @bind="_email" />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Rolle</label>
+                            <select class="form-select" @bind="_selectedRole">
+                                <option value="@UserRole.User">Benutzer</option>
+                                <option value="@UserRole.Admin">Administrator</option>
+                            </select>
+                        </div>
+                        <div class="alert alert-info">
+                            <small>ℹ️ Ein zufälliges Passwort wird automatisch generiert und nach dem Speichern angezeigt.</small>
+                        </div>
+                        <button class="btn btn-primary me-2" @onclick="AddUser">Speichern</button>
+                        <button class="btn btn-secondary" @onclick="() => _showAddForm = false">Abbrechen</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    <div class="row">
+        <div class="col">
+            <div class="card">
+                <div class="card-body">
+                    @if (_users.Count == 0)
+                    {
+                        <p class="text-muted">Keine Benutzer vorhanden</p>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Benutzername</th>
+                                        <th>Name</th>
+                                        <th>Email</th>
+                                        <th>Rolle</th>
+                                        <th>Erstellt am</th>
+                                        <th>Aktionen</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var user in _users)
+                                    {
+                                        <tr>
+                                            <td><strong>@user.Username</strong></td>
+                                            <td>@user.FirstName @user.LastName</td>
+                                            <td>@user.Email</td>
+                                            <td>
+                                                @if (user.Role == UserRole.Admin)
+                                                {
+                                                    <span class="badge bg-danger">Admin</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-secondary">Benutzer</span>
+                                                }
+                                            </td>
+                                            <td>@user.CreatedAt.ToString("dd.MM.yyyy")</td>
+                                            <td>
+                                                <button class="btn btn-sm btn-danger" @onclick="() => DeleteUser(user.Id)">Löschen</button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+</AdminAuthCheck>
+
+@code {
+    private List<User> _users = new();
+    private bool _showAddForm = false;
+    private bool _showGeneratedPassword = false;
+    private string _username = string.Empty;
+    private string _firstName = string.Empty;
+    private string _lastName = string.Empty;
+    private string _email = string.Empty;
+    private string _generatedPassword = string.Empty;
+    private UserRole _selectedRole = UserRole.User;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadUsers();
+    }
+
+    private async Task LoadUsers()
+    {
+        _users = await UserRepo.GetAllAsync();
+    }
+
+    private void ShowAddForm()
+    {
+        _showAddForm = true;
+        _showGeneratedPassword = false;
+        _username = string.Empty;
+        _firstName = string.Empty;
+        _lastName = string.Empty;
+        _email = string.Empty;
+        _selectedRole = UserRole.User;
+    }
+
+    private string GenerateRandomPassword(int length = 12)
+    {
+        const string chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%&*";
+        var random = new Random();
+        return new string(Enumerable.Repeat(chars, length)
+            .Select(s => s[random.Next(s.Length)]).ToArray());
+    }
+
+    private async Task AddUser()
+    {
+        if (string.IsNullOrWhiteSpace(_username) || 
+            string.IsNullOrWhiteSpace(_firstName) || 
+            string.IsNullOrWhiteSpace(_lastName))
+            return;
+
+        _generatedPassword = GenerateRandomPassword();
+
+        var user = new User
+        {
+            Username = _username.Trim(),
+            PasswordHash = AuthenticationService.HashPassword(_generatedPassword),
+            FirstName = _firstName.Trim(),
+            LastName = _lastName.Trim(),
+            Email = _email.Trim(),
+            Role = _selectedRole,
+            CreatedAt = DateTime.Now
+        };
+
+        await UserRepo.CreateAsync(user);
+        _showAddForm = false;
+        _showGeneratedPassword = true;
+        await LoadUsers();
+    }
+
+    private async Task CopyPassword()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", _generatedPassword);
+        }
+        catch
+        {
+        }
+    }
+
+    private async Task DeleteUser(int id)
+    {
+        await UserRepo.DeleteAsync(id);
+        await LoadUsers();
+    }
+}
+
+@inject IJSRuntime JSRuntime
+

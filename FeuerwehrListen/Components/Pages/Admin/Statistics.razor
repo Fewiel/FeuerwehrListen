@@ -1,0 +1,431 @@
+@page "/admin/statistics"
+@using FeuerwehrListen.Models
+@using FeuerwehrListen.Services
+@using FeuerwehrListen.Components.Layout
+@inject StatisticsService StatsService
+@inject PdfExportService PdfService
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+
+<PageTitle>Statistiken - Admin</PageTitle>
+
+<AdminAuthCheck>
+
+<div class="container mt-4">
+    <div class="row mb-4">
+        <div class="col">
+            <h1>📊 Statistiken & Auswertungen</h1>
+            <p class="text-muted">Übersicht über Teilnahmequoten, Trends und Leistungsindikatoren</p>
+        </div>
+        <div class="col-auto">
+            <button class="btn btn-primary" @onclick="ExportStatisticsPdf">
+                <i class="bi bi-file-earmark-pdf"></i> PDF-Export
+            </button>
+        </div>
+    </div>
+
+    @if (_loading)
+    {
+        <div class="text-center">
+            <div class="spinner-border" role="status">
+                <span class="visually-hidden">Lädt...</span>
+            </div>
+            <p class="mt-2">Statistiken werden berechnet...</p>
+        </div>
+    }
+    else
+    {
+        <!-- Übersicht KPIs -->
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="card text-center">
+                    <div class="card-body">
+                        <h5 class="card-title text-primary">@_listStats.TotalLists</h5>
+                        <p class="card-text">Gesamt Listen</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card text-center">
+                    <div class="card-body">
+                        <h5 class="card-title text-success">@_listStats.OpenLists</h5>
+                        <p class="card-text">Offene Listen</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card text-center">
+                    <div class="card-body">
+                        <h5 class="card-title text-info">@_listStats.AverageParticipants</h5>
+                        <p class="card-text">Ø Teilnehmer</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card text-center">
+                    <div class="card-body">
+                        <h5 class="card-title text-warning">@_listStats.TotalParticipants</h5>
+                        <p class="card-text">Gesamt Teilnahmen</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <!-- Top Teilnehmer -->
+            <div class="col-md-6 mb-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">🏆 Top Teilnehmer</h5>
+                    </div>
+                    <div class="card-body">
+                        @if (_topParticipants.Count == 0)
+                        {
+                            <p class="text-muted">Keine Daten verfügbar</p>
+                        }
+                        else
+                        {
+                            <div class="table-responsive">
+                                <table class="table table-sm">
+                                    <thead>
+                                        <tr>
+                                            <th>#</th>
+                                            <th>Name</th>
+                                            <th>Teilnahmen</th>
+                                            <th>Anteil</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var (participant, index) in _topParticipants.Select((p, i) => (p, i)))
+                                        {
+                                            <tr>
+                                                <td>@(index + 1)</td>
+                                                <td>
+                                                    <strong>@participant.MemberName</strong>
+                                                    <br><small class="text-muted">@participant.MemberNumber</small>
+                                                </td>
+                                                <td>@participant.ParticipationCount</td>
+                                                <td>
+                                                    <div class="progress" style="height: 20px; background-color: #212529; position: relative;">
+                                                        <div class="progress-bar @GetProgressBarClass(participant.Percentage)" 
+                                                             role="progressbar" 
+                                                             style="width: @(Math.Min(participant.Percentage, 100))% !important; min-width: 0;"
+                                                             aria-valuenow="@participant.Percentage" 
+                                                             aria-valuemin="0" 
+                                                             aria-valuemax="100">
+                                                        </div>
+                                                        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-weight: bold; font-size: 12px;">
+                                                            @participant.Percentage.ToString("F1")%
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <!-- Fahrzeug-Statistiken -->
+            <div class="col-md-6 mb-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">🚒 Fahrzeug-Nutzung</h5>
+                    </div>
+                    <div class="card-body">
+                        @if (_vehicleStats.Count == 0)
+                        {
+                            <p class="text-muted">Keine Daten verfügbar</p>
+                        }
+                        else
+                        {
+                            <div class="table-responsive">
+                                <table class="table table-sm">
+                                    <thead>
+                                        <tr>
+                                            <th>Fahrzeug</th>
+                                            <th>Einsätze</th>
+                                            <th>Besatzung</th>
+                                            <th>Anteil</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var vehicle in _vehicleStats.Take(5))
+                                        {
+                                            <tr>
+                                                <td><strong>@vehicle.VehicleName</strong></td>
+                                                <td>@vehicle.UsageCount</td>
+                                                <td>@vehicle.TotalCrewMembers</td>
+                                                <td>
+                                                    <div class="progress" style="height: 20px; background-color: #212529; position: relative;">
+                                                        <div class="progress-bar bg-danger" role="progressbar" 
+                                                             style="width: @(Math.Min(vehicle.UsagePercentage, 100))% !important; min-width: 0;"
+                                                             aria-valuenow="@vehicle.UsagePercentage" 
+                                                             aria-valuemin="0" 
+                                                             aria-valuemax="100">
+                                                        </div>
+                                                        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-weight: bold; font-size: 12px;">
+                                                            @vehicle.UsagePercentage.ToString("F1")%
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <!-- Funktionen-Verteilung -->
+            <div class="col-md-6 mb-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">👥 Funktionen-Verteilung</h5>
+                    </div>
+                    <div class="card-body">
+                        @if (_functionStats.Count == 0)
+                        {
+                            <p class="text-muted">Keine Daten verfügbar</p>
+                        }
+                        else
+                        {
+                            <div class="table-responsive">
+                                <table class="table table-sm">
+                                    <thead>
+                                        <tr>
+                                            <th>Funktion</th>
+                                            <th>Anzahl</th>
+                                            <th>Anteil</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var func in _functionStats)
+                                        {
+                                            <tr>
+                                                <td><strong>@func.FunctionName</strong></td>
+                                                <td>@func.Count</td>
+                                                <td>
+                                                    <div class="progress" style="height: 20px; background-color: #212529; position: relative;">
+                                                        <div class="progress-bar bg-info" role="progressbar" 
+                                                             style="width: @(Math.Min(func.Percentage, 100))% !important; min-width: 0;"
+                                                             aria-valuenow="@func.Percentage" 
+                                                             aria-valuemin="0" 
+                                                             aria-valuemax="100">
+                                                        </div>
+                                                        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-weight: bold; font-size: 12px;">
+                                                            @func.Percentage.ToString("F1")%
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <!-- Unter Atemschutz - Statistiken -->
+            <div class="col-md-6 mb-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">🫁 Unter Atemschutz</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row text-center">
+                            <div class="col-6">
+                                <h3 class="text-warning">@_breathingStats.WithApparatus</h3>
+                                <p class="mb-0">Unter Atemschutz</p>
+                            </div>
+                            <div class="col-6">
+                                <h3 class="text-secondary">@_breathingStats.WithoutApparatus</h3>
+                                <p class="mb-0">Ohne Atemschutz</p>
+                            </div>
+                        </div>
+                        <hr>
+                        <div class="progress" style="height: 30px; background-color: #212529; position: relative;">
+                            <div class="progress-bar bg-warning" role="progressbar" 
+                                 style="width: @(Math.Min(_breathingStats.WithApparatusPercentage, 100))% !important; min-width: 0;"
+                                 aria-valuenow="@_breathingStats.WithApparatusPercentage" 
+                                 aria-valuemin="0" 
+                                 aria-valuemax="100">
+                            </div>
+                            <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #000; font-weight: bold; font-size: 14px;">
+                                @_breathingStats.WithApparatusPercentage.ToString("F1")% unter Atemschutz
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Mitglieder-Statistiken -->
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">👤 Mitglieder-Statistiken</h5>
+                    </div>
+                    <div class="card-body">
+                        @if (_memberStats.Count == 0)
+                        {
+                            <p class="text-muted">Keine Daten verfügbar</p>
+                        }
+                        else
+                        {
+                            <div class="table-responsive">
+                                <table class="table table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>Name</th>
+                                            <th>Mitgliedsnummer</th>
+                                            <th>Anwesenheit</th>
+                                            <th>Einsätze</th>
+                                            <th>Gesamt</th>
+                                            <th>Teilnahmequote</th>
+                                            <th>Letzte Teilnahme</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var member in _memberStats.Take(20))
+                                        {
+                                            <tr>
+                                                <td><strong>@member.MemberName</strong></td>
+                                                <td>@member.MemberNumber</td>
+                                                <td>@member.TotalAttendance</td>
+                                                <td>@member.TotalOperations</td>
+                                                <td>@(member.TotalAttendance + member.TotalOperations)</td>
+                                                <td>
+                                                    <div class="progress" style="height: 20px; background-color: #212529; position: relative;">
+                                                        <div class="progress-bar @GetProgressBarClass(member.AttendancePercentage)" 
+                                                             role="progressbar" 
+                                                             style="width: @(Math.Min(member.AttendancePercentage, 100))% !important; min-width: 0;"
+                                                             aria-valuenow="@member.AttendancePercentage" 
+                                                             aria-valuemin="0" 
+                                                             aria-valuemax="100">
+                                                        </div>
+                                                        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-weight: bold; font-size: 12px;">
+                                                            @member.AttendancePercentage.ToString("F1")%
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td>
+                                                    @if (member.LastParticipation != DateTime.MinValue)
+                                                    {
+                                                        @member.LastParticipation.ToString("dd.MM.yyyy")
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="text-muted">Nie</span>
+                                                    }
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+</AdminAuthCheck>
+
+@code {
+    private bool _loading = true;
+    private ListStatistics _listStats = new();
+    private List<TopParticipant> _topParticipants = new();
+    private List<MemberStatistics> _memberStats = new();
+    private List<VehicleStatistics> _vehicleStats = new();
+    private List<FunctionStatistics> _functionStats = new();
+    private BreathingApparatusStatistics _breathingStats = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadStatistics();
+    }
+
+    private async Task LoadStatistics()
+    {
+        _loading = true;
+        StateHasChanged();
+
+        try
+        {
+            _listStats = await StatsService.GetListStatisticsAsync();
+            _topParticipants = await StatsService.GetTopParticipantsAsync(10);
+            _memberStats = await StatsService.GetMemberStatisticsAsync();
+            _vehicleStats = await StatsService.GetVehicleStatisticsAsync();
+            _functionStats = await StatsService.GetFunctionStatisticsAsync();
+            _breathingStats = await StatsService.GetBreathingApparatusStatisticsAsync();
+        }
+        catch (Exception ex)
+        {
+            // optional: UI-Fehlermeldung (keine Console-Ausgabe)
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ExportStatisticsPdf()
+    {
+        try
+        {
+            var path = "/api/export/statistics/pdf";
+            var token = await CreateDownloadToken(path);
+            var url = $"api/export/statistics/pdf?token={Uri.EscapeDataString(token)}";
+            await OpenInNewTab(url);
+        }
+        catch (Exception ex)
+        {
+            // optional: UI-Fehlermeldung (keine Console-Ausgabe)
+        }
+    }
+
+    private Task<string> CreateDownloadToken(string path)
+    {
+        var baseUri = Navigation.BaseUri.TrimEnd('/');
+        var tokenEndpoint = $"{baseUri}/token?path={Uri.EscapeDataString(path)}";
+        return FetchToken(tokenEndpoint);
+    }
+
+    private static async Task<string> FetchToken(string url)
+    {
+        using var http = new HttpClient();
+        return await http.GetStringAsync(url);
+    }
+
+    [Inject] private IJSRuntime JS { get; set; } = default!;
+    private async Task OpenInNewTab(string relativeUrl)
+    {
+        var baseUri = Navigation.BaseUri.TrimEnd('/');
+        var full = $"{baseUri}/{relativeUrl}";
+        await JS.InvokeVoidAsync("window.open", full, "_blank");
+    }
+
+    private string GetProgressBarClass(double rate)
+    {
+        return rate switch
+        {
+            >= 80 => "bg-success",
+            >= 60 => "bg-info",
+            >= 40 => "bg-warning",
+            _ => "bg-danger"
+        };
+    }
+}
+

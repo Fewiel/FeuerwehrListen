@@ -1,0 +1,219 @@
+@page "/admin/vehicles"
+@using FeuerwehrListen.Models
+@using FeuerwehrListen.Repositories
+@using FeuerwehrListen.Components.Layout
+@inject VehicleRepository VehicleRepo
+@rendermode InteractiveServer
+
+<PageTitle>Fahrzeuge - Admin</PageTitle>
+
+<AdminAuthCheck>
+
+<div class="container mt-4">
+    <div class="row mb-4">
+        <div class="col">
+            <h1>Fahrzeuge</h1>
+        </div>
+        <div class="col-auto">
+            <button class="btn btn-primary" @onclick="ShowAddForm">
+                <i class="bi bi-plus-circle"></i> Neues Fahrzeug
+            </button>
+        </div>
+    </div>
+
+    @if (_showAddForm)
+    {
+        <div class="row mb-4">
+            <div class="col-md-8 offset-md-2">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">@(_editingVehicle != null ? "Fahrzeug bearbeiten" : "Neues Fahrzeug anlegen")</h5>
+                        <div class="mb-3">
+                            <label class="form-label">Name</label>
+                            <input type="text" class="form-control" @bind="_name" placeholder="z.B. Löschfahrzeug 10" />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Funkrufname</label>
+                            <input type="text" class="form-control" @bind="_callSign" placeholder="z.B. Florian Musterstadt 10/1" />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Typ</label>
+                            <select class="form-select" @bind="_type">
+                                <option value="@VehicleType.LF">LF - Löschfahrzeug</option>
+                                <option value="@VehicleType.TLF">TLF - Tanklöschfahrzeug</option>
+                                <option value="@VehicleType.DLK">DLK - Drehleiter</option>
+                                <option value="@VehicleType.RW">RW - Rüstwagen</option>
+                                <option value="@VehicleType.MTW">MTW - Mannschaftstransportwagen</option>
+                                <option value="@VehicleType.KdoW">KdoW - Kommandowagen</option>
+                                <option value="@VehicleType.Sonstige">Sonstige</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" @bind="_isActive" id="activeCheck" />
+                                <label class="form-check-label" for="activeCheck">
+                                    Aktiv
+                                </label>
+                            </div>
+                        </div>
+                        <button class="btn btn-primary me-2" @onclick="SaveVehicle">Speichern</button>
+                        <button class="btn btn-secondary" @onclick="CancelEdit">Abbrechen</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    <div class="row">
+        <div class="col">
+            <div class="card">
+                <div class="card-body">
+                    @if (_vehicles.Count == 0)
+                    {
+                        <p class="text-muted">Keine Fahrzeuge vorhanden</p>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Funkrufname</th>
+                                        <th>Typ</th>
+                                        <th>Status</th>
+                                        <th>Erstellt am</th>
+                                        <th>Aktionen</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var vehicle in _vehicles)
+                                    {
+                                        <tr>
+                                            <td><strong>@vehicle.Name</strong></td>
+                                            <td>@vehicle.CallSign</td>
+                                            <td>@GetVehicleTypeName(vehicle.Type)</td>
+                                            <td>
+                                                @if (vehicle.IsActive)
+                                                {
+                                                    <span class="badge bg-success">Aktiv</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-secondary">Inaktiv</span>
+                                                }
+                                            </td>
+                                            <td>@vehicle.CreatedAt.ToString("dd.MM.yyyy")</td>
+                                            <td>
+                                                <button class="btn btn-sm btn-primary me-2" @onclick="() => EditVehicle(vehicle)">Bearbeiten</button>
+                                                <button class="btn btn-sm btn-danger" @onclick="() => DeleteVehicle(vehicle.Id)">Löschen</button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+</AdminAuthCheck>
+
+@code {
+    private List<Vehicle> _vehicles = new();
+    private bool _showAddForm = false;
+    private Vehicle? _editingVehicle = null;
+    private string _name = string.Empty;
+    private string _callSign = string.Empty;
+    private VehicleType _type = VehicleType.LF;
+    private bool _isActive = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadVehicles();
+    }
+
+    private async Task LoadVehicles()
+    {
+        _vehicles = await VehicleRepo.GetAllAsync();
+    }
+
+    private void ShowAddForm()
+    {
+        _showAddForm = true;
+        _editingVehicle = null;
+        _name = string.Empty;
+        _callSign = string.Empty;
+        _type = VehicleType.LF;
+        _isActive = true;
+    }
+
+    private void EditVehicle(Vehicle vehicle)
+    {
+        _showAddForm = true;
+        _editingVehicle = vehicle;
+        _name = vehicle.Name;
+        _callSign = vehicle.CallSign;
+        _type = vehicle.Type;
+        _isActive = vehicle.IsActive;
+    }
+
+    private void CancelEdit()
+    {
+        _showAddForm = false;
+        _editingVehicle = null;
+    }
+
+    private async Task SaveVehicle()
+    {
+        if (string.IsNullOrWhiteSpace(_name) || string.IsNullOrWhiteSpace(_callSign))
+            return;
+
+        if (_editingVehicle != null)
+        {
+            _editingVehicle.Name = _name.Trim();
+            _editingVehicle.CallSign = _callSign.Trim();
+            _editingVehicle.Type = _type;
+            _editingVehicle.IsActive = _isActive;
+            await VehicleRepo.UpdateAsync(_editingVehicle);
+        }
+        else
+        {
+            var vehicle = new Vehicle
+            {
+                Name = _name.Trim(),
+                CallSign = _callSign.Trim(),
+                Type = _type,
+                IsActive = _isActive,
+                CreatedAt = DateTime.Now
+            };
+            await VehicleRepo.CreateAsync(vehicle);
+        }
+
+        _showAddForm = false;
+        _editingVehicle = null;
+        await LoadVehicles();
+    }
+
+    private async Task DeleteVehicle(int id)
+    {
+        await VehicleRepo.DeleteAsync(id);
+        await LoadVehicles();
+    }
+
+    private string GetVehicleTypeName(VehicleType type) => type switch
+    {
+        VehicleType.LF => "LF - Löschfahrzeug",
+        VehicleType.TLF => "TLF - Tanklöschfahrzeug",
+        VehicleType.DLK => "DLK - Drehleiter",
+        VehicleType.RW => "RW - Rüstwagen",
+        VehicleType.MTW => "MTW - Mannschaftstransportwagen",
+        VehicleType.KdoW => "KdoW - Kommandowagen",
+        VehicleType.Sonstige => "Sonstige",
+        _ => "Unbekannt"
+    };
+}
+

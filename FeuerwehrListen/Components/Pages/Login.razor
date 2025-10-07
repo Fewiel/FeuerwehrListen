@@ -1,0 +1,157 @@
+@page "/login"
+@using FeuerwehrListen.Services
+@inject AuthenticationService AuthService
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+
+<PageTitle>Login - Feuerwehr Listen</PageTitle>
+
+<div class="login-container">
+    <div class="login-card">
+        <div class="login-header">
+            <h2>🚒 Feuerwehr Listen</h2>
+            <p class="text-muted">Admin-Bereich</p>
+        </div>
+        
+        @if (!string.IsNullOrEmpty(_errorMessage))
+        {
+            <div class="alert alert-danger">
+                @_errorMessage
+            </div>
+        }
+
+        <div class="login-form">
+            <div class="mb-3">
+                <label class="form-label">Benutzername</label>
+                <input type="text" class="form-control" @bind="_username" @onkeyup="HandleKeyPress" autofocus />
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Passwort</label>
+                <input type="password" class="form-control" @bind="_password" @onkeyup="HandleKeyPress" />
+            </div>
+            <div class="d-grid">
+                <button class="btn btn-primary btn-lg" @onclick="HandleLogin" disabled="@_isLoggingIn">
+                    @if (_isLoggingIn)
+                    {
+                        <span>Anmelden...</span>
+                    }
+                    else
+                    {
+                        <span>Anmelden</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .login-container {
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #0d1117;
+        padding: 20px;
+    }
+
+    .login-card {
+        background: #161b22;
+        border: 1px solid #30363d;
+        border-radius: 12px;
+        padding: 40px;
+        width: 100%;
+        max-width: 420px;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    }
+
+    .login-header {
+        text-align: center;
+        margin-bottom: 30px;
+    }
+
+    .login-header h2 {
+        color: #c9d1d9;
+        margin-bottom: 8px;
+        font-size: 28px;
+    }
+
+    .login-form .form-label {
+        color: #c9d1d9;
+        font-weight: 500;
+    }
+
+    .login-form .form-control {
+        background: #0d1117;
+        border: 1px solid #30363d;
+        color: #c9d1d9;
+        padding: 12px;
+    }
+
+    .login-form .form-control:focus {
+        background: #0d1117;
+        border-color: #58a6ff;
+        color: #c9d1d9;
+        box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.3);
+    }
+</style>
+
+@code {
+    private string _username = string.Empty;
+    private string _password = string.Empty;
+    private string _errorMessage = string.Empty;
+    private bool _isLoggingIn = false;
+
+    protected override void OnInitialized()
+    {
+        if (AuthService.IsAdmin)
+        {
+            Navigation.NavigateTo("/", false);
+        }
+    }
+
+    private async Task HandleLogin()
+    {
+        if (_isLoggingIn)
+            return;
+
+        _isLoggingIn = true;
+        _errorMessage = string.Empty;
+
+        try
+        {
+            if (string.IsNullOrWhiteSpace(_username) || string.IsNullOrWhiteSpace(_password))
+            {
+                _errorMessage = "Bitte alle Felder ausfüllen.";
+                return;
+            }
+
+            var success = await AuthService.LoginAsync(_username, _password);
+            if (success)
+            {
+                StateHasChanged();
+                await Task.Delay(100);
+                Navigation.NavigateTo("/", false);
+            }
+            else
+            {
+                _errorMessage = "Ungültige Anmeldedaten.";
+                _password = string.Empty;
+            }
+        }
+        finally
+        {
+            _isLoggingIn = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task HandleKeyPress(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await HandleLogin();
+        }
+    }
+}
+

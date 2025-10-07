@@ -1,0 +1,23 @@
+@page "/logout"
+@using FeuerwehrListen.Services
+@inject AuthenticationService AuthService
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+
+<PageTitle>Logout - Feuerwehr Listen</PageTitle>
+
+<div class="container mt-5">
+    <div class="text-center">
+        <h3>Sie werden abgemeldet...</h3>
+    </div>
+</div>
+
+@code {
+    protected override void OnInitialized()
+    {
+        AuthService.Logout();
+        Navigation.NavigateTo("/login", true);
+    }
+}
+
+
