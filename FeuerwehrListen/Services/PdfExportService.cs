@@ -229,7 +229,7 @@ public class PdfExportService
             {
                 throw;
             }
-            
+
             var document = new PdfDocument();
             var page = document.AddPage();
             var gfx = XGraphics.FromPdfPage(page);
@@ -389,7 +389,7 @@ public class PdfExportService
                 .Where(e => !string.IsNullOrWhiteSpace(e.Vehicle))
                 .GroupBy(e => e.Vehicle!)
                 .OrderBy(g => g.Key);
-
+            
             foreach (var vehicleGroup in vehicleGroups)
             {
                 gfx.DrawString($"Fahrzeug: {vehicleGroup.Key} ({vehicleGroup.Count()} Teilnehmer)", titleFont, XBrushes.Black, new XRect(left, yPosition, contentWidth, 18), XStringFormats.TopLeft);
@@ -398,7 +398,7 @@ public class PdfExportService
                 var widths = new[] { 40d, contentWidth - 260d, 160d, 60d };
                 DrawTableHeader(gfx, font, headerBold, left, yPosition, widths, new[] { "#", "Name/ID", "Funktionen", "UA" });
                 yPosition += 16;
-
+                
                 var vehicleEntries = vehicleGroup.ToList();
                 for (int i = 0; i < vehicleEntries.Count; i++)
                 {
@@ -424,7 +424,7 @@ public class PdfExportService
                 }
                 yPosition += 10;
             }
-
+            
             var noVehicle = entries.Where(e => string.IsNullOrWhiteSpace(e.Vehicle)).ToList();
             if (noVehicle.Count > 0)
             {
@@ -702,6 +702,7 @@ public class PdfExportService
             var vehicleStats = await _statisticsService.GetVehicleStatisticsAsync();
             var functionStats = await _statisticsService.GetFunctionStatisticsAsync();
             var breathingStats = await _statisticsService.GetBreathingApparatusStatisticsAsync();
+            var opComposition = await _statisticsService.GetOperationCompositionAsync(15);
 
             var headerBold = CreateFont("CreatoDisplay", 12, true);
             DrawTableHeader(gfx, font, headerBold, left, yPosition, new[] { contentWidth / 2, contentWidth / 2 }, new[] { "Kennzahl", "Wert" });
@@ -770,6 +771,53 @@ public class PdfExportService
             DrawTableRow(gfx, font, left, yPosition, new[] { contentWidth - 140d, 140d }, new[] { "Unter Atemschutz", breathingStats.WithApparatus.ToString() }); yPosition += 16;
             DrawTableRow(gfx, font, left, yPosition, new[] { contentWidth - 140d, 140d }, new[] { "Ohne Atemschutz", breathingStats.WithoutApparatus.ToString() }); yPosition += 16;
             DrawTableRow(gfx, font, left, yPosition, new[] { contentWidth - 140d, 140d }, new[] { "Anteil unter Atemschutz", $"{breathingStats.WithApparatusPercentage:F1}%" });
+            yPosition += 18;
+            yPosition += 6;
+
+            if (opComposition.Any())
+            {
+                PaginateIfNeeded(document, ref page, ref gfx, ref yPosition);
+                gfx.DrawString($"Einsatz-Zusammensetzung (letzte {opComposition.Count} Einsätze)", titleFont, XBrushes.Black, new XRect(left, yPosition, contentWidth, 18), XStringFormats.TopLeft);
+                yPosition += 22;
+
+                var maxTotal = opComposition.Max(o => o.TotalParticipants);
+                var barWidth = contentWidth - 120d;
+
+                gfx.DrawString("Gesamtstärke pro Einsatz:", boldFont, XBrushes.Black, new XRect(left, yPosition, contentWidth, 16), XStringFormats.TopLeft);
+                yPosition += 18;
+
+                foreach (var op in opComposition.OrderByDescending(o => o.OperationNumber))
+                {
+                    PaginateIfNeeded(document, ref page, ref gfx, ref yPosition);
+                    gfx.DrawString(op.OperationNumber, font, XBrushes.Black, new XRect(left, yPosition, 80d, 14), XStringFormats.TopLeft);
+                    var barLength = maxTotal > 0 ? (op.TotalParticipants / (double)maxTotal) * barWidth : 0;
+                    gfx.DrawRectangle(XBrushes.DarkBlue, left + 85d, yPosition, barLength, 12);
+                    gfx.DrawString(op.TotalParticipants.ToString(), font, XBrushes.Black, new XRect(left + 90d + barLength, yPosition, 40d, 14), XStringFormats.TopLeft);
+                    yPosition += 16;
+                }
+                yPosition += 10;
+
+                var allFunctions = opComposition.SelectMany(o => o.FunctionCounts.Keys).Distinct().OrderBy(n => n).ToList();
+                foreach (var funcName in allFunctions)
+                {
+                    PaginateIfNeeded(document, ref page, ref gfx, ref yPosition);
+                    gfx.DrawString($"{funcName}:", boldFont, XBrushes.Black, new XRect(left, yPosition, contentWidth, 16), XStringFormats.TopLeft);
+                    yPosition += 18;
+
+                    var maxFunc = opComposition.Max(o => o.FunctionCounts.GetValueOrDefault(funcName, 0));
+                    foreach (var op in opComposition.OrderByDescending(o => o.OperationNumber))
+                    {
+                        PaginateIfNeeded(document, ref page, ref gfx, ref yPosition);
+                        var count = op.FunctionCounts.GetValueOrDefault(funcName, 0);
+                        gfx.DrawString(op.OperationNumber, font, XBrushes.Black, new XRect(left, yPosition, 80d, 14), XStringFormats.TopLeft);
+                        var barLength = maxFunc > 0 ? (count / (double)maxFunc) * barWidth : 0;
+                        gfx.DrawRectangle(XBrushes.DarkGreen, left + 85d, yPosition, barLength, 12);
+                        gfx.DrawString(count.ToString(), font, XBrushes.Black, new XRect(left + 90d + barLength, yPosition, 40d, 14), XStringFormats.TopLeft);
+                        yPosition += 16;
+                    }
+                    yPosition += 10;
+                }
+            }
 
             DrawFooter(document, page, gfx, font, left, page.Height, contentWidth, pageNumber);
             using var memoryStream = new MemoryStream();

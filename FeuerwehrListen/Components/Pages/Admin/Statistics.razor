@@ -2,6 +2,7 @@
 @using FeuerwehrListen.Models
 @using FeuerwehrListen.Services
 @using FeuerwehrListen.Components.Layout
+@using FeuerwehrListen.Components.Shared
 @inject StatisticsService StatsService
 @inject PdfExportService PdfService
 @inject NavigationManager Navigation
@@ -105,18 +106,7 @@
                                                 </td>
                                                 <td>@participant.ParticipationCount</td>
                                                 <td>
-                                                    <div class="progress" style="height: 20px; background-color: #212529; position: relative;">
-                                                        <div class="progress-bar @GetProgressBarClass(participant.Percentage)" 
-                                                             role="progressbar" 
-                                                             style="width: @(Math.Min(participant.Percentage, 100))% !important; min-width: 0;"
-                                                             aria-valuenow="@participant.Percentage" 
-                                                             aria-valuemin="0" 
-                                                             aria-valuemax="100">
-                                                        </div>
-                                                        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-weight: bold; font-size: 12px;">
-                                                            @participant.Percentage.ToString("F1")%
-                                                        </div>
-                                                    </div>
+                                                    <ProgressBar Value="@participant.Percentage" Color="@GetProgressBarColor(participant.Percentage)" />
                                                 </td>
                                             </tr>
                                         }
@@ -158,17 +148,7 @@
                                                 <td>@vehicle.UsageCount</td>
                                                 <td>@vehicle.AverageCrew.ToString("F1")</td>
                                                 <td>
-                                                    <div class="progress" style="height: 20px; background-color: #212529; position: relative;">
-                                                        <div class="progress-bar bg-danger" role="progressbar" 
-                                                             style="width: @(Math.Min(vehicle.UsagePercentage, 100))% !important; min-width: 0;"
-                                                             aria-valuenow="@vehicle.UsagePercentage" 
-                                                             aria-valuemin="0" 
-                                                             aria-valuemax="100">
-                                                        </div>
-                                                        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-weight: bold; font-size: 12px;">
-                                                            @vehicle.UsagePercentage.ToString("F1")%
-                                                        </div>
-                                                    </div>
+                                                    <ProgressBar Value="@vehicle.UsagePercentage" Color="#dc3545" />
                                                 </td>
                                             </tr>
                                         }
@@ -208,17 +188,7 @@
                                                 <td><strong>@func.FunctionName</strong></td>
                                                 <td>@func.Count</td>
                                                 <td>
-                                                    <div class="progress" style="height: 20px; background-color: #212529; position: relative;">
-                                                        <div class="progress-bar bg-info" role="progressbar" 
-                                                             style="width: @(Math.Min(func.Percentage, 100))% !important; min-width: 0;"
-                                                             aria-valuenow="@func.Percentage" 
-                                                             aria-valuemin="0" 
-                                                             aria-valuemax="100">
-                                                        </div>
-                                                        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-weight: bold; font-size: 12px;">
-                                                            @func.Percentage.ToString("F1")%
-                                                        </div>
-                                                    </div>
+                                                    <ProgressBar Value="@func.Percentage" Color="#0dcaf0" />
                                                 </td>
                                             </tr>
                                         }
@@ -247,17 +217,11 @@
                             </div>
                         </div>
                         <hr>
-                        <div class="progress" style="height: 30px; background-color: #212529; position: relative;">
-                            <div class="progress-bar bg-warning" role="progressbar" 
-                                 style="width: @(Math.Min(_breathingStats.WithApparatusPercentage, 100))% !important; min-width: 0;"
-                                 aria-valuenow="@_breathingStats.WithApparatusPercentage" 
-                                 aria-valuemin="0" 
-                                 aria-valuemax="100">
-                            </div>
-                            <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #000; font-weight: bold; font-size: 14px;">
-                                @_breathingStats.WithApparatusPercentage.ToString("F1")% unter Atemschutz
-                            </div>
-                        </div>
+                        <ProgressBar Value="@_breathingStats.WithApparatusPercentage" 
+                                     Color="#ffc107" 
+                                     Height="30px" 
+                                     FontSize="14px"
+                                     CustomLabel="@($"{_breathingStats.WithApparatusPercentage:F1}% unter Atemschutz")" />
                     </div>
                 </div>
             </div>
@@ -272,33 +236,49 @@
                     <div class="card-body">
                         @if (_opCompositionData.Any())
                         {
-                            <div class="table-responsive">
-                                <table class="table table-sm table-striped">
-                                    <thead>
-                                        <tr>
-                                            <th>Einsatz</th>
-                                            <th>Gesamtstärke</th>
-                                            @foreach (var func in _opCompositionData.SelectMany(o => o.FunctionCounts.Keys).Distinct().OrderBy(n => n))
-                                            {
-                                                <th>@func</th>
-                                            }
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        @foreach (var op in _opCompositionData)
-                                        {
-                                            <tr>
-                                                <td><strong>@op.OperationNumber</strong></td>
-                                                <td><span class="badge bg-primary">@op.TotalParticipants</span></td>
-                                                @foreach (var func in _opCompositionData.SelectMany(o => o.FunctionCounts.Keys).Distinct().OrderBy(n => n))
-                                                {
-                                                    <td>@op.FunctionCounts.GetValueOrDefault(func, 0)</td>
-                                                }
-                                            </tr>
-                                        }
-                                    </tbody>
-                                </table>
+                            var maxTotal = _opCompositionData.Max(o => o.TotalParticipants);
+                            var allFunctions = _opCompositionData.SelectMany(o => o.FunctionCounts.Keys).Distinct().OrderBy(n => n).ToList();
+                            
+                            <div class="mb-4">
+                                <h6 class="mb-3"><strong>Gesamtstärke pro Einsatz</strong></h6>
+                                @foreach (var op in _opCompositionData.OrderByDescending(o => o.OperationNumber))
+                                {
+                                    <div class="mb-2 d-flex align-items-center">
+                                        <div style="width: 80px; text-align: right; padding-right: 10px;">
+                                            <small><strong>@op.OperationNumber</strong></small>
+                                        </div>
+                                        <div class="flex-grow-1">
+                                            <ProgressBar Value="@(op.TotalParticipants / (double)maxTotal * 100)" Color="#0d6efd" ShowLabel="false" />
+                                        </div>
+                                        <div style="width: 40px; padding-left: 10px;">
+                                            <small>@op.TotalParticipants</small>
+                                        </div>
+                                    </div>
+                                }
                             </div>
+
+                            @foreach (var funcName in allFunctions)
+                            {
+                                var maxFunc = _opCompositionData.Max(o => o.FunctionCounts.GetValueOrDefault(funcName, 0));
+                                <div class="mb-4">
+                                    <h6 class="mb-3"><strong>@funcName</strong></h6>
+                                    @foreach (var op in _opCompositionData.OrderByDescending(o => o.OperationNumber))
+                                    {
+                                        var count = op.FunctionCounts.GetValueOrDefault(funcName, 0);
+                                        <div class="mb-2 d-flex align-items-center">
+                                            <div style="width: 80px; text-align: right; padding-right: 10px;">
+                                                <small><strong>@op.OperationNumber</strong></small>
+                                            </div>
+                                            <div class="flex-grow-1">
+                                                <ProgressBar Value="@(maxFunc > 0 ? count / (double)maxFunc * 100 : 0)" Color="#198754" ShowLabel="false" />
+                                            </div>
+                                            <div style="width: 40px; padding-left: 10px;">
+                                                <small>@count</small>
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            }
                         }
                         else
                         {
@@ -447,6 +427,17 @@
             >= 60 => "bg-info",
             >= 40 => "bg-warning",
             _ => "bg-danger"
+        };
+    }
+
+    private string GetProgressBarColor(double rate)
+    {
+        return rate switch
+        {
+            >= 80 => "#198754",
+            >= 60 => "#0dcaf0",
+            >= 40 => "#ffc107",
+            _ => "#dc3545"
         };
     }
 }
