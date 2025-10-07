@@ -1,13 +1,15 @@
-bin/
-obj/
-/packages/
-riderModule.iml
-/_ReSharper.Caches/
-.vs/
-.idea/
+# Datenbank-Dateien
+*.db
+*.db-journal
+
+# Benutzer-spezifische Dateien
 *.user
 *.suo
-*.db
-*.db-shm
-*.db-wal
-appsettings.local.json
+
+# Build-Artefakte
+[Bb]in/
+[Oo]bj/
+publish/
+
+# Rider/IDE-spezifisch
+.idea/

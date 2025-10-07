@@ -11,6 +11,12 @@ using PdfSharp.Fonts;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Add configuration for Production environment
+if (builder.Environment.IsProduction())
+{
+    builder.Configuration.AddJsonFile("appsettings.Production.json", optional: false, reloadOnChange: true);
+}
+
 GlobalFontSettings.FontResolver = new FontResolver();
 
 builder.Services.AddRazorComponents()
