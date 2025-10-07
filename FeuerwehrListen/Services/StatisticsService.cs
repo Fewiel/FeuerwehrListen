@@ -94,7 +94,7 @@ public class StatisticsService
                     MemberName = $"{member.FirstName} {member.LastName}",
                     MemberNumber = member.MemberNumber,
                     ParticipationCount = x.Value,
-                    Percentage = Math.Round((double)x.Value / 20 * 100, 2)
+                    Percentage = totalParticipation > 0 ? Math.Round((double)x.Value / totalParticipation * 100, 1) : 0
                 };
             })
             .ToList();
@@ -118,11 +118,10 @@ public class StatisticsService
                 ExtractMemberNumber(e.NameOrId) == member.MemberNumber);
 
             // Berechne Teilnahmequote basierend auf der Anzahl der Teilnahmen
-            // Maximaler Referenzwert: 20 Teilnahmen = 100%
+            // Die prozentuale Gesamt-Teilnahmequote wird entfernt, da sie irreführend ist.
+            // Stattdessen fokussieren wir uns auf absolute Zahlen und monatliche Quoten.
             var totalParticipations = memberAttendance + memberOperations;
-            var attendancePercentage = Math.Round((double)totalParticipations / 20 * 100, 2);
-            if (attendancePercentage > 100) attendancePercentage = 100;
-
+            
             var lastParticipation = DateTime.MinValue;
             var memberEntries = attendanceEntries.Where(e => 
                 ExtractMemberNumber(e.NameOrId) == member.MemberNumber)
@@ -155,7 +154,8 @@ public class StatisticsService
                 MemberNumber = member.MemberNumber,
                 TotalAttendance = memberAttendance,
                 TotalOperations = memberOperations,
-                AttendancePercentage = attendancePercentage,
+                // Veraltetes, irreführendes Feld. Wird nicht mehr berechnet.
+                AttendancePercentage = totalParticipations, // Zeigt jetzt die Gesamtzahl an, nicht einen Prozentsatz
                 LastParticipation = lastParticipation,
                 MonthlyData = monthlyData
             });
@@ -212,31 +212,34 @@ public class StatisticsService
 
     public async Task<List<VehicleStatistics>> GetVehicleStatisticsAsync()
     {
-        var operationEntries = await _db.OperationEntries.ToListAsync();
-        var vehicles = await _db.Vehicles.Where(x => x.IsActive).ToListAsync();
-
-        // Unterscheide Einsätze per Fahrzeug und berechne durchschnittliche Besatzung
-        var vehicleStats = operationEntries
+        var operationEntries = await _db.OperationEntries
             .Where(e => !string.IsNullOrWhiteSpace(e.Vehicle))
+            .ToListAsync();
+
+        if (!operationEntries.Any())
+        {
+            return new List<VehicleStatistics>();
+        }
+
+        var vehicleStats = operationEntries
             .GroupBy(e => e.Vehicle!)
             .Select(g => new
             {
                 Vehicle = g.Key,
-                DistinctOperations = g.Select(e => e.OperationListId).Distinct().ToList(),
-                CrewPerOperation = g.GroupBy(e => e.OperationListId).Select(og => og.Count()).ToList()
+                UsageCount = g.Select(e => e.OperationListId).Distinct().Count(),
+                TotalCrew = g.Count()
             })
             .ToList();
 
-        var totalOperations = operationEntries.Select(e => e.OperationListId).Distinct().Count();
+        var totalVehicleUsages = vehicleStats.Sum(s => s.UsageCount);
 
         return vehicleStats
             .Select(v => new VehicleStatistics
             {
                 VehicleName = v.Vehicle,
-                UsageCount = v.DistinctOperations.Count,
-                UsagePercentage = totalOperations > 0 ? Math.Round((double)v.DistinctOperations.Count / totalOperations * 100, 2) : 0,
-                // Wir speichern den Durchschnitt vorerst im Feld TotalCrewMembers als Zahl (bestehendes DTO)
-                TotalCrewMembers = v.CrewPerOperation.Count > 0 ? (int)Math.Round(v.CrewPerOperation.Average(), MidpointRounding.AwayFromZero) : 0
+                UsageCount = v.UsageCount,
+                UsagePercentage = totalVehicleUsages > 0 ? Math.Round((double)v.UsageCount / totalVehicleUsages * 100, 1) : 0,
+                AverageCrew = v.UsageCount > 0 ? Math.Round((double)v.TotalCrew / v.UsageCount, 1) : 0
             })
             .OrderByDescending(x => x.UsageCount)
             .ToList();
@@ -244,39 +247,130 @@ public class StatisticsService
 
     public async Task<List<FunctionStatistics>> GetFunctionStatisticsAsync()
     {
-        var operationEntries = await _db.OperationEntries.ToListAsync();
+        var functionLinks = await _db.OperationEntryFunctions.ToListAsync();
+        var functionDefs = await _db.OperationFunctionDefs.ToListAsync();
 
-        var functionCounts = operationEntries
-            .GroupBy(e => e.Function)
-            .ToDictionary(g => g.Key, g => g.Count());
+        if (!functionLinks.Any())
+        {
+            return new List<FunctionStatistics>();
+        }
 
-        var totalCount = functionCounts.Values.Sum();
-
-        return functionCounts
-            .Select(kvp => new FunctionStatistics
+        var functionCounts = functionLinks
+            .GroupBy(f => f.FunctionDefId)
+            .Select(g => new
             {
-                FunctionName = kvp.Key.ToString(),
-                Count = kvp.Value,
-                Percentage = Math.Round((double)kvp.Value / 15 * 100, 2)
+                FunctionId = g.Key,
+                Count = g.Count()
             })
-            .OrderByDescending(x => x.Count)
             .ToList();
+
+        var totalFunctionAssignments = (double)functionLinks.Count();
+        if (totalFunctionAssignments == 0)
+        {
+            return new List<FunctionStatistics>();
+        }
+
+        var result = new List<FunctionStatistics>();
+        foreach (var func in functionCounts)
+        {
+            var functionDef = functionDefs.FirstOrDefault(d => d.Id == func.FunctionId);
+            if (functionDef != null)
+            {
+                result.Add(new FunctionStatistics
+                {
+                    FunctionName = functionDef.Name,
+                    Count = func.Count,
+                    Percentage = Math.Round(func.Count / totalFunctionAssignments * 100, 1)
+                });
+            }
+        }
+
+        return result.OrderByDescending(s => s.Count).ToList();
     }
 
     public async Task<BreathingApparatusStatistics> GetBreathingApparatusStatisticsAsync()
     {
         var operationEntries = await _db.OperationEntries.ToListAsync();
+        
+        // Finde alle Einträge, die als Atemschutzgeräteträger markiert sind
+        var atemschutzFunction = await _db.OperationFunctionDefs.FirstOrDefaultAsync(f => f.Name == "Atemschutzgeräteträger");
+        int withApparatus = 0;
+        if (atemschutzFunction != null)
+        {
+            withApparatus = await _db.OperationEntryFunctions
+                .CountAsync(f => f.FunctionDefId == atemschutzFunction.Id);
+        }
 
-        var withApparatus = operationEntries.Count(e => e.WithBreathingApparatus);
-        var withoutApparatus = operationEntries.Count(e => !e.WithBreathingApparatus);
-        var total = operationEntries.Count;
-
+        var totalParticipants = operationEntries.Count;
+        var withoutApparatus = totalParticipants - withApparatus;
+        
         return new BreathingApparatusStatistics
         {
             WithApparatus = withApparatus,
             WithoutApparatus = withoutApparatus,
-            WithApparatusPercentage = Math.Round((double)withApparatus / 25 * 100, 2)
+            WithApparatusPercentage = totalParticipants > 0 ? Math.Round((double)withApparatus / totalParticipants * 100, 1) : 0
         };
+    }
+
+    public async Task<List<OperationComposition>> GetOperationCompositionAsync(int limit = 15)
+    {
+        var recentOperations = await _db.OperationLists
+            .OrderByDescending(o => o.AlertTime)
+            .Take(limit)
+            .ToListAsync();
+
+        if (!recentOperations.Any())
+        {
+            return new List<OperationComposition>();
+        }
+
+        var operationIds = recentOperations.Select(o => o.Id).ToList();
+
+        var entries = await _db.OperationEntries
+            .Where(e => operationIds.Contains(e.OperationListId))
+            .ToListAsync();
+
+        var functionLinks = await _db.OperationEntryFunctions
+            .Where(ef => entries.Select(e => e.Id).Contains(ef.OperationEntryId))
+            .ToListAsync();
+
+        var functionDefs = await _db.OperationFunctionDefs.ToListAsync();
+        var functionDefMap = functionDefs.ToDictionary(f => f.Id, f => f.Name);
+
+        var result = new List<OperationComposition>();
+
+        foreach (var op in recentOperations.OrderBy(o => o.AlertTime))
+        {
+            var opEntries = entries.Where(e => e.OperationListId == op.Id).ToList();
+            var totalParticipants = opEntries.Count;
+
+            var composition = new OperationComposition
+            {
+                OperationNumber = op.OperationNumber,
+                TotalParticipants = totalParticipants,
+                FunctionCounts = functionDefs.ToDictionary(f => f.Name, f => 0) // Initialize all with 0
+            };
+
+            var entryIdsForOperation = opEntries.Select(e => e.Id).ToList();
+            var functionsForOperation = functionLinks
+                .Where(fl => entryIdsForOperation.Contains(fl.OperationEntryId));
+
+            var counts = functionsForOperation
+                .GroupBy(fl => fl.FunctionDefId)
+                .ToDictionary(g => g.Key, g => g.Count());
+
+            foreach (var (functionId, count) in counts)
+            {
+                if (functionDefMap.TryGetValue(functionId, out var functionName))
+                {
+                    composition.FunctionCounts[functionName] = count;
+                }
+            }
+            
+            result.Add(composition);
+        }
+
+        return result;
     }
 
     private static string ExtractMemberNumber(string nameOrId)

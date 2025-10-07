@@ -54,7 +54,7 @@ public class VehicleStatistics
     public string VehicleName { get; set; } = string.Empty;
     public int UsageCount { get; set; }
     public double UsagePercentage { get; set; }
-    public int TotalCrewMembers { get; set; }
+    public double AverageCrew { get; set; }
 }
 
 public class FunctionStatistics
@@ -69,6 +69,13 @@ public class BreathingApparatusStatistics
     public int WithApparatus { get; set; }
     public int WithoutApparatus { get; set; }
     public double WithApparatusPercentage { get; set; }
+}
+
+public class OperationComposition
+{
+    public string OperationNumber { get; set; } = string.Empty;
+    public int TotalParticipants { get; set; }
+    public Dictionary<string, int> FunctionCounts { get; set; } = new();
 }
 
 

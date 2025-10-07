@@ -5,6 +5,7 @@
 @inject StatisticsService StatsService
 @inject PdfExportService PdfService
 @inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
 @rendermode InteractiveServer
 
 <PageTitle>Statistiken - Admin</PageTitle>
@@ -35,7 +36,6 @@
     }
     else
     {
-        <!-- Übersicht KPIs -->
         <div class="row mb-4">
             <div class="col-md-3">
                 <div class="card text-center">
@@ -72,7 +72,6 @@
         </div>
 
         <div class="row">
-            <!-- Top Teilnehmer -->
             <div class="col-md-6 mb-4">
                 <div class="card">
                     <div class="card-header">
@@ -129,7 +128,6 @@
                 </div>
             </div>
 
-            <!-- Fahrzeug-Statistiken -->
             <div class="col-md-6 mb-4">
                 <div class="card">
                     <div class="card-header">
@@ -148,7 +146,7 @@
                                         <tr>
                                             <th>Fahrzeug</th>
                                             <th>Einsätze</th>
-                                            <th>Besatzung</th>
+                                            <th>Ø Besatzung</th>
                                             <th>Anteil</th>
                                         </tr>
                                     </thead>
@@ -158,7 +156,7 @@
                                             <tr>
                                                 <td><strong>@vehicle.VehicleName</strong></td>
                                                 <td>@vehicle.UsageCount</td>
-                                                <td>@vehicle.TotalCrewMembers</td>
+                                                <td>@vehicle.AverageCrew.ToString("F1")</td>
                                                 <td>
                                                     <div class="progress" style="height: 20px; background-color: #212529; position: relative;">
                                                         <div class="progress-bar bg-danger" role="progressbar" 
@@ -182,7 +180,6 @@
                 </div>
             </div>
 
-            <!-- Funktionen-Verteilung -->
             <div class="col-md-6 mb-4">
                 <div class="card">
                     <div class="card-header">
@@ -233,7 +230,6 @@
                 </div>
             </div>
 
-            <!-- Unter Atemschutz - Statistiken -->
             <div class="col-md-6 mb-4">
                 <div class="card">
                     <div class="card-header">
@@ -267,7 +263,52 @@
             </div>
         </div>
 
-        <!-- Mitglieder-Statistiken -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">📈 Einsatz-Zusammensetzung (letzte 15 Einsätze)</h5>
+                    </div>
+                    <div class="card-body">
+                        @if (_opCompositionData.Any())
+                        {
+                            <div class="table-responsive">
+                                <table class="table table-sm table-striped">
+                                    <thead>
+                                        <tr>
+                                            <th>Einsatz</th>
+                                            <th>Gesamtstärke</th>
+                                            @foreach (var func in _opCompositionData.SelectMany(o => o.FunctionCounts.Keys).Distinct().OrderBy(n => n))
+                                            {
+                                                <th>@func</th>
+                                            }
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var op in _opCompositionData)
+                                        {
+                                            <tr>
+                                                <td><strong>@op.OperationNumber</strong></td>
+                                                <td><span class="badge bg-primary">@op.TotalParticipants</span></td>
+                                                @foreach (var func in _opCompositionData.SelectMany(o => o.FunctionCounts.Keys).Distinct().OrderBy(n => n))
+                                                {
+                                                    <td>@op.FunctionCounts.GetValueOrDefault(func, 0)</td>
+                                                }
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                        else
+                        {
+                            <p class="text-muted">Nicht genügend Daten verfügbar.</p>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div class="row">
             <div class="col-12">
                 <div class="card">
@@ -290,7 +331,6 @@
                                             <th>Anwesenheit</th>
                                             <th>Einsätze</th>
                                             <th>Gesamt</th>
-                                            <th>Teilnahmequote</th>
                                             <th>Letzte Teilnahme</th>
                                         </tr>
                                     </thead>
@@ -303,20 +343,6 @@
                                                 <td>@member.TotalAttendance</td>
                                                 <td>@member.TotalOperations</td>
                                                 <td>@(member.TotalAttendance + member.TotalOperations)</td>
-                                                <td>
-                                                    <div class="progress" style="height: 20px; background-color: #212529; position: relative;">
-                                                        <div class="progress-bar @GetProgressBarClass(member.AttendancePercentage)" 
-                                                             role="progressbar" 
-                                                             style="width: @(Math.Min(member.AttendancePercentage, 100))% !important; min-width: 0;"
-                                                             aria-valuenow="@member.AttendancePercentage" 
-                                                             aria-valuemin="0" 
-                                                             aria-valuemax="100">
-                                                        </div>
-                                                        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-weight: bold; font-size: 12px;">
-                                                            @member.AttendancePercentage.ToString("F1")%
-                                                        </div>
-                                                    </div>
-                                                </td>
                                                 <td>
                                                     @if (member.LastParticipation != DateTime.MinValue)
                                                     {
@@ -350,6 +376,7 @@
     private List<VehicleStatistics> _vehicleStats = new();
     private List<FunctionStatistics> _functionStats = new();
     private BreathingApparatusStatistics _breathingStats = new();
+    private List<OperationComposition> _opCompositionData = new();
 
     protected override async Task OnInitializedAsync()
     {
@@ -369,10 +396,7 @@
             _vehicleStats = await StatsService.GetVehicleStatisticsAsync();
             _functionStats = await StatsService.GetFunctionStatisticsAsync();
             _breathingStats = await StatsService.GetBreathingApparatusStatisticsAsync();
-        }
-        catch (Exception ex)
-        {
-            // optional: UI-Fehlermeldung (keine Console-Ausgabe)
+            _opCompositionData = await StatsService.GetOperationCompositionAsync(15);
         }
         finally
         {
@@ -390,9 +414,8 @@
             var url = $"api/export/statistics/pdf?token={Uri.EscapeDataString(token)}";
             await OpenInNewTab(url);
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            // optional: UI-Fehlermeldung (keine Console-Ausgabe)
         }
     }
 
@@ -409,12 +432,11 @@
         return await http.GetStringAsync(url);
     }
 
-    [Inject] private IJSRuntime JS { get; set; } = default!;
     private async Task OpenInNewTab(string relativeUrl)
     {
         var baseUri = Navigation.BaseUri.TrimEnd('/');
         var full = $"{baseUri}/{relativeUrl}";
-        await JS.InvokeVoidAsync("window.open", full, "_blank");
+        await JSRuntime.InvokeVoidAsync("window.open", full, "_blank");
     }
 
     private string GetProgressBarClass(double rate)
@@ -428,4 +450,3 @@
         };
     }
 }
-

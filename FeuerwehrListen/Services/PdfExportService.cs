@@ -730,12 +730,19 @@ public class PdfExportService
             PaginateIfNeeded(document, ref page, ref gfx, ref yPosition);
             gfx.DrawString("Fahrzeug-Nutzung", titleFont, XBrushes.Black, new XRect(left, yPosition, contentWidth, 18), XStringFormats.TopLeft);
             yPosition += 22;
-            DrawTableHeader(gfx, font, headerBold, left, yPosition, new[] { 220d, 80d, 110d, contentWidth - 220d - 80d - 110d }, new[] { "Fahrzeug", "Einsätze", "Ø Besatzung", "Anteil" });
+            var vehicleWidths = new[] { contentWidth * 0.4, contentWidth * 0.2, contentWidth * 0.2, contentWidth * 0.2 };
+            DrawTableHeader(gfx, font, headerBold, left, yPosition, vehicleWidths, new[] { "Fahrzeug", "Einsätze", "Anteil", "Ø Besatzung" });
             yPosition += 16;
-            foreach (var v in vehicleStats.Take(10))
+            foreach (var vehicle in vehicleStats.OrderByDescending(v => v.UsageCount))
             {
                 PaginateIfNeeded(document, ref page, ref gfx, ref yPosition);
-                DrawTableRow(gfx, font, left, yPosition, new[] { 220d, 80d, 110d, contentWidth - 220d - 80d - 110d }, new[] { v.VehicleName, v.UsageCount.ToString(), v.TotalCrewMembers.ToString(), $"{v.UsagePercentage:F1}%" });
+                DrawTableRow(gfx, font, left, yPosition, vehicleWidths, new[]
+                {
+                    vehicle.VehicleName,
+                    vehicle.UsageCount.ToString(),
+                    $"{vehicle.UsagePercentage:F1}%",
+                    vehicle.AverageCrew.ToString("F1")
+                });
                 yPosition += 16;
             }
             yPosition += 18;
