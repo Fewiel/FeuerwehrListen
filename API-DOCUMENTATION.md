@@ -2,7 +2,10 @@
 
 ## 📖 Übersicht
 
-Die Feuerwehr Listen API ermöglicht externen Systemen die Anbindung an die Anwendung über HTTP-Requests. 
+Die Feuerwehr Listen API ermöglicht externen Systemen die Anbindung an die Anwendung über HTTP-Requests.
+
+> **Hinweis:** Für Benutzer- und Installationshandbuch siehe [README.md](README.md)  
+> **Hinweis:** Für technische Architektur siehe [PROJEKTÜBERSICHT.md](PROJEKTÜBERSICHT.md)
 
 **Base URL:** `https://your-domain.com/api`  
 **Authentifizierung:** API-Key (Header: `X-API-Key`)  
@@ -1212,18 +1215,21 @@ def api_call_with_retry(url, max_retries=3):
 ### Version 1.0 (Oktober 2025)
 - ✅ Initiale API-Implementierung
 - ✅ Anwesenheitslisten-Endpunkte
-- ✅ Einsatzlisten-Endpunkte
-- ✅ Mitglieder-Suche
+- ✅ Einsatzlisten-Endpunkte (inkl. Adresse & Geocoding)
+- ✅ Mitglieder-Suche (mit Live-Suche)
 - ✅ Geplante Listen
+- ✅ Statistiken-Endpunkte (Übersicht, Top Teilnehmer, Fahrzeuge, Funktionen)
+- ✅ PDF-Export-Endpunkte (Anwesenheit, Einsatz, Statistik)
 - ✅ API-Key Authentifizierung
 - ✅ Swagger UI
+- ✅ Dynamische Funktionsverwaltung
 
 ### Geplant für v1.1
 - [ ] Archiv-Endpunkte (GET)
-- [ ] Statistiken-Endpunkte
 - [ ] Webhooks für Events
 - [ ] Rate Limiting
 - [ ] API-Nutzungsstatistiken
+- [ ] Excel-Export-Endpunkte
 
 ---
 
@@ -1247,12 +1253,13 @@ def api_call_with_retry(url, max_retries=3):
 
 ## 📚 Weitere Ressourcen
 
-- **README.md** - Benutzerhandbuch & Installation
-- **PROJEKTÜBERSICHT.md** - Technische Architektur
-- **Swagger UI** - Interaktive API-Doku (Dev-Modus)
+- **[README.md](README.md)** - Benutzerhandbuch & Installation
+- **[PROJEKTÜBERSICHT.md](PROJEKTÜBERSICHT.md)** - Technische Architektur & Datenfluss
+- **Swagger UI** - Interaktive API-Doku (Dev-Modus: `/swagger`)
 
 ---
 
 **API Version:** 1.0  
 **Letzte Aktualisierung:** Oktober 2025  
-**Support:** Siehe Repository
+**Support:** Siehe Repository Issues  
+**Features:** REST API ✅, PDF-Export ✅, Statistiken ✅, Geocoding ✅

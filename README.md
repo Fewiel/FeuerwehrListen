@@ -4,6 +4,8 @@ Eine moderne Blazor Server Webanwendung zur Verwaltung von Anwesenheits- und Ein
 
 ## ✨ Funktionen
 
+> **Hinweis:** Für die vollständige technische Architektur siehe [PROJEKTÜBERSICHT.md](PROJEKTÜBERSICHT.md)
+
 ### 📋 Öffentlicher Bereich (Kein Login erforderlich)
 
 #### Übersicht
@@ -13,22 +15,29 @@ Eine moderne Blazor Server Webanwendung zur Verwaltung von Anwesenheits- und Ein
 
 #### Anwesenheitslisten
 - **Erstellen**: Titel, Einheit, Beschreibung (Datum/Uhrzeit automatisch)
+- **Live-Suche**: Intelligente Mitgliedersuche mit Dropdown-Vorschlägen
 - **Eintragen**: Mitgliedsnummer oder Name eingeben
 - **Validierung**: Nur registrierte Mitglieder können eingetragen werden
 - **Autofocus**: Eingabefeld erhält automatisch Focus
 - **Enter-Taste**: Schnelles Eintragen per Enter
 - **Entfernen**: Falsche Einträge können gelöscht werden (nur bei offenen Listen)
+- **PDF-Export**: Listen als PDF herunterladen
 - **Abschließen**: Listen können geschlossen werden
 
 #### Einsatzlisten
-- **Erstellen**: Einsatznummer, Stichwort, Alarmierungszeit
+- **Erstellen**: Einsatznummer, Stichwort, Alarmierungszeit, Adresse
+- **Live-Suche**: Intelligente Mitgliedersuche mit Dropdown-Vorschlägen
 - **Eintragen**: 
   - Mitgliedsnummer oder Name (validiert)
-  - Fahrzeug aus Dropdown auswählen
-  - Funktion: Maschinist, Gruppenführer oder Trupp
+  - Fahrzeug aus Dropdown auswählen ODER "Ohne Fahrzeug"
+  - Funktionen: Mehrfachauswahl (konfigurierbar im Admin-Bereich)
   - Atemschutz-Checkbox
+- **Kartenintegration**: OpenStreetMap-Karte mit Einsatzort-Marker
+- **Einsatz bearbeiten**: Nachträgliche Anpassung von Nummer, Stichwort, Adresse
 - **Fahrzeug-Sortierung**: Einträge werden nach Fahrzeugen gruppiert angezeigt
+- **Ohne Fahrzeug**: Separate Sektion für Mitglieder ohne Fahrzeugzuordnung
 - **Entfernen**: Falsche Einträge können gelöscht werden
+- **PDF-Export**: Listen als PDF mit Karte herunterladen
 - **Abschließen**: Listen können geschlossen werden
 
 ### 🔐 Admin-Bereich (Login erforderlich)
@@ -73,6 +82,19 @@ Eine moderne Blazor Server Webanwendung zur Verwaltung von Anwesenheits- und Ein
 - **Background-Service**: Prüft jede Minute auf fällige Listen
 - **Manuelles Öffnen**: "Jetzt öffnen" Button für sofortiges Öffnen
 - **Auto-Refresh**: Status-Aktualisierung alle 10 Sekunden
+
+#### Funktionsverwaltung
+- **Dynamische Funktionen**: Eigene Funktionen für Einsatzlisten definieren
+- **Standardfunktionen**: Atemschutzgeräteträger, Gruppenführer, Maschinist
+- **Erweiterbar**: Beliebig viele Funktionen hinzufügen
+- **Standardfunktion-Flag**: Kennzeichnung wichtiger Funktionen
+
+#### Statistiken
+- **Übersicht**: KPIs zu Listen, Teilnehmern, Durchschnitten
+- **Top Teilnehmer**: Ranking der aktivsten Mitglieder
+- **Fahrzeug-Nutzung**: Auslastung und Besatzungsstärke
+- **Funktionen-Verteilung**: Analyse der Rollenbesetzung
+- **PDF-Export**: Statistikbericht als PDF
 
 #### Service Status (Debug)
 - **Background-Service Monitoring**: Echtzeit-Status
@@ -429,13 +451,48 @@ Der Admin-Bereich ist durch die `AdminAuthCheck` Komponente geschützt:
 - **UserRole**: User, Admin
 - **ScheduledListType**: Attendance, Operation
 
-## 🎯 Roadmap / Geplante Features
+## 🔗 REST API
 
-- [ ] PDF-Export von Listen
-- [ ] Statistiken und Auswertungen
-- [ ] Email-Benachrichtigungen
-- [ ] Mehrere Feuerwehr-Einheiten
+Die Anwendung bietet eine vollständige REST API für externe Systeme.
+
+> **Vollständige Dokumentation:** Siehe [API-DOCUMENTATION.md](API-DOCUMENTATION.md)
+
+### Schnellstart
+
+1. **API-Key erstellen**: Admin → API-Schlüssel
+2. **Authentifizierung**: Header `X-API-Key: your-key-here`
+3. **Swagger UI**: `https://your-domain.com/swagger` (Dev-Modus)
+
+### Wichtigste Endpunkte
+
+- `POST /api/attendance/lists` - Anwesenheitsliste erstellen
+- `POST /api/attendance/lists/{id}/entries` - Eintrag hinzufügen
+- `POST /api/operation/lists` - Einsatzliste erstellen
+- `GET /api/statistics/overview` - Statistik-Übersicht
+- `GET /api/export/operation/{id}/pdf` - PDF herunterladen
+
+Details siehe [API-DOCUMENTATION.md](API-DOCUMENTATION.md)
 
 ---
 
-**Entwickelt mit ❤️ und Blazor für die Feuerwehr** 🚒
+## 🎯 Roadmap / Geplante Features
+
+### Implementiert ✅
+- ✅ PDF-Export von Listen (mit Karten)
+- ✅ Statistiken und Auswertungen
+- ✅ REST API für externe Systeme
+- ✅ Geocoding & Kartenintegration
+- ✅ Dynamische Funktionsverwaltung
+- ✅ Live-Suche mit Auto-Complete
+
+### In Planung
+- [ ] Email-Benachrichtigungen
+- [ ] Excel-Export
+- [ ] QR-Code-Scanner für Mitglieder
+- [ ] Mehrere Feuerwehr-Einheiten
+- [ ] Mobile App (Blazor Hybrid)
+
+---
+
+**Entwickelt mit ❤️ und Blazor für die Feuerwehr** 🚒  
+**Version:** 1.0 | **Letzte Aktualisierung:** Oktober 2025

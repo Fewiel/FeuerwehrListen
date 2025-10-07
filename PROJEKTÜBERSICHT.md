@@ -445,24 +445,65 @@ location / {
 
 ---
 
+## 📊 PDF-Export & Statistiken
+
+### PDF-Export Features
+- **Anwesenheitslisten**: Vollständige Listen mit allen Einträgen
+- **Einsatzlisten**: Nach Fahrzeugen gruppiert, mit Funktionen und Atemschutz
+- **Statistik-Berichte**: Umfassende Auswertungen mit Diagrammen
+- **Kartenintegration**: OpenStreetMap-Ausschnitte in Einsatz-PDFs
+- **Custom Fonts**: CreatoDisplay-Schriftarten für professionelles Aussehen
+
+### Statistik-Features
+- **Übersicht**: Gesamt-KPIs (Listen, Teilnehmer, Durchschnitte)
+- **Top Teilnehmer**: Top 10 aktivste Mitglieder
+- **Fahrzeug-Nutzung**: Einsatzstatistiken pro Fahrzeug
+- **Funktionen-Verteilung**: Analyse der Funktionsbesetzung
+- **Atemschutz**: Statistiken zum Atemschutz-Einsatz
+- **Trend-Daten**: Monatliche Entwicklungen
+
+### Live-Suche
+- **Debounced Search**: Intelligente Mitgliedersuche während der Eingabe
+- **Fuzzy-Matching**: Findet Mitglieder auch bei Teilnamen
+- **Dropdown-Vorschläge**: Auto-Complete für schnelles Eintragen
+
+## 🗺️ Geocoding & Kartenintegration
+
+### OpenStreetMap-Integration
+- **Adresseingabe**: Einsatzadressen erfassen und speichern
+- **Geocoding**: Automatische Umwandlung in Koordinaten (Nominatim)
+- **Live-Karte**: Interaktive OSM-Karte im Einsatzdetail
+- **PDF-Karte**: Statischer Kartenausschnitt mit Marker im PDF
+- **Multi-Provider**: Fallback-Mechanismen für Kartenrendering
+
+## 🔧 Dynamische Funktionen
+
+### Operation Functions Management
+- **Admin-Konfiguration**: Funktionen zentral verwalten
+- **Standardfunktionen**: Atemschutzgeräteträger, Gruppenführer, Maschinist
+- **Erweiterbar**: Neue Funktionen jederzeit hinzufügen
+- **Mehrfachauswahl**: Ein Mitglied kann mehrere Funktionen haben
+- **Join-Table**: Flexible Many-to-Many-Beziehung
+
 ## 📈 Erweiterungsmöglichkeiten
 
 ### Kurzfristig
-- PDF-Export von Listen
+- ✅ PDF-Export (implementiert)
+- ✅ Statistiken (implementiert)
+- ✅ API für externe Systeme (implementiert)
 - Excel-Export
-- Detailliertere Statistiken
+- Email-Benachrichtigungen
 
 ### Mittelfristig
-- Email-Benachrichtigungen
 - Push-Notifications
-- API für externe Systeme
 - QR-Code-Scanner für Mitglieder
-
-### Langfristig
 - Mobile App (Blazor Hybrid)
 - Mehrere Feuerwehr-Einheiten
+
+### Langfristig
 - Schnittstelle zu Alarmierungssystemen
 - Dienstplan-Integration
+- Ausrüstungsverwaltung
 
 ---
 
@@ -501,12 +542,12 @@ location / {
 
 ## 📚 Weitere Dokumentation
 
-- **README.md**: Installations- und Benutzerhandbuch
-- **API-DOCUMENTATION.md**: API-Endpunkte (geplant)
-- **Code Comments**: Minimiert (selbsterklärender Code)
+- **README.md**: Installations- und Benutzerhandbuch (siehe separate Datei)
+- **API-DOCUMENTATION.md**: Vollständige REST API-Dokumentation (siehe separate Datei)
+- **Code**: Minimale Kommentare (selbsterklärender Code, keine Code-Redundanz)
 
 ---
 
 **Letztes Update:** Oktober 2025  
 **Status:** ✅ Production Ready  
-**Nächste Schritte:** API-Dokumentation, PDF-Export
+**Features:** PDF-Export ✅, Statistiken ✅, REST API ✅, Geocoding ✅
