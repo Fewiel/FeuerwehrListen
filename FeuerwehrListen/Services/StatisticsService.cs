@@ -422,7 +422,6 @@ public class StatisticsService
 
     private static string ExtractMemberNumber(string nameOrId)
     {
-        // Extrahiert Mitgliedsnummer aus "Max Mustermann (1234)"
         var match = System.Text.RegularExpressions.Regex.Match(nameOrId, @"\((\d+)\)");
         return match.Success ? match.Groups[1].Value : nameOrId;
     }

@@ -16,17 +16,15 @@ public class DownloadController : ControllerBase
                 return BadRequest("No data provided");
             }
 
-            // Data URL parsen: "data:application/pdf;base64,<base64data>"
             var parts = data.Split(',');
             if (parts.Length != 2)
             {
                 return BadRequest("Invalid data format");
             }
 
-            var header = parts[0]; // "data:application/pdf;base64"
+            var header = parts[0];
             var base64Data = parts[1];
 
-            // Content-Type extrahieren
             var contentType = "application/octet-stream";
             if (header.Contains("application/pdf"))
             {
@@ -37,10 +35,8 @@ public class DownloadController : ControllerBase
                 contentType = "text/plain";
             }
 
-            // Base64 dekodieren
             var fileBytes = Convert.FromBase64String(base64Data);
 
-            // Download-Response
             return File(fileBytes, contentType, fileName);
         }
         catch (Exception ex)

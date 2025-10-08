@@ -12,7 +12,6 @@ public class Migration_004_AddOperationFunctionDef : Migration
             .WithColumn("Name").AsString(200).NotNullable()
             .WithColumn("IsDefault").AsBoolean().NotNullable().WithDefaultValue(false);
 
-        // Seed defaults
         Insert.IntoTable("OperationFunctionDef").Row(new { Name = "Atemschutzgeräteträger", IsDefault = true });
         Insert.IntoTable("OperationFunctionDef").Row(new { Name = "Gruppenführer", IsDefault = true });
         Insert.IntoTable("OperationFunctionDef").Row(new { Name = "Maschinist", IsDefault = true });

@@ -15,17 +15,14 @@ public class ApiKeyAuthMiddleware
 
     public async Task InvokeAsync(HttpContext context, ApiKeyRepository apiKeyRepository)
     {
-        // Nur API-Endpoints prüfen, nicht die Web-UI
         if (context.Request.Path.StartsWithSegments("/api"))
         {
-            // Wenn Benutzer bereits authentifiziert (Cookie/Session), keinen API-Key verlangen
             if (context.User?.Identity?.IsAuthenticated == true)
             {
                 await _next(context);
                 return;
             }
 
-            // Export-Endpunkte: wenn Download-Token vorhanden, API-Key nicht verlangen.
             if (context.Request.Path.StartsWithSegments("/api/export") &&
                 context.Request.Query.ContainsKey("token"))
             {

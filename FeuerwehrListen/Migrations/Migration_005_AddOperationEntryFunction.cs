@@ -12,7 +12,6 @@ public class Migration_005_AddOperationEntryFunction : Migration
             .WithColumn("OperationEntryId").AsInt32().NotNullable()
             .WithColumn("FunctionDefId").AsInt32().NotNullable();
 
-        // Optional: Indizes für schnelle Abfragen
         Create.Index().OnTable("OperationEntryFunction").OnColumn("OperationEntryId");
         Create.Index().OnTable("OperationEntryFunction").OnColumn("FunctionDefId");
     }

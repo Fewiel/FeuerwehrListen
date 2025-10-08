@@ -26,7 +26,6 @@ public class ExportController : ControllerBase
     {
         try
         {
-            // Token prüfen (UI-Download)
             var expectedPath = $"/api/export/attendance/{listId}/pdf";
             if (string.IsNullOrEmpty(token) || !_tokenService.ValidateAndConsume(token, expectedPath))
             {

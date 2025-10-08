@@ -12,7 +12,6 @@ public class OperationFunctionDef
     [Column("Name"), NotNull]
     public string Name { get; set; } = string.Empty;
 
-    // Markiert, ob diese Funktion initial/empfohlen ist (z.B. Atemschutz, Gruppenführer, Maschinist)
     [Column("IsDefault")]
     public bool IsDefault { get; set; }
 }
