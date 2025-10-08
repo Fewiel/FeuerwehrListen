@@ -713,7 +713,7 @@ public class PdfExportService
             DrawTableRow(gfx, font, left, yPosition, new[] { contentWidth / 2, contentWidth / 2 }, new[] { "Gesamt Teilnahmen", overview.TotalParticipants.ToString() }); yPosition += 24;
 
             yPosition += 6;
-            PaginateIfNeeded(document, ref page, ref gfx, ref yPosition);
+            PaginateIfNeeded(document, ref page, ref gfx, ref yPosition, ref pageNumber, titleFont, font, left, contentWidth);
             gfx.DrawString("Top Teilnehmer (Top 10)", titleFont, XBrushes.Black, new XRect(left, yPosition, contentWidth, 18), XStringFormats.TopLeft);
             yPosition += 22;
             DrawTableHeader(gfx, font, headerBold, left, yPosition, new[] { 40d, 220d, contentWidth - 40d - 220d - 90d, 90d }, new[] { "#", "Name", "Teilnahmen", "Anteil" });
@@ -721,14 +721,14 @@ public class PdfExportService
             int rank = 1;
             foreach (var p in topParticipants)
             {
-                PaginateIfNeeded(document, ref page, ref gfx, ref yPosition);
+                PaginateIfNeeded(document, ref page, ref gfx, ref yPosition, ref pageNumber, titleFont, font, left, contentWidth);
                 DrawTableRow(gfx, font, left, yPosition, new[] { 40d, 220d, contentWidth - 40d - 220d - 90d, 90d }, new[] { rank.ToString(), $"{p.MemberName} ({p.MemberNumber})", p.ParticipationCount.ToString(), $"{p.Percentage:F1}%" });
                 yPosition += 16; rank++;
             }
             yPosition += 18;
             yPosition += 6;
 
-            PaginateIfNeeded(document, ref page, ref gfx, ref yPosition);
+            PaginateIfNeeded(document, ref page, ref gfx, ref yPosition, ref pageNumber, titleFont, font, left, contentWidth);
             gfx.DrawString("Fahrzeug-Nutzung", titleFont, XBrushes.Black, new XRect(left, yPosition, contentWidth, 18), XStringFormats.TopLeft);
             yPosition += 22;
             var vehicleWidths = new[] { contentWidth * 0.4, contentWidth * 0.2, contentWidth * 0.2, contentWidth * 0.2 };
@@ -736,7 +736,7 @@ public class PdfExportService
             yPosition += 16;
             foreach (var vehicle in vehicleStats.OrderByDescending(v => v.UsageCount))
             {
-                PaginateIfNeeded(document, ref page, ref gfx, ref yPosition);
+                PaginateIfNeeded(document, ref page, ref gfx, ref yPosition, ref pageNumber, titleFont, font, left, contentWidth);
                 DrawTableRow(gfx, font, left, yPosition, vehicleWidths, new[]
                 {
                     vehicle.VehicleName,
@@ -749,21 +749,21 @@ public class PdfExportService
             yPosition += 18;
             yPosition += 6;
 
-            PaginateIfNeeded(document, ref page, ref gfx, ref yPosition);
+            PaginateIfNeeded(document, ref page, ref gfx, ref yPosition, ref pageNumber, titleFont, font, left, contentWidth);
             gfx.DrawString("Funktionen-Verteilung", titleFont, XBrushes.Black, new XRect(left, yPosition, contentWidth, 18), XStringFormats.TopLeft);
             yPosition += 22;
             DrawTableHeader(gfx, font, headerBold, left, yPosition, new[] { contentWidth - 120d, 60d, 60d }, new[] { "Funktion", "Anzahl", "Anteil" });
             yPosition += 16;
             foreach (var f in functionStats)
             {
-                PaginateIfNeeded(document, ref page, ref gfx, ref yPosition);
+                PaginateIfNeeded(document, ref page, ref gfx, ref yPosition, ref pageNumber, titleFont, font, left, contentWidth);
                 DrawTableRow(gfx, font, left, yPosition, new[] { contentWidth - 120d, 60d, 60d }, new[] { f.FunctionName, f.Count.ToString(), $"{f.Percentage:F1}%" });
                 yPosition += 16;
             }
             yPosition += 18;
             yPosition += 6;
 
-            PaginateIfNeeded(document, ref page, ref gfx, ref yPosition);
+            PaginateIfNeeded(document, ref page, ref gfx, ref yPosition, ref pageNumber, titleFont, font, left, contentWidth);
             gfx.DrawString("Unter Atemschutz", titleFont, XBrushes.Black, new XRect(left, yPosition, contentWidth, 18), XStringFormats.TopLeft);
             yPosition += 22;
             DrawTableHeader(gfx, font, headerBold, left, yPosition, new[] { contentWidth - 140d, 140d }, new[] { "Kategorie", "Wert" });
@@ -776,13 +776,13 @@ public class PdfExportService
 
             if (opComposition.Any())
             {
-                PaginateIfNeeded(document, ref page, ref gfx, ref yPosition);
+                PaginateIfNeeded(document, ref page, ref gfx, ref yPosition, ref pageNumber, titleFont, font, left, contentWidth);
                 gfx.DrawString($"Einsatz-Übersicht (letzte {opComposition.Count} Einsätze)", titleFont, XBrushes.Black, new XRect(left, yPosition, contentWidth, 18), XStringFormats.TopLeft);
                 yPosition += 22;
 
                 foreach (var op in opComposition.OrderByDescending(o => o.OperationNumber))
                 {
-                    PaginateIfNeeded(document, ref page, ref gfx, ref yPosition);
+                    PaginateIfNeeded(document, ref page, ref gfx, ref yPosition, ref pageNumber, titleFont, font, left, contentWidth);
                     
                     var title = op.OperationNumber;
                     if (!string.IsNullOrEmpty(op.Keyword)) title += $" | {op.Keyword}";
@@ -802,7 +802,7 @@ public class PdfExportService
 
                         foreach (var func in functionsWithVehicle)
                         {
-                            PaginateIfNeeded(document, ref page, ref gfx, ref yPosition);
+                            PaginateIfNeeded(document, ref page, ref gfx, ref yPosition, ref pageNumber, titleFont, font, left, contentWidth);
                             gfx.DrawString($"• {func.Key}", font, XBrushes.Black, new XRect(left + 20, yPosition, contentWidth - 80, 14), XStringFormats.TopLeft);
                             gfx.DrawString(func.Value.ToString(), font, XBrushes.Black, new XRect(left + contentWidth - 40, yPosition, 40, 14), XStringFormats.TopRight);
                             yPosition += 14;
@@ -810,7 +810,7 @@ public class PdfExportService
                         
                         if (op.WithVehicleTruppCount > 0)
                         {
-                            PaginateIfNeeded(document, ref page, ref gfx, ref yPosition);
+                            PaginateIfNeeded(document, ref page, ref gfx, ref yPosition, ref pageNumber, titleFont, font, left, contentWidth);
                             gfx.DrawString("• Trupp", font, XBrushes.Gray, new XRect(left + 20, yPosition, contentWidth - 80, 14), XStringFormats.TopLeft);
                             gfx.DrawString(op.WithVehicleTruppCount.ToString(), font, XBrushes.Gray, new XRect(left + contentWidth - 40, yPosition, 40, 14), XStringFormats.TopRight);
                             yPosition += 14;
@@ -820,13 +820,13 @@ public class PdfExportService
 
                     if (functionsWithoutVehicle.Any() || op.WithoutVehicleTruppCount > 0)
                     {
-                        PaginateIfNeeded(document, ref page, ref gfx, ref yPosition);
+                        PaginateIfNeeded(document, ref page, ref gfx, ref yPosition, ref pageNumber, titleFont, font, left, contentWidth);
                         gfx.DrawString("Funktionen (ohne Fahrzeug):", font, XBrushes.Black, new XRect(left + 10, yPosition, contentWidth, 14), XStringFormats.TopLeft);
                         yPosition += 16;
 
                         foreach (var func in functionsWithoutVehicle)
                         {
-                            PaginateIfNeeded(document, ref page, ref gfx, ref yPosition);
+                            PaginateIfNeeded(document, ref page, ref gfx, ref yPosition, ref pageNumber, titleFont, font, left, contentWidth);
                             gfx.DrawString($"• {func.Key}", font, XBrushes.DarkGoldenrod, new XRect(left + 20, yPosition, contentWidth - 80, 14), XStringFormats.TopLeft);
                             gfx.DrawString(func.Value.ToString(), font, XBrushes.DarkGoldenrod, new XRect(left + contentWidth - 40, yPosition, 40, 14), XStringFormats.TopRight);
                             yPosition += 14;
@@ -834,7 +834,7 @@ public class PdfExportService
                         
                         if (op.WithoutVehicleTruppCount > 0)
                         {
-                            PaginateIfNeeded(document, ref page, ref gfx, ref yPosition);
+                            PaginateIfNeeded(document, ref page, ref gfx, ref yPosition, ref pageNumber, titleFont, font, left, contentWidth);
                             gfx.DrawString("• Trupp", font, XBrushes.Gray, new XRect(left + 20, yPosition, contentWidth - 80, 14), XStringFormats.TopLeft);
                             gfx.DrawString(op.WithoutVehicleTruppCount.ToString(), font, XBrushes.Gray, new XRect(left + contentWidth - 40, yPosition, 40, 14), XStringFormats.TopRight);
                             yPosition += 14;
@@ -865,14 +865,17 @@ public class PdfExportService
         }
     }
 
-    private static void PaginateIfNeeded(PdfDocument document, ref PdfPage page, ref XGraphics gfx, ref double y)
+    private static void PaginateIfNeeded(PdfDocument document, ref PdfPage page, ref XGraphics gfx, ref double y, ref int pageNumber, XFont titleFont, XFont font, double left, double contentWidth)
     {
-        if (y > page.Height - 50)
+        if (y > page.Height - 80)
         {
+            DrawFooter(document, page, gfx, font, left, page.Height, contentWidth, pageNumber);
+            pageNumber++;
             page = document.AddPage();
             gfx.Dispose();
             gfx = XGraphics.FromPdfPage(page);
-            y = 50;
+            DrawHeader(gfx, "STATISTIK-BERICHT", titleFont, left, 50, contentWidth);
+            y = 86;
         }
     }
 }
