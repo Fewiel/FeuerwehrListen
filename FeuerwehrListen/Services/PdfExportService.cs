@@ -777,45 +777,80 @@ public class PdfExportService
             if (opComposition.Any())
             {
                 PaginateIfNeeded(document, ref page, ref gfx, ref yPosition);
-                gfx.DrawString($"Einsatz-Zusammensetzung (letzte {opComposition.Count} Einsätze)", titleFont, XBrushes.Black, new XRect(left, yPosition, contentWidth, 18), XStringFormats.TopLeft);
+                gfx.DrawString($"Einsatz-Übersicht (letzte {opComposition.Count} Einsätze)", titleFont, XBrushes.Black, new XRect(left, yPosition, contentWidth, 18), XStringFormats.TopLeft);
                 yPosition += 22;
-
-                var maxTotal = opComposition.Max(o => o.TotalParticipants);
-                var barWidth = contentWidth - 120d;
-
-                gfx.DrawString("Gesamtstärke pro Einsatz:", boldFont, XBrushes.Black, new XRect(left, yPosition, contentWidth, 16), XStringFormats.TopLeft);
-                yPosition += 18;
 
                 foreach (var op in opComposition.OrderByDescending(o => o.OperationNumber))
                 {
                     PaginateIfNeeded(document, ref page, ref gfx, ref yPosition);
-                    gfx.DrawString(op.OperationNumber, font, XBrushes.Black, new XRect(left, yPosition, 80d, 14), XStringFormats.TopLeft);
-                    var barLength = maxTotal > 0 ? (op.TotalParticipants / (double)maxTotal) * barWidth : 0;
-                    gfx.DrawRectangle(XBrushes.DarkBlue, left + 85d, yPosition, barLength, 12);
-                    gfx.DrawString(op.TotalParticipants.ToString(), font, XBrushes.Black, new XRect(left + 90d + barLength, yPosition, 40d, 14), XStringFormats.TopLeft);
-                    yPosition += 16;
-                }
-                yPosition += 10;
-
-                var allFunctions = opComposition.SelectMany(o => o.FunctionCounts.Keys).Distinct().OrderBy(n => n).ToList();
-                foreach (var funcName in allFunctions)
-                {
-                    PaginateIfNeeded(document, ref page, ref gfx, ref yPosition);
-                    gfx.DrawString($"{funcName}:", boldFont, XBrushes.Black, new XRect(left, yPosition, contentWidth, 16), XStringFormats.TopLeft);
+                    
+                    var title = op.OperationNumber;
+                    if (!string.IsNullOrEmpty(op.Keyword)) title += $" | {op.Keyword}";
+                    if (!string.IsNullOrEmpty(op.Address)) title += $" | {op.Address}";
+                    
+                    gfx.DrawString(title, boldFont, XBrushes.Black, new XRect(left, yPosition, contentWidth - 100, 16), XStringFormats.TopLeft);
+                    gfx.DrawString($"{op.TotalParticipants} Teilnehmer", font, XBrushes.Gray, new XRect(left + contentWidth - 100, yPosition, 100, 16), XStringFormats.TopRight);
                     yPosition += 18;
 
-                    var maxFunc = opComposition.Max(o => o.FunctionCounts.GetValueOrDefault(funcName, 0));
-                    foreach (var op in opComposition.OrderByDescending(o => o.OperationNumber))
+                    var functionsWithVehicle = op.FunctionCounts.Where(f => f.Value > 0).OrderByDescending(f => f.Value).ToList();
+                    var functionsWithoutVehicle = op.NoVehicleFunctionCounts.Where(f => f.Value > 0).OrderByDescending(f => f.Value).ToList();
+
+                    if (functionsWithVehicle.Any() || op.WithVehicleTruppCount > 0)
+                    {
+                        gfx.DrawString("Funktionen (mit Fahrzeug):", font, XBrushes.Black, new XRect(left + 10, yPosition, contentWidth, 14), XStringFormats.TopLeft);
+                        yPosition += 16;
+
+                        foreach (var func in functionsWithVehicle)
+                        {
+                            PaginateIfNeeded(document, ref page, ref gfx, ref yPosition);
+                            gfx.DrawString($"• {func.Key}", font, XBrushes.Black, new XRect(left + 20, yPosition, contentWidth - 80, 14), XStringFormats.TopLeft);
+                            gfx.DrawString(func.Value.ToString(), font, XBrushes.Black, new XRect(left + contentWidth - 40, yPosition, 40, 14), XStringFormats.TopRight);
+                            yPosition += 14;
+                        }
+                        
+                        if (op.WithVehicleTruppCount > 0)
+                        {
+                            PaginateIfNeeded(document, ref page, ref gfx, ref yPosition);
+                            gfx.DrawString("• Trupp", font, XBrushes.Gray, new XRect(left + 20, yPosition, contentWidth - 80, 14), XStringFormats.TopLeft);
+                            gfx.DrawString(op.WithVehicleTruppCount.ToString(), font, XBrushes.Gray, new XRect(left + contentWidth - 40, yPosition, 40, 14), XStringFormats.TopRight);
+                            yPosition += 14;
+                        }
+                        yPosition += 4;
+                    }
+
+                    if (functionsWithoutVehicle.Any() || op.WithoutVehicleTruppCount > 0)
                     {
                         PaginateIfNeeded(document, ref page, ref gfx, ref yPosition);
-                        var count = op.FunctionCounts.GetValueOrDefault(funcName, 0);
-                        gfx.DrawString(op.OperationNumber, font, XBrushes.Black, new XRect(left, yPosition, 80d, 14), XStringFormats.TopLeft);
-                        var barLength = maxFunc > 0 ? (count / (double)maxFunc) * barWidth : 0;
-                        gfx.DrawRectangle(XBrushes.DarkGreen, left + 85d, yPosition, barLength, 12);
-                        gfx.DrawString(count.ToString(), font, XBrushes.Black, new XRect(left + 90d + barLength, yPosition, 40d, 14), XStringFormats.TopLeft);
+                        gfx.DrawString("Funktionen (ohne Fahrzeug):", font, XBrushes.Black, new XRect(left + 10, yPosition, contentWidth, 14), XStringFormats.TopLeft);
                         yPosition += 16;
+
+                        foreach (var func in functionsWithoutVehicle)
+                        {
+                            PaginateIfNeeded(document, ref page, ref gfx, ref yPosition);
+                            gfx.DrawString($"• {func.Key}", font, XBrushes.DarkGoldenrod, new XRect(left + 20, yPosition, contentWidth - 80, 14), XStringFormats.TopLeft);
+                            gfx.DrawString(func.Value.ToString(), font, XBrushes.DarkGoldenrod, new XRect(left + contentWidth - 40, yPosition, 40, 14), XStringFormats.TopRight);
+                            yPosition += 14;
+                        }
+                        
+                        if (op.WithoutVehicleTruppCount > 0)
+                        {
+                            PaginateIfNeeded(document, ref page, ref gfx, ref yPosition);
+                            gfx.DrawString("• Trupp", font, XBrushes.Gray, new XRect(left + 20, yPosition, contentWidth - 80, 14), XStringFormats.TopLeft);
+                            gfx.DrawString(op.WithoutVehicleTruppCount.ToString(), font, XBrushes.Gray, new XRect(left + contentWidth - 40, yPosition, 40, 14), XStringFormats.TopRight);
+                            yPosition += 14;
+                        }
+                        yPosition += 4;
                     }
-                    yPosition += 10;
+
+                    if (!functionsWithVehicle.Any() && !functionsWithoutVehicle.Any() && op.WithVehicleTruppCount == 0 && op.WithoutVehicleTruppCount == 0)
+                    {
+                        gfx.DrawString("Keine Funktionen zugewiesen", font, XBrushes.Gray, new XRect(left + 10, yPosition, contentWidth, 14), XStringFormats.TopLeft);
+                        yPosition += 14;
+                    }
+
+                    var pen = new XPen(XColors.LightGray, 0.5);
+                    gfx.DrawLine(pen, left, yPosition, left + contentWidth, yPosition);
+                    yPosition += 12;
                 }
             }
 

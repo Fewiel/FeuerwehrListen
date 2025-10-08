@@ -249,10 +249,12 @@ public class StatisticsService
 
     public async Task<List<FunctionStatistics>> GetFunctionStatisticsAsync()
     {
+        var operationEntries = await _db.OperationEntries.ToListAsync();
         var functionLinks = await _db.OperationEntryFunctions.ToListAsync();
         var functionDefs = await _db.OperationFunctionDefs.ToListAsync();
 
-        if (!functionLinks.Any())
+        var totalOperationParticipants = operationEntries.Count;
+        if (totalOperationParticipants == 0)
         {
             return new List<FunctionStatistics>();
         }
@@ -266,12 +268,6 @@ public class StatisticsService
             })
             .ToList();
 
-        var totalFunctionAssignments = (double)functionLinks.Count();
-        if (totalFunctionAssignments == 0)
-        {
-            return new List<FunctionStatistics>();
-        }
-
         var result = new List<FunctionStatistics>();
         foreach (var func in functionCounts)
         {
@@ -282,9 +278,22 @@ public class StatisticsService
                 {
                     FunctionName = functionDef.Name,
                     Count = func.Count,
-                    Percentage = Math.Round(func.Count / totalFunctionAssignments * 100, 1)
+                    Percentage = Math.Round((double)func.Count / totalOperationParticipants * 100, 1)
                 });
             }
+        }
+
+        var entryIdsWithFunctions = functionLinks.Select(f => f.OperationEntryId).Distinct().ToHashSet();
+        var truppCount = operationEntries.Count(e => !entryIdsWithFunctions.Contains(e.Id));
+        
+        if (truppCount > 0)
+        {
+            result.Add(new FunctionStatistics
+            {
+                FunctionName = "Trupp",
+                Count = truppCount,
+                Percentage = Math.Round((double)truppCount / totalOperationParticipants * 100, 1)
+            });
         }
 
         return result.OrderByDescending(s => s.Count).ToList();
@@ -352,25 +361,58 @@ public class StatisticsService
             var composition = new OperationComposition
             {
                 OperationNumber = op.OperationNumber,
+                Keyword = op.Keyword ?? string.Empty,
+                Address = op.Address ?? string.Empty,
                 TotalParticipants = totalParticipants,
-                FunctionCounts = functionDefs.ToDictionary(f => f.Name, f => 0) // Initialize all with 0
+                FunctionCounts = functionDefs.ToDictionary(f => f.Name, f => 0),
+                NoVehicleFunctionCounts = functionDefs.ToDictionary(f => f.Name, f => 0)
             };
 
-            var entryIdsForOperation = opEntries.Select(e => e.Id).ToList();
-            var functionsForOperation = functionLinks
-                .Where(fl => entryIdsForOperation.Contains(fl.OperationEntryId));
+            var entriesWithVehicle = opEntries.Where(e => !string.IsNullOrWhiteSpace(e.Vehicle)).ToList();
+            var entriesWithoutVehicle = opEntries.Where(e => string.IsNullOrWhiteSpace(e.Vehicle)).ToList();
 
-            var counts = functionsForOperation
+            var entryIdsWithVehicle = entriesWithVehicle.Select(e => e.Id).ToList();
+            var entryIdsWithoutVehicle = entriesWithoutVehicle.Select(e => e.Id).ToList();
+
+            var functionsWithVehicle = functionLinks
+                .Where(fl => entryIdsWithVehicle.Contains(fl.OperationEntryId));
+            var functionsWithoutVehicle = functionLinks
+                .Where(fl => entryIdsWithoutVehicle.Contains(fl.OperationEntryId));
+
+            var countsWithVehicle = functionsWithVehicle
+                .GroupBy(fl => fl.FunctionDefId)
+                .ToDictionary(g => g.Key, g => g.Count());
+            var countsWithoutVehicle = functionsWithoutVehicle
                 .GroupBy(fl => fl.FunctionDefId)
                 .ToDictionary(g => g.Key, g => g.Count());
 
-            foreach (var (functionId, count) in counts)
+            foreach (var (functionId, count) in countsWithVehicle)
             {
                 if (functionDefMap.TryGetValue(functionId, out var functionName))
                 {
                     composition.FunctionCounts[functionName] = count;
                 }
             }
+
+            foreach (var (functionId, count) in countsWithoutVehicle)
+            {
+                if (functionDefMap.TryGetValue(functionId, out var functionName))
+                {
+                    composition.NoVehicleFunctionCounts[functionName] = count;
+                }
+            }
+
+            var entryIdsWithFunctionsWithVehicle = functionsWithVehicle
+                .Select(f => f.OperationEntryId)
+                .Distinct()
+                .ToHashSet();
+            var entryIdsWithFunctionsWithoutVehicle = functionsWithoutVehicle
+                .Select(f => f.OperationEntryId)
+                .Distinct()
+                .ToHashSet();
+
+            composition.WithVehicleTruppCount = entriesWithVehicle.Count(e => !entryIdsWithFunctionsWithVehicle.Contains(e.Id));
+            composition.WithoutVehicleTruppCount = entriesWithoutVehicle.Count(e => !entryIdsWithFunctionsWithoutVehicle.Contains(e.Id));
             
             result.Add(composition);
         }

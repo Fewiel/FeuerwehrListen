@@ -230,51 +230,108 @@
         <div class="row mb-4">
             <div class="col-12">
                 <div class="card">
-                    <div class="card-header">
-                        <h5 class="mb-0">📈 Einsatz-Zusammensetzung (letzte 15 Einsätze)</h5>
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">📋 Einsatz-Übersicht</h5>
+                        <div>
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="PreviousPage" disabled="@(_currentPage == 0)">
+                                <i class="bi bi-chevron-left"></i> Zurück
+                            </button>
+                            <span class="mx-2">Seite @(_currentPage + 1) / @_totalPages</span>
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="NextPage" disabled="@(_currentPage >= _totalPages - 1)">
+                                Weiter <i class="bi bi-chevron-right"></i>
+                            </button>
+                        </div>
                     </div>
                     <div class="card-body">
                         @if (_opCompositionData.Any())
                         {
-                            var maxTotal = _opCompositionData.Max(o => o.TotalParticipants);
-                            var allFunctions = _opCompositionData.SelectMany(o => o.FunctionCounts.Keys).Distinct().OrderBy(n => n).ToList();
-                            
-                            <div class="mb-4">
-                                <h6 class="mb-3"><strong>Gesamtstärke pro Einsatz</strong></h6>
-                                @foreach (var op in _opCompositionData.OrderByDescending(o => o.OperationNumber))
-                                {
-                                    <div class="mb-2 d-flex align-items-center">
-                                        <div style="width: 80px; text-align: right; padding-right: 10px;">
-                                            <small><strong>@op.OperationNumber</strong></small>
-                                        </div>
-                                        <div class="flex-grow-1">
-                                            <ProgressBar Value="@(op.TotalParticipants / (double)maxTotal * 100)" Color="#0d6efd" ShowLabel="false" />
-                                        </div>
-                                        <div style="width: 40px; padding-left: 10px;">
-                                            <small>@op.TotalParticipants</small>
+                            var pagedOperations = _opCompositionData
+                                .OrderByDescending(o => o.OperationNumber)
+                                .Skip(_currentPage * _pageSize)
+                                .Take(_pageSize)
+                                .ToList();
+
+                            @foreach (var op in pagedOperations)
+                            {
+                                var isExpanded = _expandedOperations.Contains(op.OperationNumber);
+                                <div class="card mb-3">
+                                    <div class="card-header" style="cursor: pointer;" @onclick="() => ToggleOperation(op.OperationNumber)">
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <div>
+                                                <strong>@op.OperationNumber</strong>
+                                                @if (!string.IsNullOrEmpty(op.Keyword))
+                                                {
+                                                    <span class="ms-2 text-muted">| @op.Keyword</span>
+                                                }
+                                                @if (!string.IsNullOrEmpty(op.Address))
+                                                {
+                                                    <span class="ms-2 text-muted">| @op.Address</span>
+                                                }
+                                            </div>
+                                            <div class="d-flex align-items-center">
+                                                <span class="badge bg-primary me-2">@op.TotalParticipants Teilnehmer</span>
+                                                <i class="bi @(isExpanded ? "bi-chevron-up" : "bi-chevron-down")"></i>
+                                            </div>
                                         </div>
                                     </div>
-                                }
-                            </div>
-
-                            @foreach (var funcName in allFunctions)
-                            {
-                                var maxFunc = _opCompositionData.Max(o => o.FunctionCounts.GetValueOrDefault(funcName, 0));
-                                <div class="mb-4">
-                                    <h6 class="mb-3"><strong>@funcName</strong></h6>
-                                    @foreach (var op in _opCompositionData.OrderByDescending(o => o.OperationNumber))
+                                    @if (isExpanded)
                                     {
-                                        var count = op.FunctionCounts.GetValueOrDefault(funcName, 0);
-                                        <div class="mb-2 d-flex align-items-center">
-                                            <div style="width: 80px; text-align: right; padding-right: 10px;">
-                                                <small><strong>@op.OperationNumber</strong></small>
-                                            </div>
-                                            <div class="flex-grow-1">
-                                                <ProgressBar Value="@(maxFunc > 0 ? count / (double)maxFunc * 100 : 0)" Color="#198754" ShowLabel="false" />
-                                            </div>
-                                            <div style="width: 40px; padding-left: 10px;">
-                                                <small>@count</small>
-                                            </div>
+                                        <div class="card-body">
+                                            @if (op.FunctionCounts.Any(f => f.Value > 0) || op.WithVehicleTruppCount > 0)
+                                            {
+                                                <h6 class="mb-3">Funktionen (mit Fahrzeug):</h6>
+                                                <div class="row">
+                                                    @foreach (var func in op.FunctionCounts.Where(f => f.Value > 0).OrderByDescending(f => f.Value))
+                                                    {
+                                                        <div class="col-md-6 mb-2">
+                                                            <div class="d-flex justify-content-between align-items-center">
+                                                                <span>@func.Key</span>
+                                                                <span class="badge bg-primary">@func.Value</span>
+                                                            </div>
+                                                        </div>
+                                                    }
+                                                    @if (op.WithVehicleTruppCount > 0)
+                                                    {
+                                                        <div class="col-md-6 mb-2">
+                                                            <div class="d-flex justify-content-between align-items-center">
+                                                                <span>Trupp</span>
+                                                                <span class="badge bg-secondary">@op.WithVehicleTruppCount</span>
+                                                            </div>
+                                                        </div>
+                                                    }
+                                                </div>
+                                            }
+                                            
+                                            @if (op.NoVehicleFunctionCounts.Any(f => f.Value > 0) || op.WithoutVehicleTruppCount > 0)
+                                            {
+                                                <hr class="my-3" />
+                                                <h6 class="mb-3">Funktionen (ohne Fahrzeug):</h6>
+                                                <div class="row">
+                                                    @foreach (var func in op.NoVehicleFunctionCounts.Where(f => f.Value > 0).OrderByDescending(f => f.Value))
+                                                    {
+                                                        <div class="col-md-6 mb-2">
+                                                            <div class="d-flex justify-content-between align-items-center">
+                                                                <span>@func.Key</span>
+                                                                <span class="badge bg-warning text-dark">@func.Value</span>
+                                                            </div>
+                                                        </div>
+                                                    }
+                                                    @if (op.WithoutVehicleTruppCount > 0)
+                                                    {
+                                                        <div class="col-md-6 mb-2">
+                                                            <div class="d-flex justify-content-between align-items-center">
+                                                                <span>Trupp</span>
+                                                                <span class="badge bg-secondary">@op.WithoutVehicleTruppCount</span>
+                                                            </div>
+                                                        </div>
+                                                    }
+                                                </div>
+                                            }
+                                            
+                                            @if (!op.FunctionCounts.Any(f => f.Value > 0) && !op.NoVehicleFunctionCounts.Any(f => f.Value > 0) && op.WithVehicleTruppCount == 0 && op.WithoutVehicleTruppCount == 0)
+                                            {
+                                                <p class="text-muted mb-0">Keine Funktionen zugewiesen</p>
+                                            }
                                         </div>
                                     }
                                 </div>
@@ -282,7 +339,7 @@
                         }
                         else
                         {
-                            <p class="text-muted">Nicht genügend Daten verfügbar.</p>
+                            <p class="text-muted">Keine Einsätze verfügbar.</p>
                         }
                     </div>
                 </div>
@@ -357,6 +414,10 @@
     private List<FunctionStatistics> _functionStats = new();
     private BreathingApparatusStatistics _breathingStats = new();
     private List<OperationComposition> _opCompositionData = new();
+    private HashSet<string> _expandedOperations = new();
+    private int _currentPage = 0;
+    private int _pageSize = 10;
+    private int _totalPages => _opCompositionData.Any() ? (int)Math.Ceiling(_opCompositionData.Count / (double)_pageSize) : 1;
 
     protected override async Task OnInitializedAsync()
     {
@@ -376,12 +437,40 @@
             _vehicleStats = await StatsService.GetVehicleStatisticsAsync();
             _functionStats = await StatsService.GetFunctionStatisticsAsync();
             _breathingStats = await StatsService.GetBreathingApparatusStatisticsAsync();
-            _opCompositionData = await StatsService.GetOperationCompositionAsync(15);
+            _opCompositionData = await StatsService.GetOperationCompositionAsync(100);
         }
         finally
         {
             _loading = false;
             StateHasChanged();
+        }
+    }
+
+    private void ToggleOperation(string operationNumber)
+    {
+        if (_expandedOperations.Contains(operationNumber))
+        {
+            _expandedOperations.Remove(operationNumber);
+        }
+        else
+        {
+            _expandedOperations.Add(operationNumber);
+        }
+    }
+
+    private void NextPage()
+    {
+        if (_currentPage < _totalPages - 1)
+        {
+            _currentPage++;
+        }
+    }
+
+    private void PreviousPage()
+    {
+        if (_currentPage > 0)
+        {
+            _currentPage--;
         }
     }
 
