@@ -52,6 +52,8 @@ public class StatisticsService
         var attendanceEntries = await _db.AttendanceEntries.ToListAsync();
         var operationEntries = await _db.OperationEntries.ToListAsync();
         var members = await _db.Members.Where(x => x.IsActive).ToListAsync();
+        var attendanceLists = await _db.AttendanceLists.CountAsync();
+        var operationLists = await _db.OperationLists.CountAsync();
 
         var memberParticipation = new Dictionary<int, int>();
 
@@ -80,7 +82,7 @@ public class StatisticsService
             }
         }
 
-        var totalParticipation = memberParticipation.Values.Sum();
+        var totalLists = attendanceLists + operationLists;
 
         return memberParticipation
             .OrderByDescending(x => x.Value)
@@ -94,7 +96,7 @@ public class StatisticsService
                     MemberName = $"{member.FirstName} {member.LastName}",
                     MemberNumber = member.MemberNumber,
                     ParticipationCount = x.Value,
-                    Percentage = totalParticipation > 0 ? Math.Round((double)x.Value / totalParticipation * 100, 1) : 0
+                    Percentage = totalLists > 0 ? Math.Round((double)x.Value / totalLists * 100, 1) : 0
                 };
             })
             .ToList();
@@ -292,13 +294,16 @@ public class StatisticsService
     {
         var operationEntries = await _db.OperationEntries.ToListAsync();
         
-        // Finde alle Einträge, die als Atemschutzgeräteträger markiert sind
-        var atemschutzFunction = await _db.OperationFunctionDefs.FirstOrDefaultAsync(f => f.Name == "Atemschutzgeräteträger");
+        var atemschutzFunctions = await _db.OperationFunctionDefs
+            .Where(f => f.Name.Contains("Atemschutz") || f.Name.Contains("AGT"))
+            .ToListAsync();
+        
         int withApparatus = 0;
-        if (atemschutzFunction != null)
+        if (atemschutzFunctions.Any())
         {
+            var functionIds = atemschutzFunctions.Select(f => f.Id).ToList();
             withApparatus = await _db.OperationEntryFunctions
-                .CountAsync(f => f.FunctionDefId == atemschutzFunction.Id);
+                .CountAsync(f => functionIds.Contains(f.FunctionDefId));
         }
 
         var totalParticipants = operationEntries.Count;
