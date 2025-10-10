@@ -115,8 +115,8 @@
                                                        @onkeyup="HandleKeyPress"
                                                        @ref="_inputElement"
                                                        autocomplete="off" />
-                                                <button class="btn btn-primary btn-lg" @onclick="ShowVehicleModal" disabled="@(string.IsNullOrWhiteSpace(_memberIdInput))">
-                                                    Weiter
+                                                <button class="btn btn-primary btn-lg" @onclick="ClearMemberId" disabled="@(string.IsNullOrWhiteSpace(_memberIdInput))">
+                                                    Leeren
                                                 </button>
                                             </div>
                                             @if (_showSuggestions && _suggestions.Count > 0)
@@ -139,14 +139,6 @@
                             
         @if (_selectedMember != null)
         {
-            <div class="row">
-                <div class="col-12">
-                    <div class="alert alert-info">
-                        <strong>Ausgewählt:</strong> @_selectedMember.FirstName @_selectedMember.LastName (@_selectedMember.MemberNumber)
-                    </div>
-                </div>
-            </div>
-            
             <div class="row">
                 <div class="col-md-6">
                     <div class="mb-3">
@@ -541,12 +533,15 @@
         catch { }
     }
 
-    private void SelectSuggestion(Member m)
+    private async Task SelectSuggestion(Member m)
     {
         _memberIdInput = m.MemberNumber;
         _selectedMember = m;
         _showSuggestions = false;
         _searchInput = string.Empty;
+        
+        // Direkt zur Fahrzeugauswahl
+        await ShowVehicleModal();
     }
 
     private void OnDigitEntered(string digit)
@@ -648,6 +643,8 @@
 
     private void OnFunctionModalClosed()
     {
+        // Zurück zur Fahrzeugauswahl
+        _vehicleModal?.ShowModal();
         StateHasChanged();
     }
 
