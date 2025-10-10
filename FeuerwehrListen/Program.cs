@@ -99,9 +99,12 @@ builder.Services.AddScoped<ScheduledListRepository>();
 builder.Services.AddScoped<VehicleRepository>();
 builder.Services.AddScoped<OperationFunctionRepository>();
 builder.Services.AddScoped<OperationEntryFunctionRepository>();
+builder.Services.AddScoped<KeywordRepository>();
+builder.Services.AddScoped<PersonalRequirementRepository>();
 builder.Services.AddScoped<StatisticsService>();
 builder.Services.AddScoped<PdfExportService>();
 builder.Services.AddScoped<GeocodingService>();
+builder.Services.AddScoped<PersonalRequirementsService>();
 
 builder.Services.AddSingleton<AuthenticationService>();
 builder.Services.AddHostedService<ScheduledListBackgroundService>();

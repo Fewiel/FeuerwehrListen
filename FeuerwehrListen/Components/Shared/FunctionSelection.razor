@@ -1,0 +1,71 @@
+@using FeuerwehrListen.Models
+
+<div class="function-selection">
+    <h6 class="mb-3">Funktionen auswählen</h6>
+    <div class="row g-2">
+        @foreach (var function in _functions)
+        {
+            <div class="col-md-6 col-lg-4">
+                <div class="form-check form-check-lg">
+                    <input class="form-check-input" 
+                           type="checkbox" 
+                           id="func_@function.Id" 
+                           checked="@_selectedFunctionIds.Contains(function.Id)" 
+                           @onchange="(e) => ToggleFunction(function.Id, (bool)e.Value)" />
+                    <label class="form-check-label fs-6" for="func_@function.Id">
+                        @function.Name
+                    </label>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+<style>
+    .function-selection {
+        background: #f8f9fa;
+        border-radius: 8px;
+        padding: 1rem;
+        margin: 1rem 0;
+    }
+
+    .form-check-lg .form-check-input {
+        width: 1.25rem;
+        height: 1.25rem;
+        margin-top: 0.125rem;
+    }
+
+    .form-check-lg .form-check-label {
+        font-size: 1rem;
+        padding-left: 0.5rem;
+    }
+</style>
+
+@code {
+    [Parameter] public List<OperationFunctionDef> Functions { get; set; } = new();
+    [Parameter] public HashSet<int> SelectedFunctionIds { get; set; } = new();
+    [Parameter] public EventCallback<HashSet<int>> OnSelectionChanged { get; set; }
+
+    private List<OperationFunctionDef> _functions = new();
+    private HashSet<int> _selectedFunctionIds = new();
+
+    protected override void OnParametersSet()
+    {
+        _functions = Functions;
+        _selectedFunctionIds = new HashSet<int>(SelectedFunctionIds);
+    }
+
+    private async Task ToggleFunction(int functionId, bool isChecked)
+    {
+        if (isChecked)
+        {
+            _selectedFunctionIds.Add(functionId);
+        }
+        else
+        {
+            _selectedFunctionIds.Remove(functionId);
+        }
+        
+        await OnSelectionChanged.InvokeAsync(_selectedFunctionIds);
+    }
+}

@@ -1,0 +1,126 @@
+@using FeuerwehrListen.Models
+@using Microsoft.AspNetCore.Components.Web
+
+<div class="modal fade @(_showOverviewModal ? "show" : "")" style="@(_showOverviewModal ? "display:block; background: rgba(0,0,0,.5);" : "display:none;")" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content bg-dark text-light border-secondary">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title">Eintrag bestätigen</h5>
+                <button type="button" class="btn-close btn-close-white" @onclick="CloseOverviewModal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <div class="col-12">
+                        <div class="card bg-dark border-secondary">
+                            <div class="card-body">
+                                <h6 class="card-title text-primary mb-3">
+                                    <i class="bi bi-person-fill"></i> Mitglied
+                                </h6>
+                                <p class="card-text text-light fs-5">@_memberName</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row mt-3">
+                    <div class="col-12">
+                        <div class="card bg-dark border-secondary">
+                            <div class="card-body">
+                                <h6 class="card-title text-primary mb-3">
+                                    <i class="bi bi-truck"></i> Fahrzeug
+                                </h6>
+                                <p class="card-text text-light fs-5">@_vehicleName</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row mt-3">
+                    <div class="col-12">
+                        <div class="card bg-dark border-secondary">
+                            <div class="card-body">
+                                <h6 class="card-title text-primary mb-3">
+                                    <i class="bi bi-person-check"></i> Funktionen
+                                </h6>
+                                @if (_functionNames.Any())
+                                {
+                                    <div class="d-flex flex-wrap gap-2">
+                                        @foreach (var functionName in _functionNames)
+                                        {
+                                            <span class="badge bg-primary fs-6">@functionName</span>
+                                        }
+                                    </div>
+                                }
+                                else
+                                {
+                                    <p class="card-text text-muted">Keine Funktionen ausgewählt</p>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row mt-3">
+                    <div class="col-12">
+                        <div class="card bg-dark border-secondary">
+                            <div class="card-body">
+                                <h6 class="card-title text-primary mb-3">
+                                    <i class="bi bi-shield-check"></i> Unter Atemschutz
+                                </h6>
+                                <div class="form-check form-check-lg">
+                                    <input class="form-check-input" 
+                                           type="checkbox" 
+                                           @bind="_withBreathingApparatus" 
+                                           id="breathingCheckOverview" />
+                                    <label class="form-check-label fs-5 text-light" for="breathingCheckOverview">
+                                        Ja, unter Atemschutz
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer border-secondary">
+                <button type="button" class="btn btn-secondary" @onclick="CloseOverviewModal">Zurück</button>
+                <button type="button" class="btn btn-success btn-lg" @onclick="ConfirmEntry">
+                    <i class="bi bi-check-circle"></i> Bestätigen
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public EventCallback<(string memberName, string vehicleName, List<string> functionNames, bool withBreathingApparatus)> OnEntryConfirmed { get; set; }
+    [Parameter] public EventCallback OnModalClosed { get; set; }
+
+    private bool _showOverviewModal = false;
+    private string _memberName = string.Empty;
+    private string _vehicleName = string.Empty;
+    private List<string> _functionNames = new();
+    private bool _withBreathingApparatus = false;
+
+    public void ShowModal(string memberName, string vehicleName, List<string> functionNames, bool withBreathingApparatus)
+    {
+        _showOverviewModal = true;
+        _memberName = memberName;
+        _vehicleName = vehicleName;
+        _functionNames = functionNames;
+        _withBreathingApparatus = withBreathingApparatus;
+        StateHasChanged();
+    }
+
+    private async Task ConfirmEntry()
+    {
+        await OnEntryConfirmed.InvokeAsync((_memberName, _vehicleName, _functionNames, _withBreathingApparatus));
+        CloseOverviewModal();
+    }
+
+    private void CloseOverviewModal()
+    {
+        _showOverviewModal = false;
+        OnModalClosed.InvokeAsync();
+        StateHasChanged();
+    }
+}

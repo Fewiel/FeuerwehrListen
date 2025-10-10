@@ -1,0 +1,95 @@
+@using Microsoft.AspNetCore.Components.Web
+
+<div class="numpad-container">
+    <div class="numpad">
+        <div class="numpad-row">
+            <button type="button" class="numpad-btn" @onclick='() => AddDigit("1")'>1</button>
+            <button type="button" class="numpad-btn" @onclick='() => AddDigit("2")'>2</button>
+            <button type="button" class="numpad-btn" @onclick='() => AddDigit("3")'>3</button>
+        </div>
+        <div class="numpad-row">
+            <button type="button" class="numpad-btn" @onclick='() => AddDigit("4")'>4</button>
+            <button type="button" class="numpad-btn" @onclick='() => AddDigit("5")'>5</button>
+            <button type="button" class="numpad-btn" @onclick='() => AddDigit("6")'>6</button>
+        </div>
+        <div class="numpad-row">
+            <button type="button" class="numpad-btn" @onclick='() => AddDigit("7")'>7</button>
+            <button type="button" class="numpad-btn" @onclick='() => AddDigit("8")'>8</button>
+            <button type="button" class="numpad-btn" @onclick='() => AddDigit("9")'>9</button>
+        </div>
+        <div class="numpad-row">
+            <button type="button" class="numpad-btn numpad-btn-wide" @onclick="ClearInput">Löschen</button>
+            <button type="button" class="numpad-btn" @onclick='() => AddDigit("0")'>0</button>
+            <button type="button" class="numpad-btn numpad-btn-wide" @onclick="SubmitInput">Eingabe</button>
+        </div>
+    </div>
+</div>
+
+<style>
+    .numpad-container {
+        display: flex;
+        justify-content: center;
+        margin: 1rem 0;
+    }
+
+    .numpad {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 0.5rem;
+        max-width: 300px;
+        width: 100%;
+    }
+
+    .numpad-row {
+        display: contents;
+    }
+
+    .numpad-btn {
+        background: #f8f9fa;
+        border: 2px solid #dee2e6;
+        border-radius: 8px;
+        font-size: 1.5rem;
+        font-weight: bold;
+        height: 60px;
+        min-width: 60px;
+        transition: all 0.2s ease;
+        cursor: pointer;
+        color: #495057;
+    }
+
+    .numpad-btn:hover {
+        background: #e9ecef;
+        border-color: #adb5bd;
+        transform: translateY(-1px);
+    }
+
+    .numpad-btn:active {
+        background: #dee2e6;
+        transform: translateY(0);
+    }
+
+    .numpad-btn-wide {
+        grid-column: span 2;
+    }
+</style>
+
+@code {
+    [Parameter] public EventCallback<string> OnDigitEntered { get; set; }
+    [Parameter] public EventCallback OnSubmit { get; set; }
+    [Parameter] public EventCallback OnClear { get; set; }
+
+    private void AddDigit(string digit)
+    {
+        OnDigitEntered.InvokeAsync(digit);
+    }
+
+    private void SubmitInput()
+    {
+        OnSubmit.InvokeAsync();
+    }
+
+    private void ClearInput()
+    {
+        OnClear.InvokeAsync();
+    }
+}

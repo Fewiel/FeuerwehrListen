@@ -83,4 +83,45 @@ public class OperationComposition
     public int WithoutVehicleTruppCount { get; set; }
 }
 
+public class KeywordStatistics
+{
+    public string KeywordName { get; set; } = string.Empty;
+    public int UsageCount { get; set; }
+    public double UsagePercentage { get; set; }
+    public int TotalOperations { get; set; }
+    public int OperationsWithRequirements { get; set; }
+    public int OperationsFulfillingRequirements { get; set; }
+    public double RequirementsFulfillmentRate { get; set; }
+}
+
+public class PersonalRequirementsStatistics
+{
+    public int TotalOperations { get; set; }
+    public int OperationsWithKeywords { get; set; }
+    public int OperationsWithRequirements { get; set; }
+    public int OperationsFulfillingRequirements { get; set; }
+    public double RequirementsFulfillmentRate { get; set; }
+    public List<KeywordRequirementsSummary> KeywordSummaries { get; set; } = new();
+}
+
+public class KeywordRequirementsSummary
+{
+    public string KeywordName { get; set; } = string.Empty;
+    public int OperationsCount { get; set; }
+    public int RequirementsDefined { get; set; }
+    public int RequirementsFulfilled { get; set; }
+    public double FulfillmentRate { get; set; }
+    public List<FunctionRequirementSummary> FunctionSummaries { get; set; } = new();
+}
+
+public class FunctionRequirementSummary
+{
+    public string FunctionName { get; set; } = string.Empty;
+    public int RequiredCount { get; set; }
+    public int ActualCount { get; set; }
+    public int MissingCount { get; set; }
+    public bool IsRequired { get; set; }
+    public double FulfillmentRate { get; set; }
+}
+
 

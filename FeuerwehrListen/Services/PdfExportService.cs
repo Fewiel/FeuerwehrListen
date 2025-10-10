@@ -19,6 +19,7 @@ public class PdfExportService
     private readonly StatisticsService _statisticsService;
     private readonly OperationEntryFunctionRepository _entryFunctionRepo;
     private readonly GeocodingService _geocodingService;
+    private readonly PersonalRequirementsService _requirementsService;
 
     public PdfExportService(
         AttendanceListRepository attendanceRepo,
@@ -27,7 +28,8 @@ public class PdfExportService
         OperationEntryRepository operationEntryRepo,
         StatisticsService statisticsService,
         OperationEntryFunctionRepository entryFunctionRepo,
-        GeocodingService geocodingService)
+        GeocodingService geocodingService,
+        PersonalRequirementsService requirementsService)
     {
         _attendanceRepo = attendanceRepo;
         _operationRepo = operationRepo;
@@ -36,6 +38,7 @@ public class PdfExportService
         _statisticsService = statisticsService;
         _entryFunctionRepo = entryFunctionRepo;
         _geocodingService = geocodingService;
+        _requirementsService = requirementsService;
     }
 
     private XFont CreateFont(string fontFamily, double size, bool isBold = false)
@@ -357,6 +360,35 @@ public class PdfExportService
             double yPosition = top + 36;
             gfx.DrawString($"Einsatznummer: {list.OperationNumber ?? string.Empty}", font, XBrushes.Black, new XRect(left, yPosition, contentWidth, 16), XStringFormats.TopLeft); yPosition += 16;
             gfx.DrawString($"Stichwort: {list.Keyword ?? string.Empty}", font, XBrushes.Black, new XRect(left, yPosition, contentWidth, 16), XStringFormats.TopLeft); yPosition += 16;
+            
+            // Personal Requirements Status
+            if (list.KeywordId.HasValue)
+            {
+                var requirementsValidation = await _requirementsService.ValidateRequirementsAsync(list.Id, list.KeywordId.Value);
+                if (requirementsValidation.MissingRequirements.Any())
+                {
+                    var statusColor = requirementsValidation.IsValid ? XBrushes.Green : XBrushes.Orange;
+                    var statusText = requirementsValidation.IsValid ? "✅ Alle Personal Requirements erfüllt" : "⚠️ Personal Requirements teilweise erfüllt";
+                    gfx.DrawString($"Personal Requirements: {statusText}", font, statusColor, new XRect(left, yPosition, contentWidth, 16), XStringFormats.TopLeft); yPosition += 16;
+                    
+                    if (!requirementsValidation.IsValid)
+                    {
+                        gfx.DrawString("Fehlende Requirements:", headerBold, XBrushes.Black, new XRect(left, yPosition, contentWidth, 16), XStringFormats.TopLeft); yPosition += 18;
+                        foreach (var missing in requirementsValidation.MissingRequirements.Take(5)) // Limit to 5 for space
+                        {
+                            var reqText = $"{missing.FunctionName}: {missing.CurrentCount}/{missing.RequiredCount}";
+                            if (missing.IsRequired) reqText += " (Empfohlen)";
+                            gfx.DrawString($"• {reqText}", font, XBrushes.Black, new XRect(left + 10, yPosition, contentWidth - 10, 14), XStringFormats.TopLeft); yPosition += 14;
+                        }
+                        if (requirementsValidation.MissingRequirements.Count > 5)
+                        {
+                            gfx.DrawString($"... und {requirementsValidation.MissingRequirements.Count - 5} weitere", font, XBrushes.Gray, new XRect(left + 10, yPosition, contentWidth - 10, 14), XStringFormats.TopLeft); yPosition += 14;
+                        }
+                        yPosition += 8;
+                    }
+                }
+            }
+            
             gfx.DrawString($"Alarmzeit: {list.AlertTime:dd.MM.yyyy HH:mm}", font, XBrushes.Black, new XRect(left, yPosition, contentWidth, 16), XStringFormats.TopLeft); yPosition += 16;
             gfx.DrawString($"Erstellt am: {list.CreatedAt:dd.MM.yyyy HH:mm}", font, XBrushes.Black, new XRect(left, yPosition, contentWidth, 16), XStringFormats.TopLeft); yPosition += 16;
             gfx.DrawString($"Status: {(list.Status == ListStatus.Open ? "Offen" : "Geschlossen")}", font, XBrushes.Black, new XRect(left, yPosition, contentWidth, 16), XStringFormats.TopLeft); yPosition += 16;

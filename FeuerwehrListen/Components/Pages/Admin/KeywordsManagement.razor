@@ -1,0 +1,325 @@
+@page "/admin/keywords"
+@using FeuerwehrListen.Models
+@using FeuerwehrListen.Repositories
+@using FeuerwehrListen.Services
+@inject KeywordRepository KeywordRepo
+@inject PersonalRequirementRepository RequirementRepo
+@inject OperationFunctionRepository FunctionRepo
+@inject PersonalRequirementsService RequirementsService
+@rendermode InteractiveServer
+
+<PageTitle>Stichwörter und Personal Requirements</PageTitle>
+
+<div class="container mt-4">
+    <div class="row mb-4">
+        <div class="col">
+            <h1>Stichwörter und Personal Requirements</h1>
+            <p class="lead">Verwalten Sie Stichwörter und deren Personal Requirements</p>
+        </div>
+        <div class="col-auto">
+            <button class="btn btn-primary" @onclick="() => _showAddKeywordModal = true">
+                <i class="bi bi-plus-circle"></i> Neues Stichwort
+            </button>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            @_errorMessage
+            <button type="button" class="btn-close" @onclick="() => _errorMessage = string.Empty"></button>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(_successMessage))
+    {
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            @_successMessage
+            <button type="button" class="btn-close" @onclick="() => _successMessage = string.Empty"></button>
+        </div>
+    }
+
+    <div class="row">
+        @foreach (var keyword in _keywords)
+        {
+            <div class="col-md-6 col-lg-4 mb-4">
+                <div class="card h-100 bg-dark text-light border-secondary">
+                    <div class="card-header d-flex justify-content-between align-items-center border-secondary">
+                        <h5 class="mb-0">@keyword.Name</h5>
+                        <div class="btn-group">
+                            <button class="btn btn-outline-primary btn-sm" @onclick="() => EditKeyword(keyword)" title="Bearbeiten">
+                                <i class="bi bi-pencil"></i> Bearbeiten
+                            </button>
+                            <button class="btn btn-outline-danger btn-sm" @onclick="() => DeleteKeyword(keyword.Id)" title="Löschen">
+                                <i class="bi bi-trash"></i> Löschen
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body bg-dark text-light">
+                        @if (!string.IsNullOrEmpty(keyword.Description))
+                        {
+                            <p class="card-text text-muted">@keyword.Description</p>
+                        }
+                        
+                        <h6>Personal Requirements:</h6>
+                        @if (_requirementsByKeyword.ContainsKey(keyword.Id))
+                        {
+                            <ul class="list-unstyled">
+                                @foreach (var req in _requirementsByKeyword[keyword.Id])
+                                {
+                                    var functionName = _allFunctions.FirstOrDefault(f => f.Id == req.FunctionDefId)?.Name ?? "Unbekannt";
+                                    <li class="mb-1">
+                                        <span class="badge bg-primary me-2">@req.MinimumCount</span>
+                                        @functionName
+                                        @if (!req.IsRequired)
+                                        {
+                                            <small class="text-muted">(optional)</small>
+                                        }
+                                    </li>
+                                }
+                            </ul>
+                        }
+                        else
+                        {
+                            <p class="text-muted">Keine Requirements definiert</p>
+                        }
+                        
+                        <button class="btn btn-outline-secondary btn-sm w-100" @onclick="() => EditRequirements(keyword)">
+                            <i class="bi bi-gear"></i> Requirements bearbeiten
+                        </button>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@if (_showAddKeywordModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" role="dialog">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content bg-dark text-light border-secondary">
+                <div class="modal-header border-secondary">
+                    <h5 class="modal-title">Neues Stichwort</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="() => _showAddKeywordModal = false"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="keywordName" class="form-label">Name</label>
+                        <input type="text" class="form-control bg-dark text-light border-secondary" id="keywordName" @bind="_newKeyword.Name" />
+                    </div>
+                    <div class="mb-3">
+                        <label for="keywordDescription" class="form-label">Beschreibung</label>
+                        <textarea class="form-control bg-dark text-light border-secondary" id="keywordDescription" rows="3" @bind="_newKeyword.Description"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer border-secondary">
+                    <button type="button" class="btn btn-secondary" @onclick="() => _showAddKeywordModal = false">Abbrechen</button>
+                    <button type="button" class="btn btn-primary" @onclick="AddKeyword">Speichern</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showEditRequirementsModal && _selectedKeyword != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" role="dialog">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content bg-dark text-light border-secondary">
+                <div class="modal-header border-secondary">
+                    <h5 class="modal-title">Personal Requirements für @_selectedKeyword.Name</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="() => _showEditRequirementsModal = false"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row">
+                        @foreach (var function in _allFunctions)
+                        {
+                            var requirement = _currentRequirements.FirstOrDefault(r => r.FunctionDefId == function.Id);
+                            <div class="col-md-6 mb-3">
+                                <div class="card bg-dark border-secondary">
+                                    <div class="card-body">
+                                        <h6 class="card-title">@function.Name</h6>
+                                        <div class="row">
+                                            <div class="col-6">
+                                                <label class="form-label small">Mindestanzahl</label>
+                                                <input type="number" class="form-control form-control-sm bg-dark text-light border-secondary" 
+                                                       min="0" max="20" 
+                                                       value="@(requirement?.MinimumCount ?? 0)"
+                                                       @onchange="@(e => UpdateRequirementCount(function.Id, int.Parse(e.Value?.ToString() ?? "0")))" />
+                                            </div>
+                                            <div class="col-6">
+                                                <div class="form-check mt-4">
+                                                    <input class="form-check-input" type="checkbox" 
+                                                           checked="@(requirement?.IsRequired ?? false)"
+                                                           @onchange="@(e => UpdateRequirementRequired(function.Id, (bool)e.Value!))" />
+                                                    <label class="form-check-label small">
+                                                        Erforderlich
+                                                    </label>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+                <div class="modal-footer border-secondary">
+                    <button type="button" class="btn btn-secondary" @onclick="() => _showEditRequirementsModal = false">Abbrechen</button>
+                    <button type="button" class="btn btn-primary" @onclick="SaveRequirements">Speichern</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Keyword> _keywords = new();
+    private List<OperationFunctionDef> _allFunctions = new();
+    private Dictionary<int, List<PersonalRequirement>> _requirementsByKeyword = new();
+    
+    private bool _showAddKeywordModal = false;
+    private bool _showEditRequirementsModal = false;
+    private Keyword _newKeyword = new();
+    private Keyword? _selectedKeyword = null;
+    private List<PersonalRequirement> _currentRequirements = new();
+    
+    private string _errorMessage = string.Empty;
+    private string _successMessage = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        _keywords = await KeywordRepo.GetAllAsync();
+        _allFunctions = await FunctionRepo.GetAllAsync();
+        
+        _requirementsByKeyword.Clear();
+        foreach (var keyword in _keywords)
+        {
+            var requirements = await RequirementRepo.GetByKeywordIdAsync(keyword.Id);
+            _requirementsByKeyword[keyword.Id] = requirements;
+        }
+        
+        StateHasChanged();
+    }
+
+    private async Task AddKeyword()
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(_newKeyword.Name))
+            {
+                _errorMessage = "Name ist erforderlich";
+                return;
+            }
+
+            await KeywordRepo.CreateAsync(_newKeyword);
+            _successMessage = "Stichwort erfolgreich erstellt";
+            _showAddKeywordModal = false;
+            _newKeyword = new();
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Fehler beim Erstellen: {ex.Message}";
+        }
+    }
+
+    private async Task EditKeyword(Keyword keyword)
+    {
+        _selectedKeyword = keyword;
+        _newKeyword = new Keyword { Name = keyword.Name, Description = keyword.Description };
+        _showAddKeywordModal = true;
+    }
+
+    private async Task DeleteKeyword(int keywordId)
+    {
+        try
+        {
+            await KeywordRepo.DeleteAsync(keywordId);
+            _successMessage = "Stichwort erfolgreich gelöscht";
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Fehler beim Löschen: {ex.Message}";
+        }
+    }
+
+    private async Task EditRequirements(Keyword keyword)
+    {
+        _selectedKeyword = keyword;
+        _currentRequirements = await RequirementRepo.GetByKeywordIdAsync(keyword.Id);
+        _showEditRequirementsModal = true;
+    }
+
+    private void UpdateRequirementCount(int functionDefId, int count)
+    {
+        var requirement = _currentRequirements.FirstOrDefault(r => r.FunctionDefId == functionDefId);
+        if (requirement != null)
+        {
+            requirement.MinimumCount = count;
+        }
+        else if (count > 0)
+        {
+            _currentRequirements.Add(new PersonalRequirement
+            {
+                KeywordId = _selectedKeyword!.Id,
+                FunctionDefId = functionDefId,
+                MinimumCount = count,
+                IsRequired = false,
+                CreatedAt = DateTime.Now
+            });
+        }
+    }
+
+    private void UpdateRequirementRequired(int functionDefId, bool isRequired)
+    {
+        var requirement = _currentRequirements.FirstOrDefault(r => r.FunctionDefId == functionDefId);
+        if (requirement != null)
+        {
+            requirement.IsRequired = isRequired;
+        }
+        else
+        {
+            _currentRequirements.Add(new PersonalRequirement
+            {
+                KeywordId = _selectedKeyword!.Id,
+                FunctionDefId = functionDefId,
+                MinimumCount = 0,
+                IsRequired = isRequired,
+                CreatedAt = DateTime.Now
+            });
+        }
+    }
+
+    private async Task SaveRequirements()
+    {
+        try
+        {
+            if (_selectedKeyword == null) return;
+
+            // Delete existing requirements
+            await RequirementRepo.DeleteByKeywordIdAsync(_selectedKeyword.Id);
+
+            // Add new requirements
+            foreach (var requirement in _currentRequirements.Where(r => r.MinimumCount > 0 || r.IsRequired))
+            {
+                await RequirementRepo.CreateAsync(requirement);
+            }
+
+            _successMessage = "Personal Requirements erfolgreich gespeichert";
+            _showEditRequirementsModal = false;
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Fehler beim Speichern: {ex.Message}";
+        }
+    }
+}

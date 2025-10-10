@@ -21,5 +21,7 @@ public class AppDbConnection : DataConnection
     public ITable<Member> Members => this.GetTable<Member>();
     public ITable<OperationFunctionDef> OperationFunctionDefs => this.GetTable<OperationFunctionDef>();
     public ITable<OperationEntryFunction> OperationEntryFunctions => this.GetTable<OperationEntryFunction>();
+    public ITable<Keyword> Keywords => this.GetTable<Keyword>();
+    public ITable<PersonalRequirement> PersonalRequirements => this.GetTable<PersonalRequirement>();
 }
 

@@ -1,0 +1,134 @@
+@using FeuerwehrListen.Models
+@using Microsoft.AspNetCore.Components.Web
+
+<div class="modal fade @(_showVehicleModal ? "show" : "")" style="@(_showVehicleModal ? "display:block; background: rgba(0,0,0,.5);" : "display:none;")" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content bg-dark text-light border-secondary">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title">Fahrzeug auswählen</h5>
+                <button type="button" class="btn-close btn-close-white" @onclick="CloseVehicleModal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3">
+                    @foreach (var vehicle in _vehicles)
+                    {
+                        <div class="col-md-6 col-lg-4">
+                            <div class="card h-100 vehicle-card @(_selectedVehicleId == vehicle.Id ? "border-primary bg-primary-subtle" : "border-secondary")" 
+                                 @onclick="() => SelectVehicle(vehicle.Id)" 
+                                 style="cursor: pointer;">
+                                <div class="card-body text-center bg-dark">
+                                    <i class="bi bi-truck fs-1 text-primary mb-3"></i>
+                                    <h6 class="card-title text-light">@vehicle.Name</h6>
+                                    <p class="card-text text-muted">@vehicle.CallSign</p>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                    <div class="col-md-6 col-lg-4">
+                        <div class="card h-100 vehicle-card @(_noVehicle ? "border-primary bg-primary-subtle" : "border-secondary")" 
+                             @onclick="() => SelectNoVehicle()" 
+                             style="cursor: pointer;">
+                            <div class="card-body text-center bg-dark">
+                                <i class="bi bi-person fs-1 text-secondary mb-3"></i>
+                                <h6 class="card-title text-light">Ohne Fahrzeug</h6>
+                                <p class="card-text text-muted">Direkt zum Einsatz</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer border-secondary">
+                <button type="button" class="btn btn-secondary" @onclick="CloseVehicleModal">Abbrechen</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .vehicle-card {
+        transition: all 0.2s ease;
+        border: 2px solid;
+    }
+
+    .vehicle-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+    }
+
+    .vehicle-card.border-primary {
+        border-color: #0d6efd !important;
+        background-color: rgba(13, 110, 253, 0.1) !important;
+    }
+
+    .bg-primary-subtle {
+        background-color: rgba(13, 110, 253, 0.1) !important;
+    }
+</style>
+
+@code {
+    [Parameter] public List<Vehicle> Vehicles { get; set; } = new();
+    [Parameter] public EventCallback<int?> OnVehicleSelected { get; set; }
+    [Parameter] public EventCallback OnModalClosed { get; set; }
+
+    private bool _showVehicleModal = false;
+    private int _selectedVehicleId = 0;
+    private bool _noVehicle = false;
+    private List<Vehicle> _vehicles = new();
+
+    private bool HasVehicleSelection => _selectedVehicleId > 0 || _noVehicle;
+
+    protected override void OnParametersSet()
+    {
+        _vehicles = Vehicles;
+    }
+
+    public void ShowModal()
+    {
+        _showVehicleModal = true;
+        _selectedVehicleId = 0;
+        _noVehicle = false;
+        StateHasChanged();
+    }
+
+    private async Task ConfirmVehicleSelection()
+    {
+        if (_noVehicle)
+        {
+            await OnVehicleSelected.InvokeAsync(null);
+        }
+        else
+        {
+            await OnVehicleSelected.InvokeAsync(_selectedVehicleId);
+        }
+        CloseVehicleModal();
+    }
+
+    private async Task SelectVehicle(int vehicleId)
+    {
+        _selectedVehicleId = vehicleId;
+        _noVehicle = false;
+        StateHasChanged();
+        
+        // Automatisch bestätigen nach kurzer Verzögerung
+        await Task.Delay(500);
+        await ConfirmVehicleSelection();
+    }
+
+    private async Task SelectNoVehicle()
+    {
+        _noVehicle = true;
+        _selectedVehicleId = 0;
+        StateHasChanged();
+        
+        // Automatisch bestätigen nach kurzer Verzögerung
+        await Task.Delay(500);
+        await ConfirmVehicleSelection();
+    }
+
+    private void CloseVehicleModal()
+    {
+        _showVehicleModal = false;
+        OnModalClosed.InvokeAsync();
+        StateHasChanged();
+    }
+}

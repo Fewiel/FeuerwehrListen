@@ -225,6 +225,111 @@
                     </div>
                 </div>
             </div>
+
+            <div class="col-md-6 mb-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">🏷️ Stichwort-Verwendung</h5>
+                    </div>
+                    <div class="card-body">
+                        @if (_keywordStats.Count == 0)
+                        {
+                            <p class="text-muted">Keine Stichwort-Daten verfügbar</p>
+                        }
+                        else
+                        {
+                            <div class="table-responsive">
+                                <table class="table table-sm">
+                                    <thead>
+                                        <tr>
+                                            <th>Stichwort</th>
+                                            <th>Einsätze</th>
+                                            <th>Erfüllung</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var keyword in _keywordStats.Take(5))
+                                        {
+                                            <tr>
+                                                <td><strong>@keyword.KeywordName</strong></td>
+                                                <td>@keyword.UsageCount</td>
+                                                <td>
+                                                    @if (keyword.OperationsWithRequirements > 0)
+                                                    {
+                                                        <ProgressBar Value="@keyword.RequirementsFulfillmentRate" 
+                                                                     Color="@GetRequirementsColor(keyword.RequirementsFulfillmentRate)" />
+                                                        <small class="text-muted">@keyword.RequirementsFulfillmentRate.ToString("F1")%</small>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="text-muted">Keine Requirements</span>
+                                                    }
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-6 mb-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">✅ Personal Requirements Status</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row text-center mb-3">
+                            <div class="col-4">
+                                <h4 class="text-primary">@_requirementsStats.TotalOperations</h4>
+                                <small class="text-muted">Gesamt Einsätze</small>
+                            </div>
+                            <div class="col-4">
+                                <h4 class="text-info">@_requirementsStats.OperationsWithRequirements</h4>
+                                <small class="text-muted">Mit Requirements</small>
+                            </div>
+                            <div class="col-4">
+                                <h4 class="@GetRequirementsStatusColor(_requirementsStats.RequirementsFulfillmentRate)">@_requirementsStats.RequirementsFulfillmentRate.ToString("F1")%</h4>
+                                <small class="text-muted">Erfüllungsrate</small>
+                            </div>
+                        </div>
+                        <hr>
+                        <div class="mb-3">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <span><strong>Gesamt-Erfüllungsrate</strong></span>
+                                <span class="badge @GetRequirementsBadgeClass(_requirementsStats.RequirementsFulfillmentRate)">
+                                    @_requirementsStats.RequirementsFulfillmentRate.ToString("F1")%
+                                </span>
+                            </div>
+                            <ProgressBar Value="@_requirementsStats.RequirementsFulfillmentRate" 
+                                         Color="@GetRequirementsColor(_requirementsStats.RequirementsFulfillmentRate)" 
+                                         Height="25px" />
+                        </div>
+                        @if (_requirementsStats.KeywordSummaries.Any())
+                        {
+                            <h6 class="mb-2">Top Stichwörter:</h6>
+                            <div class="row">
+                                @foreach (var keyword in _requirementsStats.KeywordSummaries.Take(3))
+                                {
+                                    <div class="col-12 mb-2">
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <span>@keyword.KeywordName</span>
+                                            <div class="d-flex align-items-center">
+                                                <span class="me-2">@keyword.FulfillmentRate.ToString("F0")%</span>
+                                                <ProgressBar Value="@keyword.FulfillmentRate" 
+                                                             Color="@GetRequirementsColor(keyword.FulfillmentRate)" 
+                                                             Height="15px" />
+                                            </div>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
         </div>
 
         <div class="row mb-4">
@@ -414,6 +519,8 @@
     private List<FunctionStatistics> _functionStats = new();
     private BreathingApparatusStatistics _breathingStats = new();
     private List<OperationComposition> _opCompositionData = new();
+    private List<KeywordStatistics> _keywordStats = new();
+    private PersonalRequirementsStatistics _requirementsStats = new();
     private HashSet<string> _expandedOperations = new();
     private int _currentPage = 0;
     private int _pageSize = 10;
@@ -438,6 +545,8 @@
             _functionStats = await StatsService.GetFunctionStatisticsAsync();
             _breathingStats = await StatsService.GetBreathingApparatusStatisticsAsync();
             _opCompositionData = await StatsService.GetOperationCompositionAsync(100);
+            _keywordStats = await StatsService.GetKeywordStatisticsAsync();
+            _requirementsStats = await StatsService.GetPersonalRequirementsStatisticsAsync();
         }
         finally
         {
@@ -527,6 +636,42 @@
             >= 60 => "#0dcaf0",
             >= 40 => "#ffc107",
             _ => "#dc3545"
+        };
+    }
+
+    private string GetRequirementsColor(double rate)
+    {
+        return rate switch
+        {
+            >= 90 => "#198754", // Grün für sehr gut
+            >= 70 => "#20c997", // Türkis für gut
+            >= 50 => "#ffc107", // Gelb für mittel
+            >= 30 => "#fd7e14", // Orange für schlecht
+            _ => "#dc3545"      // Rot für sehr schlecht
+        };
+    }
+
+    private string GetRequirementsStatusColor(double rate)
+    {
+        return rate switch
+        {
+            >= 90 => "text-success",
+            >= 70 => "text-info",
+            >= 50 => "text-warning",
+            >= 30 => "text-warning",
+            _ => "text-danger"
+        };
+    }
+
+    private string GetRequirementsBadgeClass(double rate)
+    {
+        return rate switch
+        {
+            >= 90 => "bg-success",
+            >= 70 => "bg-info",
+            >= 50 => "bg-warning",
+            >= 30 => "bg-warning",
+            _ => "bg-danger"
         };
     }
 }

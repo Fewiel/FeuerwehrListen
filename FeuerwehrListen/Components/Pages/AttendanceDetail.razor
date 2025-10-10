@@ -2,6 +2,7 @@
 @using FeuerwehrListen.Models
 @using FeuerwehrListen.Services
 @using FeuerwehrListen.Repositories
+@using FeuerwehrListen.Components.Shared
 @inject AttendanceListRepository AttendanceRepo
 @inject AttendanceEntryRepository EntryRepo
 @inject MemberRepository MemberRepo
@@ -39,7 +40,7 @@
         @if (_list.Status == ListStatus.Open)
         {
             <div class="row mb-4">
-                <div class="col-md-8 offset-md-2">
+                <div class="col-md-10 offset-md-1">
                     <div class="card">
                         <div class="card-body">
                             <h5 class="card-title">Eintragen</h5>
@@ -50,36 +51,65 @@
                                     <button type="button" class="btn-close" @onclick="() => _errorMessage = string.Empty"></button>
                                 </div>
                             }
-                            <div class="mb-3 position-relative">
-                                <div class="input-group input-group-lg">
-                                    <input type="text" 
-                                           class="form-control" 
-                                           placeholder="Mitgliedsnummer oder Name eingeben" 
-                                           value="@_searchInput"
-                                           @oninput="OnSearchInput"
-                                           @onkeyup="HandleKeyPress"
-                                           @ref="_inputElement"
-                                           autocomplete="off"
-                                           autofocus />
-                                    <button class="btn btn-primary" @onclick="AddEntry">Eintragen</button>
-                                </div>
-                                <div class="form-check mt-2">
-                                    <input class="form-check-input" type="checkbox" id="isExcusedCheck" @bind="_isExcused">
-                                    <label class="form-check-label" for="isExcusedCheck">
-                                        Als entschuldigt eintragen
-                                    </label>
-                                </div>
-                                @if (_showSuggestions && _suggestions.Count > 0)
-                                {
-                                    <div class="list-group position-absolute w-100 shadow" style="z-index: 1050; max-height: 260px; overflow:auto;">
-                                        @foreach (var m in _suggestions)
-                                        {
-                                            <button type="button" class="list-group-item list-group-item-action" @onclick="() => SelectSuggestion(m)">
-                                                @m.FirstName @m.LastName (@m.MemberNumber)
+                            
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label class="form-label">Mitgliedsnummer</label>
+                                        <div class="input-group input-group-lg">
+                                            <input type="text" 
+                                                   class="form-control text-center" 
+                                                   placeholder="ID eingeben" 
+                                                   value="@_memberIdInput"
+                                                   @oninput="OnMemberIdInput"
+                                                   @onkeyup="HandleKeyPress"
+                                                   @ref="_inputElement"
+                                                   autocomplete="off"
+                                                   autofocus />
+                                            <button class="btn btn-primary btn-lg" @onclick="AddEntry" disabled="@(string.IsNullOrWhiteSpace(_memberIdInput))">
+                                                Eintragen
                                             </button>
-                                        }
+                                        </div>
                                     </div>
-                                }
+                                    
+                                    <Numpad OnDigitEntered="OnDigitEntered" OnSubmit="AddEntry" OnClear="ClearMemberId" />
+                                </div>
+                                
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label class="form-label">Name suchen</label>
+                                        <div class="position-relative">
+                                            <input type="text" 
+                                                   class="form-control form-control-lg" 
+                                                   placeholder="Name eingeben..." 
+                                                   value="@_searchInput"
+                                                   @oninput="OnSearchInput"
+                                                   @ref="_searchElement" />
+                                            @if (_showSuggestions && _suggestions.Count > 0)
+                                            {
+                                                <div class="list-group position-absolute w-100 shadow" style="z-index: 1050; max-height: 300px; overflow:auto;">
+                                                    @foreach (var m in _suggestions)
+                                                    {
+                                                        <button type="button" class="list-group-item list-group-item-action" @onclick="() => SelectSuggestion(m)">
+                                                            @m.FirstName @m.LastName (@m.MemberNumber)
+                                                        </button>
+                                                    }
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-12">
+                                    <div class="form-check form-check-lg">
+                                        <input class="form-check-input" type="checkbox" id="isExcusedCheck" @bind="_isExcused">
+                                        <label class="form-check-label fs-5" for="isExcusedCheck">
+                                            Als entschuldigt eintragen
+                                        </label>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -203,9 +233,11 @@
     private AttendanceList? _list;
     private List<AttendanceEntry> _entries = new();
     private string _searchInput = string.Empty;
+    private string _memberIdInput = string.Empty;
     private string _errorMessage = string.Empty;
     private bool _isExcused = false;
     private ElementReference _inputElement;
+    private ElementReference _searchElement;
     private List<Member> _suggestions = new();
     private bool _showSuggestions = false;
     private CancellationTokenSource? _searchCts;
@@ -238,30 +270,43 @@
 
     private async Task AddEntry()
     {
-        if (string.IsNullOrWhiteSpace(_searchInput) || _list?.Status != ListStatus.Open)
+        if (_list?.Status != ListStatus.Open)
             return;
 
         _errorMessage = string.Empty;
-        var input = _searchInput;
-        var openIdx = input.LastIndexOf('(');
-        var closeIdx = input.LastIndexOf(')');
-        if (openIdx >= 0 && closeIdx > openIdx)
+        string input = string.Empty;
+        
+        if (!string.IsNullOrWhiteSpace(_memberIdInput))
         {
-            var inside = input.Substring(openIdx + 1, closeIdx - openIdx - 1).Trim();
-            if (!string.IsNullOrEmpty(inside))
+            input = _memberIdInput;
+        }
+        else if (!string.IsNullOrWhiteSpace(_searchInput))
+        {
+            input = _searchInput;
+            var openIdx = input.LastIndexOf('(');
+            var closeIdx = input.LastIndexOf(')');
+            if (openIdx >= 0 && closeIdx > openIdx)
             {
-                var byNum = await MemberRepo.GetByMemberNumberAsync(inside);
-                if (byNum != null)
+                var inside = input.Substring(openIdx + 1, closeIdx - openIdx - 1).Trim();
+                if (!string.IsNullOrEmpty(inside))
                 {
-                    input = inside;
+                    var byNum = await MemberRepo.GetByMemberNumberAsync(inside);
+                    if (byNum != null)
+                    {
+                        input = inside;
+                    }
                 }
             }
+        }
+        else
+        {
+            return;
         }
 
         var member = await MemberRepo.FindByNameOrNumberAsync(input);
         if (member == null)
         {
-            _errorMessage = $"Mitglied '{_searchInput}' nicht gefunden!";
+            _errorMessage = $"Mitglied nicht gefunden!";
             try
             {
                 await _inputElement.FocusAsync();
@@ -280,6 +325,7 @@
 
         await EntryRepo.CreateAsync(entry);
         _searchInput = string.Empty;
+        _memberIdInput = string.Empty;
         _isExcused = false;
         await LoadData();
         
@@ -328,7 +374,25 @@
     private void SelectSuggestion(Member m)
     {
         _searchInput = $"{m.FirstName} {m.LastName} ({m.MemberNumber})";
+        _memberIdInput = m.MemberNumber;
         _showSuggestions = false;
+    }
+
+    private void OnDigitEntered(string digit)
+    {
+        _memberIdInput += digit;
+        _searchInput = string.Empty;
+        _showSuggestions = false;
+    }
+
+    private void OnMemberIdInput(ChangeEventArgs e)
+    {
+        _memberIdInput = e.Value?.ToString() ?? string.Empty;
+    }
+
+    private void ClearMemberId()
+    {
+        _memberIdInput = string.Empty;
     }
 
     private async Task DeleteEntry(int entryId)

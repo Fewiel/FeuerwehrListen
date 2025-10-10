@@ -92,5 +92,27 @@ public class StatisticsController : ControllerBase
             Data = stats
         });
     }
+
+    [HttpGet("keyword-statistics")]
+    public async Task<ActionResult<ApiResponse<List<KeywordStatistics>>>> GetKeywordStatistics()
+    {
+        var stats = await _statisticsService.GetKeywordStatisticsAsync();
+        return Ok(new ApiResponse<List<KeywordStatistics>>
+        {
+            Success = true,
+            Data = stats
+        });
+    }
+
+    [HttpGet("personal-requirements-statistics")]
+    public async Task<ActionResult<ApiResponse<PersonalRequirementsStatistics>>> GetPersonalRequirementsStatistics()
+    {
+        var stats = await _statisticsService.GetPersonalRequirementsStatisticsAsync();
+        return Ok(new ApiResponse<PersonalRequirementsStatistics>
+        {
+            Success = true,
+            Data = stats
+        });
+    }
 }
 

@@ -1,5 +1,6 @@
 using FeuerwehrListen.Data;
 using FeuerwehrListen.Models;
+using FeuerwehrListen.Repositories;
 using LinqToDB;
 
 namespace FeuerwehrListen.Services;
@@ -7,10 +8,12 @@ namespace FeuerwehrListen.Services;
 public class StatisticsService
 {
     private readonly AppDbConnection _db;
+    private readonly PersonalRequirementsService _requirementsService;
 
-    public StatisticsService(AppDbConnection db)
+    public StatisticsService(AppDbConnection db, PersonalRequirementsService requirementsService)
     {
         _db = db;
+        _requirementsService = requirementsService;
     }
 
     public async Task<ListStatistics> GetListStatisticsAsync()
@@ -485,6 +488,149 @@ public class StatisticsService
         }
 
         return result;
+    }
+
+    public async Task<List<KeywordStatistics>> GetKeywordStatisticsAsync()
+    {
+        var operationLists = await _db.OperationLists.ToListAsync();
+        var keywords = await _db.Keywords.Where(k => k.IsActive).ToListAsync();
+        
+        var totalOperations = operationLists.Count;
+        if (totalOperations == 0)
+        {
+            return new List<KeywordStatistics>();
+        }
+
+        var keywordUsage = operationLists
+            .Where(o => o.KeywordId.HasValue)
+            .GroupBy(o => o.KeywordId!.Value)
+            .ToDictionary(g => g.Key, g => g.Count());
+
+        var result = new List<KeywordStatistics>();
+        
+        foreach (var keyword in keywords)
+        {
+            var usageCount = keywordUsage.GetValueOrDefault(keyword.Id, 0);
+            var operationsWithKeyword = operationLists.Where(o => o.KeywordId == keyword.Id).ToList();
+            
+            var operationsWithRequirements = 0;
+            var operationsFulfillingRequirements = 0;
+            
+            foreach (var operation in operationsWithKeyword)
+            {
+                var validation = await _requirementsService.ValidateRequirementsAsync(operation.Id, keyword.Id);
+                if (validation.MissingRequirements.Any())
+                {
+                    operationsWithRequirements++;
+                    if (validation.IsValid)
+                    {
+                        operationsFulfillingRequirements++;
+                    }
+                }
+            }
+            
+            var requirementsFulfillmentRate = operationsWithRequirements > 0 ? 
+                Math.Round((double)operationsFulfillingRequirements / operationsWithRequirements * 100, 1) : 0;
+
+            result.Add(new KeywordStatistics
+            {
+                KeywordName = keyword.Name,
+                UsageCount = usageCount,
+                UsagePercentage = Math.Round((double)usageCount / totalOperations * 100, 1),
+                TotalOperations = operationsWithKeyword.Count,
+                OperationsWithRequirements = operationsWithRequirements,
+                OperationsFulfillingRequirements = operationsFulfillingRequirements,
+                RequirementsFulfillmentRate = requirementsFulfillmentRate
+            });
+        }
+
+        return result.OrderByDescending(k => k.UsageCount).ToList();
+    }
+
+    public async Task<PersonalRequirementsStatistics> GetPersonalRequirementsStatisticsAsync()
+    {
+        var operationLists = await _db.OperationLists.ToListAsync();
+        var keywords = await _db.Keywords.Where(k => k.IsActive).ToListAsync();
+        
+        var totalOperations = operationLists.Count;
+        var operationsWithKeywords = operationLists.Count(o => o.KeywordId.HasValue);
+        
+        var operationsWithRequirements = 0;
+        var operationsFulfillingRequirements = 0;
+        var keywordSummaries = new List<KeywordRequirementsSummary>();
+        
+        foreach (var keyword in keywords)
+        {
+            var operationsWithKeyword = operationLists.Where(o => o.KeywordId == keyword.Id).ToList();
+            var keywordOperationsWithRequirements = 0;
+            var keywordOperationsFulfillingRequirements = 0;
+            var functionSummaries = new Dictionary<string, FunctionRequirementSummary>();
+            
+            foreach (var operation in operationsWithKeyword)
+            {
+                var validation = await _requirementsService.ValidateRequirementsAsync(operation.Id, keyword.Id);
+                if (validation.MissingRequirements.Any())
+                {
+                    operationsWithRequirements++;
+                    keywordOperationsWithRequirements++;
+                    
+                    if (validation.IsValid)
+                    {
+                        operationsFulfillingRequirements++;
+                        keywordOperationsFulfillingRequirements++;
+                    }
+                    
+                    // Sammle Function-Statistiken
+                    foreach (var missing in validation.MissingRequirements)
+                    {
+                        if (!functionSummaries.ContainsKey(missing.FunctionName))
+                        {
+                            functionSummaries[missing.FunctionName] = new FunctionRequirementSummary
+                            {
+                                FunctionName = missing.FunctionName,
+                                RequiredCount = missing.RequiredCount,
+                                ActualCount = missing.CurrentCount,
+                                MissingCount = missing.RequiredCount - missing.CurrentCount,
+                                IsRequired = missing.IsRequired,
+                                FulfillmentRate = 0
+                            };
+                        }
+                        
+                        var summary = functionSummaries[missing.FunctionName];
+                        summary.ActualCount = Math.Max(summary.ActualCount, missing.CurrentCount);
+                        summary.MissingCount = Math.Max(summary.MissingCount, missing.RequiredCount - missing.CurrentCount);
+                        summary.FulfillmentRate = summary.RequiredCount > 0 ? 
+                            Math.Round((double)summary.ActualCount / summary.RequiredCount * 100, 1) : 0;
+                    }
+                }
+            }
+            
+            var keywordFulfillmentRate = keywordOperationsWithRequirements > 0 ? 
+                Math.Round((double)keywordOperationsFulfillingRequirements / keywordOperationsWithRequirements * 100, 1) : 0;
+            
+            keywordSummaries.Add(new KeywordRequirementsSummary
+            {
+                KeywordName = keyword.Name,
+                OperationsCount = operationsWithKeyword.Count,
+                RequirementsDefined = keywordOperationsWithRequirements,
+                RequirementsFulfilled = keywordOperationsFulfillingRequirements,
+                FulfillmentRate = keywordFulfillmentRate,
+                FunctionSummaries = functionSummaries.Values.ToList()
+            });
+        }
+        
+        var overallFulfillmentRate = operationsWithRequirements > 0 ? 
+            Math.Round((double)operationsFulfillingRequirements / operationsWithRequirements * 100, 1) : 0;
+        
+        return new PersonalRequirementsStatistics
+        {
+            TotalOperations = totalOperations,
+            OperationsWithKeywords = operationsWithKeywords,
+            OperationsWithRequirements = operationsWithRequirements,
+            OperationsFulfillingRequirements = operationsFulfillingRequirements,
+            RequirementsFulfillmentRate = overallFulfillmentRate,
+            KeywordSummaries = keywordSummaries.OrderByDescending(k => k.OperationsCount).ToList()
+        };
     }
 }
 

@@ -15,6 +15,9 @@ public class OperationList
     [Column("Keyword")]
     public string Keyword { get; set; } = string.Empty;
     
+    [Column("KeywordId")]
+    public int? KeywordId { get; set; }
+    
     [Column("AlertTime")]
     public DateTime AlertTime { get; set; }
     

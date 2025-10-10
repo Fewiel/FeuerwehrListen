@@ -1,7 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using FeuerwehrListen.Services;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
 using FeuerwehrListen.DTOs;
 
 namespace FeuerwehrListen.Controllers;

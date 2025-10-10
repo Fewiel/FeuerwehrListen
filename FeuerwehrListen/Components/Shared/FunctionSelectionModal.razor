@@ -1,0 +1,109 @@
+@using FeuerwehrListen.Models
+@using Microsoft.AspNetCore.Components.Web
+
+<div class="modal fade @(_showFunctionModal ? "show" : "")" style="@(_showFunctionModal ? "display:block; background: rgba(0,0,0,.5);" : "display:none;")" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content bg-dark text-light border-secondary">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title">Funktionen auswählen</h5>
+                <button type="button" class="btn-close btn-close-white" @onclick="CloseFunctionModal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3">
+                    @foreach (var function in _functions)
+                    {
+                        <div class="col-md-6 col-lg-4">
+                            <div class="card h-100 function-card @(_selectedFunctionIds.Contains(function.Id) ? "border-primary bg-primary-subtle" : "border-secondary")" 
+                                 @onclick="() => ToggleFunction(function.Id)" 
+                                 style="cursor: pointer;">
+                                <div class="card-body text-center bg-dark">
+                                    <i class="bi bi-person-check fs-1 text-primary mb-3"></i>
+                                    <h6 class="card-title text-light">@function.Name</h6>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+            <div class="modal-footer border-secondary">
+                <button type="button" class="btn btn-secondary" @onclick="CloseFunctionModal">Zurück</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .function-card {
+        transition: all 0.2s ease;
+        border: 2px solid;
+    }
+
+    .function-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+    }
+
+    .function-card.border-primary {
+        border-color: #0d6efd !important;
+        background-color: rgba(13, 110, 253, 0.1) !important;
+    }
+
+    .bg-primary-subtle {
+        background-color: rgba(13, 110, 253, 0.1) !important;
+    }
+</style>
+
+@code {
+    [Parameter] public List<OperationFunctionDef> Functions { get; set; } = new();
+    [Parameter] public EventCallback<HashSet<int>> OnFunctionsSelected { get; set; }
+    [Parameter] public EventCallback OnModalClosed { get; set; }
+
+    private bool _showFunctionModal = false;
+    private HashSet<int> _selectedFunctionIds = new();
+    private List<OperationFunctionDef> _functions = new();
+
+    protected override void OnParametersSet()
+    {
+        _functions = Functions;
+    }
+
+    public void ShowModal(HashSet<int> currentSelectedFunctions)
+    {
+        _selectedFunctionIds = new HashSet<int>(currentSelectedFunctions);
+        _showFunctionModal = true;
+        StateHasChanged();
+    }
+
+    private async Task ConfirmFunctionSelection()
+    {
+        await OnFunctionsSelected.InvokeAsync(_selectedFunctionIds);
+        CloseFunctionModal();
+    }
+
+    private async Task ToggleFunction(int functionId)
+    {
+        if (_selectedFunctionIds.Contains(functionId))
+        {
+            _selectedFunctionIds.Remove(functionId);
+        }
+        else
+        {
+            _selectedFunctionIds.Add(functionId);
+        }
+        StateHasChanged();
+        
+        // Automatisch bestätigen nach kurzer Verzögerung, wenn mindestens eine Funktion ausgewählt ist
+        if (_selectedFunctionIds.Count > 0)
+        {
+            await Task.Delay(500);
+            await ConfirmFunctionSelection();
+        }
+    }
+
+    private void CloseFunctionModal()
+    {
+        _showFunctionModal = false;
+        OnModalClosed.InvokeAsync();
+        StateHasChanged();
+    }
+}

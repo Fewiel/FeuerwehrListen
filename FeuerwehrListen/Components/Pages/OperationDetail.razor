@@ -1,4 +1,5 @@
 @page "/operation/{Id:int}"
+@using FeuerwehrListen.Components.Shared
 @using FeuerwehrListen.Models
 @using FeuerwehrListen.Services
 @using FeuerwehrListen.Repositories
@@ -11,6 +12,8 @@
 @inject PdfExportService PdfService
 @inject NavigationManager Navigation
 @inject GeocodingService Geocoder
+@inject KeywordRepository KeywordRepo
+@inject PersonalRequirementsService RequirementsService
 @rendermode InteractiveServer
 
 <PageTitle>Einsatzliste - @_list?.OperationNumber</PageTitle>
@@ -22,6 +25,46 @@
             <div class="col">
                 <h1>Einsatz @_list.OperationNumber</h1>
                 <p class="lead">Stichwort: @_list.Keyword</p>
+                
+                @if (_requirementsValidation != null)
+                {
+                    <div class="alert @(_requirementsValidation.IsValid ? "alert-success" : "alert-info") mb-3">
+                        <h6 class="alert-heading">
+                            <i class="bi @(_requirementsValidation.IsValid ? "bi-check-circle" : "bi-info-circle")"></i>
+                            Personal Requirements Status
+                        </h6>
+                        @if (_requirementsValidation.IsValid)
+                        {
+                            <p class="mb-0">✅ Alle Personal Requirements sind erfüllt!</p>
+                        }
+                        else
+                        {
+                            <p class="mb-2">ℹ️ <strong>Information:</strong> Folgende Personal Requirements sind definiert, aber nicht vollständig erfüllt:</p>
+                            <ul class="mb-0">
+                                @foreach (var missing in _requirementsValidation.MissingRequirements)
+                                {
+                                    <li>
+                                        <strong>@missing.FunctionName:</strong> 
+                                        @missing.CurrentCount von @missing.RequiredCount erforderlich
+                                        @if (missing.IsRequired)
+                                        {
+                                            <span class="text-warning">(Empfohlen)</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">(Optional)</span>
+                                        }
+                                    </li>
+                                }
+                            </ul>
+                            <small class="text-muted mt-2 d-block">
+                                <i class="bi bi-info-circle"></i> 
+                                Dies ist nur eine Information. Der Einsatz kann trotzdem abgeschlossen werden.
+                            </small>
+                        }
+                    </div>
+                }
+                
                 <p>Alarmierung: @_list.AlertTime.ToString("dd.MM.yyyy HH:mm")</p>
                 <small class="text-muted">Erstellt: @_list.CreatedAt.ToString("dd.MM.yyyy HH:mm")</small>
             </div>
@@ -57,95 +100,112 @@
                                     <button type="button" class="btn-close" @onclick="() => _errorMessage = string.Empty"></button>
                                 </div>
                             }
+                            
                             <div class="row">
-                                <div class="col-md-8">
-                            <div class="mb-3 position-relative">
-                                <label class="form-label">Mitgliedsnummer oder Name</label>
-                                <input type="text" 
-                                       class="form-control" 
-                                       value="@_nameOrId"
-                                       @oninput="OnSearchInput"
-                                       @onkeyup="HandleKeyPress"
-                                       @ref="_inputElement"
-                                       autocomplete="off"
-                                       autofocus />
-                                @if (_showSuggestions && _suggestions.Count > 0)
-                                {
-                                    <div class="list-group position-absolute w-100 shadow" style="z-index: 1050; max-height: 260px; overflow:auto;">
-                                        @foreach (var m in _suggestions)
-                                        {
-                                            <button type="button" class="list-group-item list-group-item-action" @onclick="() => SelectSuggestion(m)">
-                                                @m.FirstName @m.LastName (@m.MemberNumber)
-                                            </button>
-                                        }
-                                    </div>
-                                }
-                            </div>
-                                    <div class="mb-2 d-flex align-items-center justify-content-between">
-                                        <label class="form-label mb-0">Fahrzeug</label>
-                                        <div class="form-check">
-                                            <input class="form-check-input" type="checkbox" id="noVehicle" @bind="_noVehicle" />
-                                            <label class="form-check-label" for="noVehicle">Ohne Fahrzeug</label>
-                                        </div>
-                                    </div>
-                                    <select class="form-select" @bind="_vehicleId" disabled="@_noVehicle">
-                                        <option value="0">-- Fahrzeug auswählen --</option>
-                                        @foreach (var vehicle in _vehicles)
-                                        {
-                                            <option value="@vehicle.Id">@vehicle.Name (@vehicle.CallSign)</option>
-                                        }
-                                    </select>
-                                </div>
-                                <div class="col-md-4">
-                                    @if (!string.IsNullOrWhiteSpace(_list?.Address))
-                                    {
-                                        <div class="mb-2 d-flex justify-content-between align-items-center">
-                                            <strong>Karte</strong>
-                                            <small class="text-muted">@_list.Address</small>
-                                        </div>
-                                        <div class="ratio ratio-4x3">
-                                            <iframe src="@GetOsmEmbedUrlWithMarker(_list.Address, _list.Latitude, _list.Longitude)" style="border:0; width:100%; height:100%"></iframe>
-                                        </div>
-                                    }
-                                    else
-                                    {
-                                        <div class="text-muted small">Keine Adresse hinterlegt</div>
-                                    }
-                                </div>
-                            </div>
-                            <div class="row">
-                                <div class="col-md-12">
-                                    <div class="mb-2">
-                                        <label class="form-label">Funktionen (Mehrfachauswahl)</label>
-                                        <div class="d-flex flex-wrap gap-3">
-                                            @foreach (var f in _allFunctions)
+                                <div class="col-md-8 offset-md-2">
+                                    <div class="mb-3">
+                                        <label class="form-label">Mitgliedsnummer oder Name</label>
+                                        <div class="position-relative">
+                                            <div class="input-group input-group-lg">
+                                                <input type="text" 
+                                                       class="form-control text-center" 
+                                                       placeholder="ID eingeben oder Name suchen..." 
+                                                       value="@_memberIdInput"
+                                                       @oninput="OnCombinedInput"
+                                                       @onkeyup="HandleKeyPress"
+                                                       @ref="_inputElement"
+                                                       autocomplete="off" />
+                                                <button class="btn btn-primary btn-lg" @onclick="ShowVehicleModal" disabled="@(string.IsNullOrWhiteSpace(_memberIdInput))">
+                                                    Weiter
+                                                </button>
+                                            </div>
+                                            @if (_showSuggestions && _suggestions.Count > 0)
                                             {
-                                                var checkedVal = _selectedFunctionIds.Contains(f.Id);
-                                                <div class="form-check">
-                                                    <input class="form-check-input" type="checkbox" id="func_@f.Id" checked="@checkedVal" @onchange="(e) => ToggleFunction(f.Id, (bool)e.Value)" />
-                                                    <label class="form-check-label" for="func_@f.Id">@f.Name</label>
+                                                <div class="list-group position-absolute w-100 shadow" style="z-index: 1050; max-height: 300px; overflow:auto;">
+                                                    @foreach (var m in _suggestions)
+                                                    {
+                                                        <button type="button" class="list-group-item list-group-item-action" @onclick="() => SelectSuggestion(m)">
+                                                            @m.FirstName @m.LastName (@m.MemberNumber)
+                                                        </button>
+                                                    }
                                                 </div>
                                             }
                                         </div>
                                     </div>
+                                    
+                                    <Numpad OnDigitEntered="OnDigitEntered" OnSubmit="ShowVehicleModal" OnClear="ClearMemberId" />
                                 </div>
                             </div>
-                            <div class="mb-3">
-                                <div class="form-check">
-                                    <input class="form-check-input" type="checkbox" @bind="_withBreathingApparatus" id="breathingCheck" />
-                                    <label class="form-check-label" for="breathingCheck">
-                                        Unter Atemschutz
-                                    </label>
-                                </div>
-                            </div>
-                            <div class="d-grid gap-2">
-                                <button class="btn btn-danger btn-lg w-100" @onclick="AddEntry" disabled="@(!CanSubmit)" title="Mit Enter eintragen">Mit Enter eintragen</button>
-                            </div>
+                            
+        @if (_selectedMember != null)
+        {
+            <div class="row">
+                <div class="col-12">
+                    <div class="alert alert-info">
+                        <strong>Ausgewählt:</strong> @_selectedMember.FirstName @_selectedMember.LastName (@_selectedMember.MemberNumber)
+                    </div>
+                </div>
+            </div>
+            
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label class="form-label">Fahrzeug</label>
+                        <button class="btn btn-outline-primary btn-lg w-100" @onclick="ShowVehicleModal">
+                            @if (_selectedVehicle != null)
+                            {
+                                <span>@_selectedVehicle.Name (@_selectedVehicle.CallSign)</span>
+                            }
+                            else if (_noVehicle)
+                            {
+                                <span>Ohne Fahrzeug</span>
+                            }
+                            else
+                            {
+                                <span>Fahrzeug auswählen</span>
+                            }
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label class="form-label">Unter Atemschutz</label>
+                        <div class="form-check form-check-lg">
+                            <input class="form-check-input" type="checkbox" @bind="_withBreathingApparatus" id="breathingCheck" />
+                            <label class="form-check-label fs-5" for="breathingCheck">
+                                Ja
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="d-grid gap-2">
+                <button class="btn btn-primary btn-lg" @onclick="ShowVehicleModal" disabled="@(_selectedMember == null)">
+                    <i class="bi bi-truck"></i> Fahrzeug auswählen
+                </button>
+            </div>
+        }
                         </div>
                     </div>
                 </div>
             </div>
         }
+
+        <VehicleSelectionModal Vehicles="_vehicles" 
+                               OnVehicleSelected="OnVehicleSelected" 
+                               OnModalClosed="OnVehicleModalClosed" 
+                               @ref="_vehicleModal" />
+        
+        <FunctionSelectionModal Functions="_allFunctions" 
+                               OnFunctionsSelected="OnFunctionsSelected" 
+                               OnModalClosed="OnFunctionModalClosed" 
+                               @ref="_functionModal" />
+        
+        <EntryOverviewModal OnEntryConfirmed="AddEntry" 
+                           OnModalClosed="OnOverviewModalClosed" 
+                           @ref="_overviewModal" />
 
         <div class="row">
             <div class="col">
@@ -307,13 +367,15 @@
     private OperationList? _list;
     private List<OperationEntry> _entries = new();
     private List<Vehicle> _vehicles = new();
-    private string _nameOrId = string.Empty;
+    private string _searchInput = string.Empty;
+    private string _memberIdInput = string.Empty;
     private string _errorMessage = string.Empty;
-    private int _vehicleId = 0;
+    private Vehicle? _selectedVehicle = null;
     private bool _noVehicle = false;
     private OperationFunction _function = OperationFunction.Trupp;
     private bool _withBreathingApparatus = false;
     private ElementReference _inputElement;
+    private ElementReference _searchElement;
     private List<OperationFunctionDef> _allFunctions = new();
     private HashSet<int> _selectedFunctionIds = new();
     private Dictionary<int, List<OperationFunctionDef>> _functionsByEntryId = new();
@@ -322,19 +384,28 @@
     private string _editOperationNumber = string.Empty;
     private string _editKeyword = string.Empty;
     private string _editAddress = string.Empty;
+    private int? _editKeywordId = null;
+    private List<Keyword> _availableKeywords = new();
+    private PersonalRequirementsValidationResult? _requirementsValidation = null;
     private bool _geocodingInProgress = false;
     private List<Member> _suggestions = new();
     private bool _showSuggestions = false;
     private CancellationTokenSource? _searchCts;
+    private Member? _selectedMember = null;
+    private VehicleSelectionModal? _vehicleModal;
+    private FunctionSelectionModal? _functionModal;
+    private EntryOverviewModal? _overviewModal;
+    
     private bool CanSubmit => _list?.Status == ListStatus.Open
-        && !string.IsNullOrWhiteSpace(_nameOrId)
-        && (_noVehicle || _vehicleId != 0);
+        && _selectedMember != null
+        && (_noVehicle || _selectedVehicle != null);
 
     protected override async Task OnInitializedAsync()
     {
         await LoadData();
         _vehicles = await VehicleRepo.GetActiveAsync();
         _allFunctions = await FunctionRepo.GetAllAsync();
+        _availableKeywords = await KeywordRepo.GetAllAsync();
         await LoadFunctionMap();
     }
 
@@ -360,6 +431,10 @@
             _editOperationNumber = _list.OperationNumber;
             _editKeyword = _list.Keyword;
             _editAddress = _list.Address ?? string.Empty;
+            _editKeywordId = _list.KeywordId;
+            
+            // Load requirements validation
+            await LoadRequirementsValidation();
         }
     }
 
@@ -370,100 +445,90 @@
         StateHasChanged();
     }
 
-    private async Task AddEntry()
+    private async Task LoadRequirementsValidation()
     {
-        if (string.IsNullOrWhiteSpace(_nameOrId) || _list?.Status != ListStatus.Open)
+        if (_list?.KeywordId.HasValue == true)
+        {
+            _requirementsValidation = await RequirementsService.ValidateRequirementsAsync(_list.Id, _list.KeywordId.Value);
+        }
+        else
+        {
+            _requirementsValidation = null;
+        }
+    }
+
+    private async Task AddEntry((string memberName, string vehicleName, List<string> functionNames, bool withBreathingApparatus) data)
+    {
+        if (_list?.Status != ListStatus.Open || _selectedMember == null)
             return;
 
-        _errorMessage = string.Empty;
-        
-        if (!_noVehicle && _vehicleId == 0)
+        try
         {
-            _errorMessage = "Bitte Fahrzeug auswählen oder 'Ohne Fahrzeug' aktivieren!";
-            return;
-        }
-        
-        var input = _nameOrId;
-        var openIdx = input.LastIndexOf('(');
-        var closeIdx = input.LastIndexOf(')');
-        if (openIdx >= 0 && closeIdx > openIdx)
-        {
-            var inside = input.Substring(openIdx + 1, closeIdx - openIdx - 1).Trim();
-            if (!string.IsNullOrEmpty(inside))
+            var displayName = $"{_selectedMember.FirstName} {_selectedMember.LastName} ({_selectedMember.MemberNumber})";
+            var vehicleName = _noVehicle ? "Ohne Fahrzeug" : _selectedVehicle?.Name ?? string.Empty;
+            
+            var entry = new OperationEntry
             {
-                var byNum = await MemberRepo.GetByMemberNumberAsync(inside);
-                if (byNum != null)
-                {
-                    input = inside;
-                }
-            }
-        }
+                OperationListId = _list.Id,
+                NameOrId = displayName,
+                Vehicle = vehicleName,
+                Function = OperationFunction.Trupp,
+                WithBreathingApparatus = data.withBreathingApparatus,
+                EnteredAt = DateTime.Now
+            };
 
-        var member = await MemberRepo.FindByNameOrNumberAsync(input);
-        if (member == null)
-        {
-            _errorMessage = $"Mitglied '{_nameOrId}' nicht gefunden!";
-            try
+            var newId = await EntryRepo.CreateAsync(entry);
+
+            if (_selectedFunctionIds.Count > 0)
             {
-                await _inputElement.FocusAsync();
+                await EntryFunctionRepo.SetFunctionsForEntryAsync(newId, _selectedFunctionIds);
             }
-            catch { }
-            return;
+
+            _selectedMember = null;
+            _selectedVehicle = null;
+            _noVehicle = false;
+            _selectedFunctionIds.Clear();
+            _withBreathingApparatus = false;
+            _memberIdInput = string.Empty;
+            _searchInput = string.Empty;
+            _errorMessage = string.Empty;
+
+            await LoadData();
+            await LoadFunctionMap();
+            await LoadRequirementsValidation();
+            StateHasChanged();
         }
-
-        var selectedVehicle = _noVehicle || _vehicleId == 0 ? null : _vehicles.FirstOrDefault(v => v.Id == _vehicleId);
-
-        var displayName = $"{member.FirstName} {member.LastName} ({member.MemberNumber})";
-        if (_entries.Any(e => e.NameOrId.EndsWith($"({member.MemberNumber})") || e.NameOrId.Equals(displayName, StringComparison.OrdinalIgnoreCase)))
+        catch (Exception ex)
         {
-            _errorMessage = "Dieses Mitglied ist bereits eingetragen.";
-            return;
+            _errorMessage = $"Fehler beim Eintragen: {ex.Message}";
         }
+    }
 
-        var entry = new OperationEntry
-        {
-            OperationListId = Id,
-            NameOrId = displayName,
-            Vehicle = selectedVehicle?.Name ?? string.Empty,
-            Function = _function,
-            WithBreathingApparatus = _withBreathingApparatus,
-            EnteredAt = DateTime.Now
-        };
-
-        var newId = await EntryRepo.CreateAsync(entry);
-        await EntryFunctionRepo.SetFunctionsForEntryAsync(newId, _selectedFunctionIds);
-        _nameOrId = string.Empty;
-        _vehicleId = 0;
+    private void ResetForm()
+    {
+        _searchInput = string.Empty;
+        _memberIdInput = string.Empty;
+        _selectedMember = null;
+        _selectedVehicle = null;
         _noVehicle = false;
         _function = OperationFunction.Trupp;
         _withBreathingApparatus = false;
         _selectedFunctionIds.Clear();
-        await LoadData();
-        await LoadFunctionMap();
-        
-        try
-        {
-            await _inputElement.FocusAsync();
-        }
-        catch { }
     }
 
     private async Task HandleKeyPress(KeyboardEventArgs e)
     {
         if (e.Key == "Enter")
         {
-            if (!_noVehicle && _vehicleId == 0)
+            if (!string.IsNullOrWhiteSpace(_memberIdInput))
             {
-                _errorMessage = "Bitte Fahrzeug auswählen oder 'Ohne Fahrzeug' aktivieren!";
-                return;
+                await ShowVehicleModal();
             }
-            await AddEntry();
         }
     }
 
-    private async Task OnSearchInput(ChangeEventArgs e)
+    private async Task PerformSearch()
     {
-        _nameOrId = e.Value?.ToString() ?? string.Empty;
         _showSuggestions = false;
         _searchCts?.Cancel();
         _searchCts = new CancellationTokenSource();
@@ -472,12 +537,12 @@
         {
             await Task.Delay(200, token);
             if (token.IsCancellationRequested) return;
-            if (string.IsNullOrWhiteSpace(_nameOrId) || _nameOrId.Length < 2)
+            if (string.IsNullOrWhiteSpace(_searchInput) || _searchInput.Length < 2)
             {
                 _suggestions.Clear();
                 return;
             }
-            var results = await MemberRepo.SearchAsync(_nameOrId, 10);
+            var results = await MemberRepo.SearchAsync(_searchInput, 10);
             if (!token.IsCancellationRequested)
             {
                 _suggestions = results;
@@ -490,8 +555,117 @@
 
     private void SelectSuggestion(Member m)
     {
-        _nameOrId = $"{m.FirstName} {m.LastName} ({m.MemberNumber})";
+        _memberIdInput = m.MemberNumber;
+        _selectedMember = m;
         _showSuggestions = false;
+        _searchInput = string.Empty;
+    }
+
+    private void OnDigitEntered(string digit)
+    {
+        _memberIdInput += digit;
+        _searchInput = string.Empty;
+        _showSuggestions = false;
+    }
+
+    private async Task OnCombinedInput(ChangeEventArgs e)
+    {
+        var input = e.Value?.ToString() ?? string.Empty;
+        _memberIdInput = input;
+        
+        // Prüfen ob es eine reine Zahl ist (ID) oder Text (Name)
+        if (int.TryParse(input, out _))
+        {
+            // Reine Zahl - ID-Eingabe
+            _searchInput = string.Empty;
+            _showSuggestions = false;
+        }
+        else if (!string.IsNullOrWhiteSpace(input) && input.Length >= 2)
+        {
+            // Text - Namenssuche
+            _searchInput = input;
+            await PerformSearch();
+        }
+        else
+        {
+            _searchInput = string.Empty;
+            _showSuggestions = false;
+        }
+    }
+
+    private void ClearMemberId()
+    {
+        _memberIdInput = string.Empty;
+        _searchInput = string.Empty;
+        _selectedMember = null;
+        _showSuggestions = false;
+    }
+
+    private async Task ShowVehicleModal()
+    {
+        if (string.IsNullOrWhiteSpace(_memberIdInput))
+            return;
+
+        var member = await MemberRepo.FindByNameOrNumberAsync(_memberIdInput);
+        if (member == null)
+        {
+            _errorMessage = "Mitglied nicht gefunden!";
+            return;
+        }
+
+        _selectedMember = member;
+        _vehicleModal?.ShowModal();
+    }
+
+
+    private async Task OnVehicleSelected(int? vehicleId)
+    {
+        if (vehicleId.HasValue)
+        {
+            _selectedVehicle = _vehicles.FirstOrDefault(v => v.Id == vehicleId.Value);
+            _noVehicle = false;
+        }
+        else
+        {
+            _selectedVehicle = null;
+            _noVehicle = true;
+        }
+        
+        // Nach Fahrzeugauswahl direkt zur Funktionsauswahl
+        _functionModal?.ShowModal(_selectedFunctionIds);
+        StateHasChanged();
+    }
+
+    private void OnVehicleModalClosed()
+    {
+        StateHasChanged();
+    }
+
+    private async Task OnFunctionsSelected(HashSet<int> selectedIds)
+    {
+        _selectedFunctionIds = selectedIds;
+        
+        // Nach Funktionsauswahl zur Übersicht
+        var functionNames = _allFunctions
+            .Where(f => selectedIds.Contains(f.Id))
+            .Select(f => f.Name)
+            .ToList();
+            
+        var vehicleName = _noVehicle ? "Ohne Fahrzeug" : _selectedVehicle?.Name ?? "Unbekannt";
+        var memberName = $"{_selectedMember?.FirstName} {_selectedMember?.LastName}";
+        
+        _overviewModal?.ShowModal(memberName, vehicleName, functionNames, _withBreathingApparatus);
+        StateHasChanged();
+    }
+
+    private void OnFunctionModalClosed()
+    {
+        StateHasChanged();
+    }
+
+    private void OnOverviewModalClosed()
+    {
+        StateHasChanged();
     }
 
     private async Task DeleteEntry(int entryId)
@@ -532,25 +706,46 @@
     private async Task SaveEdit()
     {
         if (_list == null) return;
-        _list.OperationNumber = _editOperationNumber?.Trim() ?? string.Empty;
-        _list.Keyword = _editKeyword?.Trim() ?? string.Empty;
-        _list.Address = string.IsNullOrWhiteSpace(_editAddress) ? null : _editAddress.Trim();
-        if (!string.IsNullOrWhiteSpace(_list.Address))
+        
+        try
         {
-            _geocodingInProgress = true;
-            var (lat, lon) = await Geocoder.GeocodeAsync(_list.Address);
-            _list.Latitude = lat;
-            _list.Longitude = lon;
-            _geocodingInProgress = false;
+            _list.OperationNumber = _editOperationNumber?.Trim() ?? string.Empty;
+            _list.KeywordId = _editKeywordId;
+            
+            // Update the keyword text field based on selected keyword
+            if (_editKeywordId.HasValue)
+            {
+                var selectedKeyword = _availableKeywords.FirstOrDefault(k => k.Id == _editKeywordId.Value);
+                _list.Keyword = selectedKeyword?.Name ?? string.Empty;
+            }
+            else
+            {
+                _list.Keyword = string.Empty;
+            }
+            
+            _list.Address = string.IsNullOrWhiteSpace(_editAddress) ? null : _editAddress.Trim();
+            if (!string.IsNullOrWhiteSpace(_list.Address))
+            {
+                _geocodingInProgress = true;
+                var (lat, lon) = await Geocoder.GeocodeAsync(_list.Address);
+                _list.Latitude = lat;
+                _list.Longitude = lon;
+                _geocodingInProgress = false;
+            }
+            else
+            {
+                _list.Latitude = null;
+                _list.Longitude = null;
+            }
+                await OperationRepo.UpdateAsync(_list);
+                _editOpen = false;
+                await LoadData();
+                await LoadRequirementsValidation();
         }
-        else
+        catch (Exception ex)
         {
-            _list.Latitude = null;
-            _list.Longitude = null;
+            _errorMessage = $"Fehler beim Speichern: {ex.Message}";
         }
-        await OperationRepo.UpdateAsync(_list);
-        _editOpen = false;
-        await LoadData();
     }
 
     private async Task ExportPdf()
@@ -619,13 +814,6 @@
         }
         return GetOsmEmbedUrl(address);
     }
-    private void ToggleFunction(int id, bool isChecked)
-    {
-        if (isChecked)
-            _selectedFunctionIds.Add(id);
-        else
-            _selectedFunctionIds.Remove(id);
-    }
 }
 
 @if (_editOpen && _list != null)
@@ -644,7 +832,14 @@
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Stichwort</label>
-                        <input type="text" class="form-control bg-dark text-light border-secondary" @bind="_editKeyword" />
+                        <select class="form-select bg-dark text-light border-secondary" @bind="_editKeywordId">
+                            <option value="">Kein Stichwort ausgewählt</option>
+                            @foreach (var keyword in _availableKeywords.Where(k => k.IsActive))
+                            {
+                                <option value="@keyword.Id">@keyword.Name</option>
+                            }
+                        </select>
+                        <div class="form-text">Das Stichwort bestimmt die Personal Requirements für diesen Einsatz.</div>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Adresse</label>
