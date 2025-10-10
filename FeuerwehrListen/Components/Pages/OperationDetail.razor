@@ -409,18 +409,6 @@
         await LoadFunctionMap();
     }
 
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (firstRender || _list?.Status == ListStatus.Open)
-        {
-            try
-            {
-                await _inputElement.FocusAsync();
-            }
-            catch { }
-        }
-    }
-
     private async Task LoadData()
     {
         _list = await OperationRepo.GetByIdAsync(Id);

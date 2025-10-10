@@ -65,8 +65,7 @@
                                                    @oninput="OnCombinedInput"
                                                    @onkeyup="HandleKeyPress"
                                                    @ref="_inputElement"
-                                                   autocomplete="off"
-                                                   autofocus />
+                                                   autocomplete="off" />
                                             @if (_showSuggestions && _suggestions.Count > 0)
                                             {
                                                 <div class="list-group position-absolute w-100 shadow" style="z-index: 1050; max-height: 300px; overflow:auto;">
@@ -236,18 +235,6 @@
         await LoadData();
     }
 
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (firstRender || _list?.Status == ListStatus.Open)
-        {
-            try
-            {
-                await _inputElement.FocusAsync();
-            }
-            catch { }
-        }
-    }
-
     private async Task LoadData()
     {
         _list = await AttendanceRepo.GetByIdAsync(Id);
@@ -289,11 +276,6 @@
         if (member == null)
         {
             _errorMessage = $"Mitglied nicht gefunden!";
-            try
-            {
-                await _inputElement.FocusAsync();
-            }
-            catch { }
             return;
         }
 
@@ -313,12 +295,6 @@
         _isExcused = false;
         _showSuggestions = false;
         await LoadData();
-        
-        try
-        {
-            await _inputElement.FocusAsync();
-        }
-        catch { }
     }
 
     private async Task HandleKeyPress(KeyboardEventArgs e)
