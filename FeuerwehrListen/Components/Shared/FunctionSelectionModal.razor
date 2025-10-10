@@ -39,7 +39,7 @@
                 </div>
             </div>
             <div class="modal-footer border-secondary">
-                <button type="button" class="btn btn-secondary" @onclick="CloseFunctionModal">Zurück</button>
+                <button type="button" class="btn btn-secondary" @onclick="BackToVehicleSelection">Zurück</button>
             </div>
         </div>
     </div>
@@ -70,6 +70,7 @@
     [Parameter] public List<OperationFunctionDef> Functions { get; set; } = new();
     [Parameter] public EventCallback<HashSet<int>> OnFunctionsSelected { get; set; }
     [Parameter] public EventCallback OnModalClosed { get; set; }
+    [Parameter] public EventCallback OnBackClicked { get; set; }
 
     private bool _showFunctionModal = false;
     private HashSet<int> _selectedFunctionIds = new();
@@ -127,6 +128,13 @@
     {
         _showFunctionModal = false;
         OnModalClosed.InvokeAsync();
+        StateHasChanged();
+    }
+
+    private void BackToVehicleSelection()
+    {
+        _showFunctionModal = false;
+        OnBackClicked.InvokeAsync();
         StateHasChanged();
     }
 }

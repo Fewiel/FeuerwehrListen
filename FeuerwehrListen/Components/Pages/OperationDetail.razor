@@ -192,7 +192,8 @@
         
         <FunctionSelectionModal Functions="_allFunctions" 
                                OnFunctionsSelected="OnFunctionsSelected" 
-                               OnModalClosed="OnFunctionModalClosed" 
+                               OnModalClosed="OnFunctionModalClosed"
+                               OnBackClicked="OnFunctionBackClicked" 
                                @ref="_functionModal" />
         
         <EntryOverviewModal OnEntryConfirmed="AddEntry" 
@@ -643,7 +644,11 @@
 
     private void OnFunctionModalClosed()
     {
-        // Zurück zur Fahrzeugauswahl
+        StateHasChanged();
+    }
+
+    private void OnFunctionBackClicked()
+    {
         _vehicleModal?.ShowModal();
         StateHasChanged();
     }
