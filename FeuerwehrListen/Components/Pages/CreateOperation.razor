@@ -2,6 +2,7 @@
 @using FeuerwehrListen.Models
 @using FeuerwehrListen.Repositories
 @inject OperationListRepository OperationRepo
+@inject KeywordRepository KeywordRepo
 @inject NavigationManager Navigation
 @rendermode InteractiveServer
 
@@ -21,7 +22,13 @@
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Stichwort</label>
-                        <input type="text" class="form-control" @bind="_keyword" />
+                        <select class="form-select" @bind="_selectedKeywordId">
+                            <option value="">-- Stichwort auswählen --</option>
+                            @foreach (var keyword in _availableKeywords)
+                            {
+                                <option value="@keyword.Id">@keyword.Name - @keyword.Description</option>
+                            }
+                        </select>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Alarmierungszeit</label>
@@ -43,19 +50,35 @@
 
 @code {
     private string _operationNumber = string.Empty;
-    private string _keyword = string.Empty;
+    private int? _selectedKeywordId;
     private DateTime _alertTime = DateTime.Now;
     private string _address = string.Empty;
+    private List<Keyword> _availableKeywords = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadKeywords();
+    }
+
+    private async Task LoadKeywords()
+    {
+        _availableKeywords = await KeywordRepo.GetAllAsync();
+    }
 
     private async Task CreateList()
     {
-        if (string.IsNullOrWhiteSpace(_operationNumber) || string.IsNullOrWhiteSpace(_keyword))
+        if (string.IsNullOrWhiteSpace(_operationNumber) || !_selectedKeywordId.HasValue)
+            return;
+
+        var selectedKeyword = _availableKeywords.FirstOrDefault(k => k.Id == _selectedKeywordId.Value);
+        if (selectedKeyword == null)
             return;
 
         var newList = new OperationList
         {
             OperationNumber = _operationNumber,
-            Keyword = _keyword,
+            Keyword = selectedKeyword.Name,
+            KeywordId = selectedKeyword.Id,
             AlertTime = _alertTime,
             CreatedAt = DateTime.Now,
             Status = ListStatus.Open,
