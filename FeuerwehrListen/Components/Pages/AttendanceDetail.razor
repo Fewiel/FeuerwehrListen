@@ -8,6 +8,7 @@
 @inject MemberRepository MemberRepo
 @inject PdfExportService PdfService
 @inject NavigationManager Navigation
+@inject AuthenticationService AuthService
 @rendermode InteractiveServer
 
 <PageTitle>Anwesenheitsliste - @_list?.Title</PageTitle>
@@ -53,38 +54,19 @@
                             }
                             
                             <div class="row">
-                                <div class="col-md-6">
+                                <div class="col-12">
                                     <div class="mb-3">
-                                        <label class="form-label">Mitgliedsnummer</label>
-                                        <div class="input-group input-group-lg">
+                                        <label class="form-label">Mitgliedsnummer oder Name</label>
+                                        <div class="position-relative">
                                             <input type="text" 
-                                                   class="form-control text-center" 
-                                                   placeholder="ID eingeben" 
-                                                   value="@_memberIdInput"
-                                                   @oninput="OnMemberIdInput"
+                                                   class="form-control form-control-lg text-center" 
+                                                   placeholder="ID oder Name eingeben..." 
+                                                   value="@_combinedInput"
+                                                   @oninput="OnCombinedInput"
                                                    @onkeyup="HandleKeyPress"
                                                    @ref="_inputElement"
                                                    autocomplete="off"
                                                    autofocus />
-                                            <button class="btn btn-primary btn-lg" @onclick="AddEntry" disabled="@(string.IsNullOrWhiteSpace(_memberIdInput))">
-                                                Eintragen
-                                            </button>
-                                        </div>
-                                    </div>
-                                    
-                                    <Numpad OnDigitEntered="OnDigitEntered" OnSubmit="AddEntry" OnClear="ClearMemberId" />
-                                </div>
-                                
-                                <div class="col-md-6">
-                                    <div class="mb-3">
-                                        <label class="form-label">Name suchen</label>
-                                        <div class="position-relative">
-                                            <input type="text" 
-                                                   class="form-control form-control-lg" 
-                                                   placeholder="Name eingeben..." 
-                                                   value="@_searchInput"
-                                                   @oninput="OnSearchInput"
-                                                   @ref="_searchElement" />
                                             @if (_showSuggestions && _suggestions.Count > 0)
                                             {
                                                 <div class="list-group position-absolute w-100 shadow" style="z-index: 1050; max-height: 300px; overflow:auto;">
@@ -103,14 +85,23 @@
                             
                             <div class="row">
                                 <div class="col-12">
-                                    <div class="form-check form-check-lg">
-                                        <input class="form-check-input" type="checkbox" id="isExcusedCheck" @bind="_isExcused">
-                                        <label class="form-check-label fs-5" for="isExcusedCheck">
-                                            Als entschuldigt eintragen
-                                        </label>
-                                    </div>
+                                    <Numpad OnDigitEntered="OnDigitEntered" OnSubmit="AddEntry" OnClear="ClearInput" />
                                 </div>
                             </div>
+                            
+                            @if (AuthService.IsAdmin)
+                            {
+                                <div class="row">
+                                    <div class="col-12">
+                                        <div class="form-check form-check-lg">
+                                            <input class="form-check-input" type="checkbox" id="isExcusedCheck" @bind="_isExcused">
+                                            <label class="form-check-label fs-5" for="isExcusedCheck">
+                                                Als entschuldigt eintragen
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
                         </div>
                     </div>
                 </div>
@@ -142,10 +133,10 @@
                                         <th>#</th>
                                         <th>Name/ID</th>
                                         <th>Eingetragen um</th>
-                                        @if (_list.Status == ListStatus.Open)
-                                        {
-                                            <th>Aktion</th>
-                                        }
+                                            @if (_list.Status == ListStatus.Open && AuthService.IsAdmin)
+                                            {
+                                                <th>Aktion</th>
+                                            }
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -155,7 +146,7 @@
                                             <td>@(index + 1)</td>
                                             <td><strong>@entry.NameOrId</strong></td>
                                             <td>@entry.EnteredAt.ToString("HH:mm:ss")</td>
-                                            @if (_list.Status == ListStatus.Open)
+                                            @if (_list.Status == ListStatus.Open && AuthService.IsAdmin)
                                             {
                                                 <td>
                                                     <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteEntry(entry.Id)" title="Entfernen">
@@ -186,7 +177,7 @@
                                             <th>#</th>
                                             <th>Name/ID</th>
                                             <th>Eingetragen um</th>
-                                            @if (_list.Status == ListStatus.Open)
+                                            @if (_list.Status == ListStatus.Open && AuthService.IsAdmin)
                                             {
                                                 <th>Aktion</th>
                                             }
@@ -199,7 +190,7 @@
                                                 <td>@(index + 1)</td>
                                                 <td><strong>@entry.NameOrId</strong></td>
                                                 <td>@entry.EnteredAt.ToString("HH:mm:ss")</td>
-                                                @if (_list.Status == ListStatus.Open)
+                                                @if (_list.Status == ListStatus.Open && AuthService.IsAdmin)
                                                 {
                                                     <td>
                                                         <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteEntry(entry.Id)" title="Entfernen">
@@ -232,12 +223,10 @@
 
     private AttendanceList? _list;
     private List<AttendanceEntry> _entries = new();
-    private string _searchInput = string.Empty;
-    private string _memberIdInput = string.Empty;
+    private string _combinedInput = string.Empty;
     private string _errorMessage = string.Empty;
     private bool _isExcused = false;
     private ElementReference _inputElement;
-    private ElementReference _searchElement;
     private List<Member> _suggestions = new();
     private bool _showSuggestions = false;
     private CancellationTokenSource? _searchCts;
@@ -274,33 +263,26 @@
             return;
 
         _errorMessage = string.Empty;
-        string input = string.Empty;
         
-        if (!string.IsNullOrWhiteSpace(_memberIdInput))
+        if (string.IsNullOrWhiteSpace(_combinedInput))
+            return;
+
+        string input = _combinedInput;
+        
+        // Wenn es ein Name mit ID in Klammern ist, extrahiere die ID
+        var openIdx = input.LastIndexOf('(');
+        var closeIdx = input.LastIndexOf(')');
+        if (openIdx >= 0 && closeIdx > openIdx)
         {
-            input = _memberIdInput;
-        }
-        else if (!string.IsNullOrWhiteSpace(_searchInput))
-        {
-            input = _searchInput;
-            var openIdx = input.LastIndexOf('(');
-            var closeIdx = input.LastIndexOf(')');
-            if (openIdx >= 0 && closeIdx > openIdx)
+            var inside = input.Substring(openIdx + 1, closeIdx - openIdx - 1).Trim();
+            if (!string.IsNullOrEmpty(inside))
             {
-                var inside = input.Substring(openIdx + 1, closeIdx - openIdx - 1).Trim();
-                if (!string.IsNullOrEmpty(inside))
+                var byNum = await MemberRepo.GetByMemberNumberAsync(inside);
+                if (byNum != null)
                 {
-                    var byNum = await MemberRepo.GetByMemberNumberAsync(inside);
-                    if (byNum != null)
-                    {
-                        input = inside;
-                    }
+                    input = inside;
                 }
             }
-        }
-        else
-        {
-            return;
         }
 
         var member = await MemberRepo.FindByNameOrNumberAsync(input);
@@ -315,18 +297,21 @@
             return;
         }
 
+        // Nur Admins können als entschuldigt eintragen
+        var isExcused = AuthService.IsAdmin && _isExcused;
+
         var entry = new AttendanceEntry
         {
             AttendanceListId = Id,
             NameOrId = $"{member.FirstName} {member.LastName} ({member.MemberNumber})",
             EnteredAt = DateTime.Now,
-            IsExcused = _isExcused
+            IsExcused = isExcused
         };
 
         await EntryRepo.CreateAsync(entry);
-        _searchInput = string.Empty;
-        _memberIdInput = string.Empty;
+        _combinedInput = string.Empty;
         _isExcused = false;
+        _showSuggestions = false;
         await LoadData();
         
         try
@@ -344,9 +329,9 @@
         }
     }
 
-    private async Task OnSearchInput(ChangeEventArgs e)
+    private async Task OnCombinedInput(ChangeEventArgs e)
     {
-        _searchInput = e.Value?.ToString() ?? string.Empty;
+        _combinedInput = e.Value?.ToString() ?? string.Empty;
         _showSuggestions = false;
         _searchCts?.Cancel();
         _searchCts = new CancellationTokenSource();
@@ -355,12 +340,12 @@
         {
             await Task.Delay(200, token);
             if (token.IsCancellationRequested) return;
-            if (string.IsNullOrWhiteSpace(_searchInput) || _searchInput.Length < 2)
+            if (string.IsNullOrWhiteSpace(_combinedInput) || _combinedInput.Length < 2)
             {
                 _suggestions.Clear();
                 return;
             }
-            var results = await MemberRepo.SearchAsync(_searchInput, 10);
+            var results = await MemberRepo.SearchAsync(_combinedInput, 10);
             if (!token.IsCancellationRequested)
             {
                 _suggestions = results;
@@ -373,26 +358,20 @@
 
     private void SelectSuggestion(Member m)
     {
-        _searchInput = $"{m.FirstName} {m.LastName} ({m.MemberNumber})";
-        _memberIdInput = m.MemberNumber;
+        _combinedInput = $"{m.FirstName} {m.LastName} ({m.MemberNumber})";
         _showSuggestions = false;
     }
 
     private void OnDigitEntered(string digit)
     {
-        _memberIdInput += digit;
-        _searchInput = string.Empty;
+        _combinedInput += digit;
         _showSuggestions = false;
     }
 
-    private void OnMemberIdInput(ChangeEventArgs e)
+    private void ClearInput()
     {
-        _memberIdInput = e.Value?.ToString() ?? string.Empty;
-    }
-
-    private void ClearMemberId()
-    {
-        _memberIdInput = string.Empty;
+        _combinedInput = string.Empty;
+        _showSuggestions = false;
     }
 
     private async Task DeleteEntry(int entryId)

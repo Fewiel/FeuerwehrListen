@@ -10,6 +10,19 @@
             </div>
             <div class="modal-body">
                 <div class="row g-3">
+                    <!-- "Ohne Funktion" Option -->
+                    <div class="col-md-6 col-lg-4">
+                        <div class="card h-100 function-card @(_selectedFunctionIds.Count == 0 ? "border-primary bg-primary-subtle" : "border-secondary")" 
+                             @onclick="() => SelectNoFunction()" 
+                             style="cursor: pointer;">
+                            <div class="card-body text-center bg-dark">
+                                <i class="bi bi-person fs-1 text-muted mb-3"></i>
+                                <h6 class="card-title text-light">Ohne Funktion</h6>
+                                <small class="text-muted">Wird als Trupp eingetragen</small>
+                            </div>
+                        </div>
+                    </div>
+                    
                     @foreach (var function in _functions)
                     {
                         <div class="col-md-6 col-lg-4">
@@ -78,6 +91,16 @@
     {
         await OnFunctionsSelected.InvokeAsync(_selectedFunctionIds);
         CloseFunctionModal();
+    }
+
+    private async Task SelectNoFunction()
+    {
+        _selectedFunctionIds.Clear();
+        StateHasChanged();
+        
+        // Automatisch bestätigen nach kurzer Verzögerung
+        await Task.Delay(500);
+        await ConfirmFunctionSelection();
     }
 
     private async Task ToggleFunction(int functionId)
