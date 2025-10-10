@@ -375,6 +375,25 @@
                                             </div>
                                             <div class="d-flex align-items-center">
                                                 <span class="badge bg-primary me-2">@op.TotalParticipants Teilnehmer</span>
+                                                @if (op.HasPersonalRequirements)
+                                                {
+                                                    <span class="badge @(op.RequirementsFulfilled ? "bg-success" : "bg-warning") me-2">
+                                                        @if (op.RequirementsFulfilled)
+                                                        {
+                                                            <i class="bi bi-check-circle"></i> @($"{op.RequirementsFulfillmentRate:F0}%")
+                                                        }
+                                                        else
+                                                        {
+                                                            <i class="bi bi-exclamation-triangle"></i> @($"{op.RequirementsFulfillmentRate:F0}%")
+                                                        }
+                                                    </span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-secondary me-2">
+                                                        <i class="bi bi-info-circle"></i> Keine Requirements
+                                                    </span>
+                                                }
                                                 <i class="bi @(isExpanded ? "bi-chevron-up" : "bi-chevron-down")"></i>
                                             </div>
                                         </div>
@@ -382,6 +401,33 @@
                                     @if (isExpanded)
                                     {
                                         <div class="card-body">
+                                            @if (op.HasPersonalRequirements)
+                                            {
+                                                <div class="alert @(op.RequirementsFulfilled ? "alert-success" : "alert-warning") mb-3">
+                                                    <div class="d-flex align-items-center">
+                                                        <i class="bi @(op.RequirementsFulfilled ? "bi-check-circle" : "bi-exclamation-triangle") me-2"></i>
+                                                        <div>
+                                                            <strong>Personal Requirements Status:</strong>
+                                                            @if (op.RequirementsFulfilled)
+                                                            {
+                                                                <span class="text-success">Alle Requirements erfüllt (@op.RequirementsFulfillmentRate.ToString("F0")%)</span>
+                                                            }
+                                                            else
+                                                            {
+                                                                <span class="text-warning">Requirements teilweise erfüllt (@op.RequirementsFulfillmentRate.ToString("F0")%)</span>
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <div class="alert alert-info mb-3">
+                                                    <i class="bi bi-info-circle me-2"></i>
+                                                    <strong>Keine Personal Requirements definiert</strong> - Stichwort ohne Requirements-Konfiguration
+                                                </div>
+                                            }
+                                            
                                             @if (op.FunctionCounts.Any(f => f.Value > 0) || op.WithVehicleTruppCount > 0)
                                             {
                                                 <h6 class="mb-3">Funktionen (mit Fahrzeug):</h6>

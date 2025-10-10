@@ -75,12 +75,16 @@ public class OperationComposition
 {
     public string OperationNumber { get; set; } = string.Empty;
     public string Keyword { get; set; } = string.Empty;
+    public int? KeywordId { get; set; }
     public string Address { get; set; } = string.Empty;
     public int TotalParticipants { get; set; }
     public Dictionary<string, int> FunctionCounts { get; set; } = new();
     public Dictionary<string, int> NoVehicleFunctionCounts { get; set; } = new();
     public int WithVehicleTruppCount { get; set; }
     public int WithoutVehicleTruppCount { get; set; }
+    public bool HasPersonalRequirements { get; set; }
+    public double RequirementsFulfillmentRate { get; set; }
+    public bool RequirementsFulfilled { get; set; }
 }
 
 public class KeywordStatistics

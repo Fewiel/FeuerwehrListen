@@ -365,11 +365,28 @@ public class StatisticsService
             {
                 OperationNumber = op.OperationNumber,
                 Keyword = op.Keyword ?? string.Empty,
+                KeywordId = op.KeywordId,
                 Address = op.Address ?? string.Empty,
                 TotalParticipants = totalParticipants,
                 FunctionCounts = functionDefs.ToDictionary(f => f.Name, f => 0),
                 NoVehicleFunctionCounts = functionDefs.ToDictionary(f => f.Name, f => 0)
             };
+
+            // Personal Requirements Validierung
+            if (op.KeywordId.HasValue)
+            {
+                var validationResult = await _requirementsService.ValidateRequirementsAsync(op.Id, op.KeywordId.Value);
+                composition.HasPersonalRequirements = true;
+                composition.RequirementsFulfillmentRate = validationResult.IsValid ? 100.0 : 
+                    Math.Max(0, 100.0 - (validationResult.MissingRequirements.Count * 20.0)); // Vereinfachte Berechnung
+                composition.RequirementsFulfilled = validationResult.IsValid;
+            }
+            else
+            {
+                composition.HasPersonalRequirements = false;
+                composition.RequirementsFulfillmentRate = 0;
+                composition.RequirementsFulfilled = false;
+            }
 
             var entriesWithVehicle = opEntries.Where(e => !string.IsNullOrWhiteSpace(e.Vehicle)).ToList();
             var entriesWithoutVehicle = opEntries.Where(e => string.IsNullOrWhiteSpace(e.Vehicle)).ToList();

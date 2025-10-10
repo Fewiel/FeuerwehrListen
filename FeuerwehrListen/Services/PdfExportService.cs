@@ -820,9 +820,40 @@ public class PdfExportService
                     if (!string.IsNullOrEmpty(op.Keyword)) title += $" | {op.Keyword}";
                     if (!string.IsNullOrEmpty(op.Address)) title += $" | {op.Address}";
                     
-                    gfx.DrawString(title, boldFont, XBrushes.Black, new XRect(left, yPosition, contentWidth - 100, 16), XStringFormats.TopLeft);
-                    gfx.DrawString($"{op.TotalParticipants} Teilnehmer", font, XBrushes.Gray, new XRect(left + contentWidth - 100, yPosition, 100, 16), XStringFormats.TopRight);
+                    gfx.DrawString(title, boldFont, XBrushes.Black, new XRect(left, yPosition, contentWidth - 200, 16), XStringFormats.TopLeft);
+                    gfx.DrawString($"{op.TotalParticipants} Teilnehmer", font, XBrushes.Gray, new XRect(left + contentWidth - 200, yPosition, 100, 16), XStringFormats.TopRight);
+                    
+                    // Personal Requirements Status
+                    if (op.HasPersonalRequirements)
+                    {
+                        var requirementsColor = op.RequirementsFulfilled ? XColors.Green : XColors.OrangeRed;
+                        var requirementsText = op.RequirementsFulfilled ? 
+                            $"✓ {op.RequirementsFulfillmentRate:F0}%" : 
+                            $"⚠ {op.RequirementsFulfillmentRate:F0}%";
+                        gfx.DrawString(requirementsText, font, new XSolidBrush(requirementsColor), new XRect(left + contentWidth - 100, yPosition, 100, 16), XStringFormats.TopRight);
+                    }
+                    else
+                    {
+                        gfx.DrawString("Keine Requirements", font, XBrushes.Gray, new XRect(left + contentWidth - 100, yPosition, 100, 16), XStringFormats.TopRight);
+                    }
                     yPosition += 18;
+
+                    // Personal Requirements Details
+                    if (op.HasPersonalRequirements)
+                    {
+                        var requirementsColor = op.RequirementsFulfilled ? XColors.Green : XColors.OrangeRed;
+                        var requirementsStatus = op.RequirementsFulfilled ? 
+                            "Personal Requirements: Alle erfüllt" : 
+                            "Personal Requirements: Teilweise erfüllt";
+                        
+                        gfx.DrawString(requirementsStatus, font, new XSolidBrush(requirementsColor), new XRect(left + 10, yPosition, contentWidth, 14), XStringFormats.TopLeft);
+                        yPosition += 16;
+                    }
+                    else if (!string.IsNullOrEmpty(op.Keyword))
+                    {
+                        gfx.DrawString("Personal Requirements: Keine definiert", font, XBrushes.Gray, new XRect(left + 10, yPosition, contentWidth, 14), XStringFormats.TopLeft);
+                        yPosition += 16;
+                    }
 
                     var functionsWithVehicle = op.FunctionCounts.Where(f => f.Value > 0).OrderByDescending(f => f.Value).ToList();
                     var functionsWithoutVehicle = op.NoVehicleFunctionCounts.Where(f => f.Value > 0).OrderByDescending(f => f.Value).ToList();
