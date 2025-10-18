@@ -21,7 +21,26 @@
 @if (_list != null)
 {
     <div class="container mt-4">
-        <div class="row mb-4 align-items-start">
+        <div class="row mb-3">
+            <div class="col text-end">
+                @if (_list.Status == ListStatus.Open)
+                {
+                    <button class="btn btn-warning me-2" @onclick="CloseList">Liste abschließen</button>
+                }
+                else
+                {
+                    <span class="badge bg-secondary fs-5 me-2">Abgeschlossen</span>
+                }
+                <button class="btn btn-outline-primary me-2" @onclick="() => _editOpen = true">
+                    <i class="bi bi-pencil-square"></i> Einsatz bearbeiten
+                </button>
+                <button class="btn btn-primary" @onclick="ExportPdf">
+                    <i class="bi bi-file-earmark-pdf"></i> PDF Export
+                </button>
+            </div>
+        </div>
+        
+        <div class="row mb-4">
             <div class="col">
                 <h1>Einsatz @_list.OperationNumber</h1>
                 <p class="lead">Stichwort: @_list.Keyword</p>
@@ -67,22 +86,6 @@
                 
                 <p>Alarmierung: @_list.AlertTime.ToString("dd.MM.yyyy HH:mm")</p>
                 <small class="text-muted">Erstellt: @_list.CreatedAt.ToString("dd.MM.yyyy HH:mm")</small>
-            </div>
-            <div class="col-auto">
-                @if (_list.Status == ListStatus.Open)
-                {
-                    <button class="btn btn-warning me-2" @onclick="CloseList">Liste abschließen</button>
-                }
-                else
-                {
-                    <span class="badge bg-secondary fs-5 me-2">Abgeschlossen</span>
-                }
-                <button class="btn btn-outline-primary me-2" @onclick="() => _editOpen = true">
-                    <i class="bi bi-pencil-square"></i> Einsatz bearbeiten
-                </button>
-                <button class="btn btn-primary" @onclick="ExportPdf">
-                    <i class="bi bi-file-earmark-pdf"></i> PDF Export
-                </button>
             </div>
         </div>
 
