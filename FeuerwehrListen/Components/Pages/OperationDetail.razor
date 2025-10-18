@@ -729,6 +729,16 @@
 
     private async Task HandleNumpadInput(string input)
     {
+        if (int.TryParse(input, out _))
+        {
+            var member = await MemberRepo.GetByMemberNumberAsync(input);
+            if (member != null)
+            {
+                await HandleMemberSelection(member.Id);
+                return;
+            }
+        }
+        
         var members = await MemberRepo.SearchAsync(input);
         if (members.Count == 1)
         {
