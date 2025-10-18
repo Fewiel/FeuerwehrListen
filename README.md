@@ -53,6 +53,18 @@ sudo apt-get install docker-ce docker-ce-cli containerd.io docker-buildx-plugin 
 - **Logs ansehen:** `sudo docker compose logs -f`
 - **Stoppen:** `sudo docker compose down`
 
+### 4. Updates
+
+Um die Anwendung zu aktualisieren, holen Sie sich den neuesten Code und bauen Sie das Image neu. Die Datenbank bleibt dabei dank des Docker-Volumes erhalten.
+
+```sh
+# Neuesten Code herunterladen
+git pull
+
+# Anwendung mit dem neuen Code neu bauen und starten
+sudo docker compose up --build -d
+```
+
 ### Datenpersistenz
 
 Die SQLite-Datenbank wird in einem Docker-Volume gespeichert. Ihre Daten bleiben auch nach einem Neustart des Containers (`sudo docker compose up`) oder des Servers erhalten.
