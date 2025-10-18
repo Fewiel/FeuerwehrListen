@@ -1,0 +1,17 @@
+services:
+  feuerwehr-listen:
+    container_name: feuerwehr-listen
+    image: feuerwehr-listen
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - db-data:/app/data
+    environment:
+      - ASPNETCORE_URLS=http://+:8080
+      - DATABASE_CONNECTION_STRING=Data Source=/app/data/feuerwehr.db
+
+volumes:
+  db-data:

@@ -16,6 +16,7 @@
         <PackageReference Include="FluentMigrator.Runner.SQLite" Version="5.2.0" />
         <PackageReference Include="FluentMigrator.Runner.MySql" Version="5.2.0" />
         <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.0" />
+        <PackageReference Include="Microsoft.NET.Build.Containers" Version="9.0.306" />
         <PackageReference Include="MySqlConnector" Version="2.3.5" />
         <PackageReference Include="Swashbuckle.AspNetCore" Version="6.5.0" />
         <PackageReference Include="PdfSharp" Version="6.0.0" />

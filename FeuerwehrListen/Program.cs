@@ -57,9 +57,10 @@ builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<DownloadTokenService>();
 
 var dbProvider = builder.Configuration["DatabaseSettings:Provider"];
-var connectionString = dbProvider == "MySQL"
-    ? builder.Configuration["DatabaseSettings:MySQLConnection"]
-    : builder.Configuration["DatabaseSettings:SQLiteConnection"];
+var connectionString = Environment.GetEnvironmentVariable("DATABASE_CONNECTION_STRING") 
+                       ?? (dbProvider == "MySQL"
+                           ? builder.Configuration["DatabaseSettings:MySQLConnection"]
+                           : builder.Configuration["DatabaseSettings:SQLiteConnection"]);
 
 builder.Services.AddLinqToDBContext<AppDbConnection>((provider, options) =>
 {
@@ -107,6 +108,7 @@ builder.Services.AddScoped<GeocodingService>();
 builder.Services.AddScoped<PersonalRequirementsService>();
 
 builder.Services.AddSingleton<AuthenticationService>();
+builder.Services.AddSingleton<SidebarService>();
 builder.Services.AddHostedService<ScheduledListBackgroundService>();
 
 var app = builder.Build();
