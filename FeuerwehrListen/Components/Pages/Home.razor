@@ -116,7 +116,7 @@
         _attendanceLists = (await AttendanceRepo.GetOpenAsync()).OrderByDescending(l => l.CreatedAt).ToList();
         
         var allWatches = await FireSafetyWatchRepo.GetAllAsync();
-        _fireSafetyWatches = allWatches.Where(w => w.EventDateTime >= DateTime.Now).OrderBy(w => w.EventDateTime).ToList();
+        _fireSafetyWatches = allWatches.Where(w => !w.IsArchived && w.Status == ListStatus.Open && w.EventDateTime >= DateTime.Now).OrderBy(w => w.EventDateTime).ToList();
     }
 
     public void Dispose()

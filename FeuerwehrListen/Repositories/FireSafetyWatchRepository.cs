@@ -38,6 +38,9 @@ namespace FeuerwehrListen.Repositories
                     Name = watch.Name,
                     Location = watch.Location,
                     EventDateTime = watch.EventDateTime,
+                    Status = watch.Status,
+                    ClosedAt = watch.ClosedAt,
+                    IsArchived = watch.IsArchived,
                     TotalRequired = required,
                     TotalAssigned = assigned
                 });
@@ -54,6 +57,21 @@ namespace FeuerwehrListen.Repositories
         public async Task<FireSafetyWatch> GetByIdAsync(int id)
         {
             return await _db.FireSafetyWatches.FirstOrDefaultAsync(f => f.Id == id);
+        }
+
+        public async Task<List<FireSafetyWatch>> GetClosedAsync()
+        {
+            return await _db.FireSafetyWatches.Where(x => x.Status == ListStatus.Closed && !x.IsArchived).ToListAsync();
+        }
+
+        public async Task<List<FireSafetyWatch>> GetArchivedAsync()
+        {
+            return await _db.FireSafetyWatches.Where(x => x.IsArchived).ToListAsync();
+        }
+
+        public async Task UpdateAsync(FireSafetyWatch watch)
+        {
+            await _db.UpdateAsync(watch);
         }
 
         public async Task InsertAsync(FireSafetyWatch watch)

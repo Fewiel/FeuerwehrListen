@@ -26,7 +26,15 @@
                 <h1>@_watch.Name</h1>
                 <p class="lead text-muted">@_watch.Location | @_watch.EventDateTime.ToString("dd.MM.yyyy HH:mm 'Uhr'")</p>
             </div>
-            <a href="/firesafetywatches" class="btn btn-secondary">Zurück zur Übersicht</a>
+            <div>
+                <AuthorizeView Roles="Admin">
+                    @if (_watch.Status == ListStatus.Open)
+                    {
+                        <button class="btn btn-warning me-2" @onclick="CloseWatch">Wache abschließen</button>
+                    }
+                </AuthorizeView>
+                <a href="/firesafetywatches" class="btn btn-secondary">Zurück zur Übersicht</a>
+            </div>
         </div>
 
         @foreach (var group in _groupedRequirements)
@@ -60,12 +68,18 @@
                                     {
                                         <span>@entry.Member.FirstName @entry.Member.LastName</span>
                                         <AuthorizeView Roles="Admin">
-                                            <button class="btn btn-sm btn-outline-danger ms-2" @onclick="() => Unregister(entry.Id)">Austragen</button>
+                                            @if (_watch.Status == ListStatus.Open)
+                                            {
+                                                <button class="btn btn-sm btn-outline-danger ms-2" @onclick="() => Unregister(entry.Id)">Austragen</button>
+                                            }
                                         </AuthorizeView>
                                     }
                                     else
                                     {
-                                        <button class="btn btn-sm btn-success" @onclick="() => Register(req.Id)">Eintragen</button>
+                                        @if (_watch.Status == ListStatus.Open)
+                                        {
+                                            <button class="btn btn-sm btn-success" @onclick="() => Register(req.Id)">Eintragen</button>
+                                        }
                                     }
                                 </div>
                             </li>
@@ -162,5 +176,13 @@
         await EntryRepo.DeleteAsync(entryId);
         await LoadData();
         StateHasChanged();
+    }
+    
+    private async Task CloseWatch()
+    {
+        _watch.Status = ListStatus.Closed;
+        _watch.ClosedAt = DateTime.Now;
+        await WatchRepo.UpdateAsync(_watch);
+        await LoadData();
     }
 }

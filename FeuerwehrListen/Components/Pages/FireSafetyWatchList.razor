@@ -63,7 +63,9 @@
 
     protected override async Task OnInitializedAsync()
     {
-        _watches = (await WatchRepo.GetAllWithStatusAsync()).OrderBy(w => w.EventDateTime).ToList();
+        _watches = (await WatchRepo.GetAllWithStatusAsync())
+            .Where(w => !w.IsArchived)
+            .OrderBy(w => w.EventDateTime).ToList();
     }
 
     private bool IsUrgent(FireSafetyWatchDto watch)

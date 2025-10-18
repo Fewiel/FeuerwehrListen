@@ -2,8 +2,10 @@
 @using FeuerwehrListen.Models
 @using FeuerwehrListen.Repositories
 @using FeuerwehrListen.Components.Layout
+@using FeuerwehrListen.Components.Shared
 @inject AttendanceListRepository AttendanceRepo
 @inject OperationListRepository OperationRepo
+@inject FireSafetyWatchRepository FireSafetyWatchRepo
 @inject NavigationManager Navigation
 @rendermode InteractiveServer
 
@@ -11,81 +13,73 @@
 
 <AdminAuthCheck>
 
-<div class="container mt-4">
-    <div class="row mb-4">
-        <div class="col">
-            <h1>Archiv</h1>
-        </div>
-    </div>
-
-    <div class="row">
-        <div class="col-md-6">
-            <div class="card mb-4">
-                <div class="card-header">
-                    <h5 class="mb-0">Anwesenheitslisten</h5>
-                </div>
-                <div class="card-body">
-                    @if (_archivedAttendance.Count == 0)
-                    {
-                        <p class="text-muted">Keine archivierten Listen</p>
-                    }
-                    else
-                    {
-                        <div class="list-group">
-                            @foreach (var list in _archivedAttendance)
-                            {
-                                <div class="list-group-item">
-                                    <div class="d-flex w-100 justify-content-between">
-                                        <h6 class="mb-1">@list.Title</h6>
-                                        <small>@list.ClosedAt?.ToString("dd.MM.yyyy")</small>
-                                    </div>
-                                    <p class="mb-1"><strong>@list.Unit</strong></p>
-                                    <a href="/attendance/@list.Id" class="btn btn-sm btn-primary mt-2">Ansehen</a>
-                                </div>
-                            }
-                        </div>
-                    }
-                </div>
+    <div class="container mt-4">
+        <div class="row mb-4">
+            <div class="col">
+                <h1>Archiv</h1>
             </div>
         </div>
 
-        <div class="col-md-6">
-            <div class="card mb-4">
-                <div class="card-header">
-                    <h5 class="mb-0">Einsatzlisten</h5>
-                </div>
-                <div class="card-body">
-                    @if (_archivedOperation.Count == 0)
-                    {
-                        <p class="text-muted">Keine archivierten Listen</p>
-                    }
-                    else
-                    {
-                        <div class="list-group">
-                            @foreach (var list in _archivedOperation)
-                            {
-                                <div class="list-group-item">
-                                    <div class="d-flex w-100 justify-content-between">
-                                        <h6 class="mb-1">@list.OperationNumber</h6>
-                                        <small>@list.ClosedAt?.ToString("dd.MM.yyyy")</small>
-                                    </div>
-                                    <p class="mb-1"><strong>@list.Keyword</strong></p>
-                                    <a href="/operation/@list.Id" class="btn btn-sm btn-danger mt-2">Ansehen</a>
-                                </div>
-                            }
-                        </div>
-                    }
-                </div>
+        <div class="row">
+            <div class="col-12">
+                <ListComponent TItem="OperationList"
+                               Title="Einsatzlisten"
+                               IconClass="bi bi-exclamation-triangle"
+                               Items="_archivedOperation"
+                               EmptyListMessage="Keine archivierten Einsatzlisten">
+                    <ItemTemplate>
+                        <a href="/operation/@context.Id" class="text-white text-decoration-none">
+                            <div class="d-flex w-100 justify-content-between">
+                                <h6 class="mb-1">@context.OperationNumber - @context.Keyword</h6>
+                                <small>@context.ClosedAt?.ToString("dd.MM.yyyy HH:mm")</small>
+                            </div>
+                            <p class="mb-1"><strong>@context.Address</strong></p>
+                        </a>
+                    </ItemTemplate>
+                </ListComponent>
+
+                <ListComponent TItem="AttendanceList"
+                               Title="Anwesenheitslisten"
+                               IconClass="bi bi-calendar-check"
+                               Items="_archivedAttendance"
+                               EmptyListMessage="Keine archivierten Anwesenheitslisten">
+                    <ItemTemplate>
+                        <a href="/attendance/@context.Id" class="text-white text-decoration-none">
+                            <div class="d-flex w-100 justify-content-between">
+                                <h6 class="mb-1">@context.Title</h6>
+                                <small>@context.ClosedAt?.ToString("dd.MM.yyyy HH:mm")</small>
+                            </div>
+                            <p class="mb-1"><strong>@context.Unit</strong></p>
+                            <small class="text-muted">@context.Description</small>
+                        </a>
+                    </ItemTemplate>
+                </ListComponent>
+                
+                <ListComponent TItem="FireSafetyWatch"
+                               Title="Brandsicherheitswachen"
+                               IconClass="bi bi-shield-check"
+                               Items="_archivedFireSafetyWatches"
+                               EmptyListMessage="Keine archivierten Brandsicherheitswachen">
+                    <ItemTemplate>
+                        <a href="/firesafetywatches/@context.Id" class="text-white text-decoration-none">
+                            <div class="d-flex w-100 justify-content-between">
+                                <h6 class="mb-1">@context.Name</h6>
+                                <small>@context.ClosedAt?.ToString("dd.MM.yyyy HH:mm")</small>
+                            </div>
+                            <p class="mb-1"><strong>@context.Location</strong></p>
+                        </a>
+                    </ItemTemplate>
+                </ListComponent>
             </div>
         </div>
     </div>
-</div>
 
 </AdminAuthCheck>
 
 @code {
     private List<AttendanceList> _archivedAttendance = new();
     private List<OperationList> _archivedOperation = new();
+    private List<FireSafetyWatch> _archivedFireSafetyWatches = new();
 
     protected override async Task OnInitializedAsync()
     {
@@ -94,8 +88,9 @@
 
     private async Task LoadLists()
     {
-        _archivedAttendance = await AttendanceRepo.GetArchivedAsync();
-        _archivedOperation = await OperationRepo.GetArchivedAsync();
+        _archivedAttendance = (await AttendanceRepo.GetArchivedAsync()).OrderByDescending(l => l.ClosedAt).ToList();
+        _archivedOperation = (await OperationRepo.GetArchivedAsync()).OrderByDescending(l => l.ClosedAt).ToList();
+        _archivedFireSafetyWatches = (await FireSafetyWatchRepo.GetArchivedAsync()).OrderByDescending(l => l.ClosedAt).ToList();
     }
 }
 

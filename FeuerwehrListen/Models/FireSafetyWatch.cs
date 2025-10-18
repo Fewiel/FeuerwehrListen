@@ -1,5 +1,6 @@
 using LinqToDB.Mapping;
 using System;
+using System.Collections.Generic;
 
 namespace FeuerwehrListen.Models
 {
@@ -17,5 +18,14 @@ namespace FeuerwehrListen.Models
 
         [Column("EventDateTime"), NotNull]
         public DateTime EventDateTime { get; set; }
+
+        [Column("Status"), NotNull]
+        public ListStatus Status { get; set; } = ListStatus.Open;
+
+        [Column("ClosedAt")]
+        public DateTime? ClosedAt { get; set; }
+
+        [Column("IsArchived")]
+        public bool IsArchived { get; set; } = false;
     }
 }
