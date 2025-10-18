@@ -116,7 +116,7 @@
                     else
                     {
                         <div class="table-responsive">
-                            <table class="table table-sm">
+                            <table class="table table-sm table-dark">
                                 <thead>
                                     <tr>
                                         <th>ID</th>
@@ -131,7 +131,7 @@
                                     @foreach (var schedule in _allSchedules)
                                     {
                                         var openTime = schedule.ScheduledEventTime.AddMinutes(-schedule.MinutesBeforeEvent);
-                                        <tr class="@(schedule.IsProcessed ? "table-secondary" : openTime <= DateTime.Now ? "table-danger" : "table-warning")">
+                                        <tr>
                                             <td>@schedule.Id</td>
                                             <td>@(schedule.Type == ScheduledListType.Attendance ? schedule.Title : schedule.OperationNumber)</td>
                                             <td>@schedule.ScheduledEventTime.ToString("dd.MM.yyyy HH:mm:ss")</td>
