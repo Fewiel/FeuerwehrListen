@@ -1,94 +1,123 @@
 @using Microsoft.AspNetCore.Components.Web
 
-<div class="numpad-container">
-    <div class="numpad">
-        <div class="numpad-row">
-            <button type="button" class="numpad-btn" @onclick='() => AddDigit("1")'>1</button>
-            <button type="button" class="numpad-btn" @onclick='() => AddDigit("2")'>2</button>
-            <button type="button" class="numpad-btn" @onclick='() => AddDigit("3")'>3</button>
-        </div>
-        <div class="numpad-row">
-            <button type="button" class="numpad-btn" @onclick='() => AddDigit("4")'>4</button>
-            <button type="button" class="numpad-btn" @onclick='() => AddDigit("5")'>5</button>
-            <button type="button" class="numpad-btn" @onclick='() => AddDigit("6")'>6</button>
-        </div>
-        <div class="numpad-row">
-            <button type="button" class="numpad-btn" @onclick='() => AddDigit("7")'>7</button>
-            <button type="button" class="numpad-btn" @onclick='() => AddDigit("8")'>8</button>
-            <button type="button" class="numpad-btn" @onclick='() => AddDigit("9")'>9</button>
-        </div>
-        <div class="numpad-row">
-            <button type="button" class="numpad-btn numpad-btn-wide" @onclick="SubmitInput">Eingabe</button>
-            <button type="button" class="numpad-btn" @onclick='() => AddDigit("0")'>0</button>
+@if (_show)
+{
+    <div class="modal fade show" style="display: block;" @onclick="Close">
+        <div class="modal-dialog modal-sm modal-dialog-centered">
+            <div class="modal-content bg-dark" @onclick:stopPropagation="true">
+                <div class="modal-body">
+                    <div class="numpad">
+                        <div class="numpad-display">@_input</div>
+                        <button type="button" class="numpad-btn" @onclick='() => AddDigit("1")'>1</button>
+                        <button type="button" class="numpad-btn" @onclick='() => AddDigit("2")'>2</button>
+                        <button type="button" class="numpad-btn" @onclick='() => AddDigit("3")'>3</button>
+                        <button type="button" class="numpad-btn" @onclick='() => AddDigit("4")'>4</button>
+                        <button type="button" class="numpad-btn" @onclick='() => AddDigit("5")'>5</button>
+                        <button type="button" class="numpad-btn" @onclick='() => AddDigit("6")'>6</button>
+                        <button type="button" class="numpad-btn" @onclick='() => AddDigit("7")'>7</button>
+                        <button type="button" class="numpad-btn" @onclick='() => AddDigit("8")'>8</button>
+                        <button type="button" class="numpad-btn" @onclick='() => AddDigit("9")'>9</button>
+                        <button type="button" class="numpad-btn numpad-btn-clear" @onclick="ClearInput"><i class="bi bi-arrow-left"></i></button>
+                        <button type="button" class="numpad-btn" @onclick='() => AddDigit("0")'>0</button>
+                        <button type="button" class="numpad-btn numpad-btn-submit" @onclick="SubmitInput"><i class="bi bi-check-lg"></i></button>
+                    </div>
+                    <div class="d-grid gap-2 mt-3">
+                        <button type="button" class="btn btn-outline-info" @onclick="SearchByName">Nach Name suchen</button>
+                        <button type="button" class="btn btn-outline-secondary" @onclick="Close">Abbrechen</button>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
-</div>
+    <div class="modal-backdrop fade show"></div>
+}
 
 <style>
-    .numpad-container {
-        display: flex;
-        justify-content: center;
-        margin: 1rem 0;
-    }
-
     .numpad {
         display: grid;
         grid-template-columns: repeat(3, 1fr);
         gap: 0.5rem;
-        max-width: 300px;
-        width: 100%;
     }
 
-    .numpad-row {
-        display: contents;
+    .numpad-display {
+        grid-column: span 3;
+        background: #212529;
+        color: #fff;
+        padding: 0.5rem;
+        text-align: center;
+        font-size: 1.5rem;
+        border-radius: 4px;
+        margin-bottom: 0.5rem;
+        min-height: 50px;
     }
 
     .numpad-btn {
-        background: #f8f9fa;
-        border: 2px solid #dee2e6;
+        background: #343a40;
+        border: 1px solid #495057;
+        color: #fff;
         border-radius: 8px;
         font-size: 1.5rem;
         font-weight: bold;
         height: 60px;
-        min-width: 60px;
         transition: all 0.2s ease;
         cursor: pointer;
-        color: #495057;
     }
 
     .numpad-btn:hover {
-        background: #e9ecef;
-        border-color: #adb5bd;
-        transform: translateY(-1px);
+        background: #495057;
     }
 
-    .numpad-btn:active {
-        background: #dee2e6;
-        transform: translateY(0);
+    .numpad-btn-clear {
+        color: #ffc107;
     }
-
-    .numpad-btn-wide {
-        grid-column: span 2;
+    
+    .numpad-btn-submit {
+        color: #198754;
     }
 </style>
 
 @code {
-    [Parameter] public EventCallback<string> OnDigitEntered { get; set; }
-    [Parameter] public EventCallback OnSubmit { get; set; }
-    [Parameter] public EventCallback OnClear { get; set; }
+    [Parameter] public EventCallback<string> OnInput { get; set; }
+    [Parameter] public EventCallback OnSearchByName { get; set; }
+
+    private bool _show;
+    private string _input = "";
 
     private void AddDigit(string digit)
     {
-        OnDigitEntered.InvokeAsync(digit);
+        _input += digit;
     }
 
     private void SubmitInput()
     {
-        OnSubmit.InvokeAsync();
+        OnInput.InvokeAsync(_input);
+        Close();
     }
 
     private void ClearInput()
     {
-        OnClear.InvokeAsync();
+        if (_input.Length > 0)
+        {
+            _input = _input.Substring(0, _input.Length - 1);
+        }
+    }
+
+    private async Task SearchByName()
+    {
+        Close();
+        await OnSearchByName.InvokeAsync();
+    }
+
+    public void Show()
+    {
+        _input = "";
+        _show = true;
+        StateHasChanged();
+    }
+
+    public void Close()
+    {
+        _show = false;
+        StateHasChanged();
     }
 }

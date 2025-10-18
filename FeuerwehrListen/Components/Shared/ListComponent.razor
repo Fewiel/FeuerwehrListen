@@ -1,0 +1,45 @@
+@typeparam TItem
+
+<div class="card bg-dark text-white mb-4">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="@IconClass me-2"></i>@Title</h5>
+    </div>
+    <ul class="list-group list-group-flush">
+        @if (Items != null && Items.Any())
+        {
+            foreach (var item in Items)
+            {
+                var itemClass = ItemClass?.Invoke(item) ?? "";
+                <li class="list-group-item list-group-item-action @itemClass">
+                    @ItemTemplate(item)
+                </li>
+            }
+        }
+        else
+        {
+            <li class="list-group-item">
+                <p class="text-muted mb-0">@EmptyListMessage</p>
+            </li>
+        }
+    </ul>
+</div>
+
+@code {
+    [Parameter]
+    public string Title { get; set; } = "";
+
+    [Parameter]
+    public string IconClass { get; set; } = "";
+
+    [Parameter]
+    public IEnumerable<TItem>? Items { get; set; }
+
+    [Parameter]
+    public RenderFragment<TItem>? ItemTemplate { get; set; }
+    
+    [Parameter]
+    public Func<TItem, string>? ItemClass { get; set; }
+
+    [Parameter]
+    public string EmptyListMessage { get; set; } = "Keine Einträge vorhanden.";
+}

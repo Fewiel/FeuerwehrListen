@@ -1,12 +1,14 @@
+using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using FeuerwehrListen.Models;
 using FeuerwehrListen.Data;
 using LinqToDB;
+using Microsoft.AspNetCore.Components.Authorization;
 
 namespace FeuerwehrListen.Services;
 
-public class AuthenticationService
+public class AuthenticationService : AuthenticationStateProvider
 {
     private User? _currentUser;
     private readonly IServiceProvider _serviceProvider;
@@ -15,12 +17,27 @@ public class AuthenticationService
     {
         _serviceProvider = serviceProvider;
     }
-
-    public event Action? OnAuthStateChanged;
-
+    
     public User? CurrentUser => _currentUser;
     public bool IsAuthenticated => _currentUser != null;
     public bool IsAdmin => _currentUser?.Role == UserRole.Admin;
+
+    public override async Task<AuthenticationState> GetAuthenticationStateAsync()
+    {
+        if (_currentUser == null)
+        {
+            return new AuthenticationState(new ClaimsPrincipal(new ClaimsIdentity()));
+        }
+
+        var claims = new[]
+        {
+            new Claim(ClaimTypes.Name, _currentUser.Username),
+            new Claim(ClaimTypes.Role, _currentUser.Role.ToString())
+        };
+        var identity = new ClaimsIdentity(claims, "apiauth");
+        
+        return new AuthenticationState(new ClaimsPrincipal(identity));
+    }
 
     public async Task<bool> LoginAsync(string username, string password)
     {
@@ -36,14 +53,14 @@ public class AuthenticationService
             return false;
 
         _currentUser = user;
-        NotifyAuthStateChanged();
+        NotifyAuthenticationStateChanged(GetAuthenticationStateAsync());
         return true;
     }
 
     public void Logout()
     {
         _currentUser = null;
-        NotifyAuthStateChanged();
+        NotifyAuthenticationStateChanged(GetAuthenticationStateAsync());
     }
 
     public async Task<bool> ChangePasswordAsync(string oldPassword, string newPassword)
@@ -70,7 +87,5 @@ public class AuthenticationService
         var hash = sha256.ComputeHash(bytes);
         return Convert.ToBase64String(hash);
     }
-
-    private void NotifyAuthStateChanged() => OnAuthStateChanged?.Invoke();
 }
 

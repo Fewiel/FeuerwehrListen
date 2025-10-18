@@ -385,40 +385,14 @@ hr {
     color: #79c0ff;
 }
 
-.list-group {
-    display: flex;
-    flex-direction: column;
-    margin-bottom: 1rem;
-}
-
-.list-group-item {
-    padding: 1rem;
-    background: #0d1117;
-    border: 1px solid #30363d;
-    border-top-width: 0;
+.card.bg-dark .list-group-item {
+    background-color: transparent;
     color: #c9d1d9;
+    border-color: #30363d;
 }
 
-.list-group-item:first-child {
-    border-top-width: 1px;
-    border-radius: 6px 6px 0 0;
-}
-
-.list-group-item:last-child {
-    border-radius: 0 0 6px 6px;
-}
-
-.list-group-item:only-child {
-    border-radius: 6px;
-}
-
-.list-group-item:hover {
-    background: #161b22;
-    text-decoration: none;
-}
-
-.list-group-item-action {
-    cursor: pointer;
+.card.bg-dark .list-group-item-action:hover {
+    background-color: rgba(255, 255, 255, 0.05);
 }
 
 .text-muted {

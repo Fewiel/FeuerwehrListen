@@ -1,0 +1,142 @@
+@page "/firesafetywatches/create"
+@using FeuerwehrListen.Models
+@using FeuerwehrListen.Repositories
+@using FeuerwehrListen.Components.Layout
+@using Microsoft.AspNetCore.Components.Forms
+@inject FireSafetyWatchRepository WatchRepo
+@inject OperationFunctionRepository FunctionRepo
+@inject VehicleRepository VehicleRepo
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+
+<PageTitle>Neue Brandsicherheitswache</PageTitle>
+
+<AdminAuthCheck>
+
+<div class="container mt-4">
+    <h1>Neue Brandsicherheitswache anlegen</h1>
+
+    <div class="card mt-4">
+        <div class="card-body">
+            <EditForm Model="@_watch" OnValidSubmit="HandleValidSubmit">
+                <DataAnnotationsValidator />
+                
+                <div class="mb-3">
+                    <label class="form-label">Name / Anlass</label>
+                    <InputText @bind-Value="_watch.Name" class="form-control" />
+                    <ValidationMessage For="@(() => _watch.Name)" />
+                </div>
+                
+                <div class="mb-3">
+                    <label class="form-label">Ort</label>
+                    <InputText @bind-Value="_watch.Location" class="form-control" />
+                    <ValidationMessage For="@(() => _watch.Location)" />
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Datum</label>
+                    <InputDate @bind-Value="_watch.EventDateTime" class="form-control" Type="InputDateType.Date" />
+                    <ValidationMessage For="@(() => _watch.EventDateTime)" />
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Uhrzeit</label>
+                    <InputDate @bind-Value="_watch.EventDateTime" class="form-control" Type="InputDateType.Time" />
+                    <ValidationMessage For="@(() => _watch.EventDateTime)" />
+                </div>
+
+                <hr />
+
+                <h5 class="mt-4">Personal- & Fahrzeuganforderungen</h5>
+                
+                @foreach (var req in _requirements)
+                {
+                    <div class="row gx-2 mb-2 align-items-center">
+                        <div class="col-md-4">
+                            <label class="form-label">Funktion</label>
+                            <InputSelect @bind-Value="req.FunctionDefId" class="form-select">
+                                <option value="0">-- Funktion wählen --</option>
+                                @foreach (var func in _functions)
+                                {
+                                    <option value="@func.Id">@func.Name</option>
+                                }
+                            </InputSelect>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Anzahl</label>
+                            <InputNumber @bind-Value="req.Amount" class="form-control" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Optional: Fahrzeug</label>
+                            <InputSelect @bind-Value="req.VehicleId" class="form-select">
+                                <option value="null">-- Ohne Fahrzeug --</option>
+                                @foreach (var vehicle in _vehicles)
+                                {
+                                    <option value="@vehicle.Id">@vehicle.Name</option>
+                                }
+                            </InputSelect>
+                        </div>
+                        <div class="col-md-2 d-flex align-items-end">
+                            <button type="button" class="btn btn-danger w-100" @onclick="() => RemoveRequirement(req)">Entfernen</button>
+                        </div>
+                    </div>
+                }
+
+                <button type="button" class="btn btn-secondary mt-2" @onclick="AddRequirement">Anforderung hinzufügen</button>
+
+                <hr />
+
+                @if (!string.IsNullOrEmpty(_errorMessage))
+                {
+                    <div class="alert alert-danger">@_errorMessage</div>
+                }
+
+                <button type="submit" class="btn btn-primary mt-4">Brandsicherheitswache anlegen</button>
+            </EditForm>
+        </div>
+    </div>
+</div>
+
+</AdminAuthCheck>
+
+@code {
+    private FireSafetyWatch _watch = new() { EventDateTime = DateTime.Now };
+    private List<FireSafetyWatchRequirement> _requirements = new();
+    private List<OperationFunctionDef> _functions = new();
+    private List<Vehicle> _vehicles = new();
+    private string? _errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _functions = await FunctionRepo.GetAllAsync();
+        _vehicles = await VehicleRepo.GetActiveAsync();
+        AddRequirement(); // Start with one empty requirement
+    }
+
+    private void AddRequirement()
+    {
+        _requirements.Add(new FireSafetyWatchRequirement { Amount = 1 });
+    }
+
+    private void RemoveRequirement(FireSafetyWatchRequirement requirement)
+    {
+        _requirements.Remove(requirement);
+    }
+
+    private async Task HandleValidSubmit()
+    {
+        _errorMessage = null;
+        var validRequirements = _requirements
+            .Where(r => r.FunctionDefId > 0 && r.Amount > 0)
+            .ToList();
+
+        if (!validRequirements.Any())
+        {
+            _errorMessage = "Es muss mindestens eine gültige Anforderung (Funktion und Anzahl > 0) hinzugefügt werden.";
+            return;
+        }
+
+        await WatchRepo.InsertFireSafetyWatchWithRequirements(_watch, validRequirements);
+        Navigation.NavigateTo("/firesafetywatches");
+    }
+}

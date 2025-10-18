@@ -1,67 +1,23 @@
 @using FeuerwehrListen.Services
 @inject AuthenticationService AuthService
+@using Microsoft.AspNetCore.Components.Authorization
 @inject NavigationManager Navigation
-@implements IDisposable
 
-@if (!_initialized)
-{
-    <div class="container mt-5">
-        <div class="spinner-border text-primary" role="status">
-            <span class="visually-hidden">Laden...</span>
-        </div>
-        <p class="mt-2">Lade...</p>
-    </div>
-}
-else if (AuthService.IsAdmin)
-{
-    @ChildContent
-}
-else
-{
-    <div class="container mt-5">
-        <div class="alert alert-warning">
-            <h4>Zugriff verweigert</h4>
-            <p>Sie müssen als Administrator angemeldet sein, um auf diesen Bereich zuzugreifen.</p>
-            <a href="/login" class="btn btn-primary">Zum Login</a>
-        </div>
-    </div>
-}
+<CascadingAuthenticationState>
+    <AuthorizeView Roles="Admin">
+        <Authorized>
+            @ChildContent
+        </Authorized>
+        <NotAuthorized>
+            <div class="alert alert-danger">
+                <p>Zugriff verweigert. Sie müssen Administrator sein, um diesen Bereich zu sehen.</p>
+            </div>
+        </NotAuthorized>
+    </AuthorizeView>
+</CascadingAuthenticationState>
 
 @code {
     [Parameter]
     public RenderFragment? ChildContent { get; set; }
-
-    private bool _initialized = false;
-
-    protected override async Task OnInitializedAsync()
-    {
-        await Task.Delay(1);
-        
-        _initialized = true;
-        
-        if (!AuthService.IsAdmin)
-        {
-            Navigation.NavigateTo("/login", false);
-        }
-        
-        AuthService.OnAuthStateChanged += OnAuthChanged;
-    }
-
-    private void OnAuthChanged()
-    {
-        InvokeAsync(() =>
-        {
-            if (!AuthService.IsAdmin)
-            {
-                Navigation.NavigateTo("/login", false);
-            }
-            StateHasChanged();
-        });
-    }
-
-    public void Dispose()
-    {
-        AuthService.OnAuthStateChanged -= OnAuthChanged;
-    }
 }
 

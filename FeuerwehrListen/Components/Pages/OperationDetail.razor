@@ -89,101 +89,16 @@
         @if (_list.Status == ListStatus.Open)
         {
             <div class="row mb-4">
-                <div class="col-md-10 offset-md-1">
-                    <div class="card">
-                        <div class="card-body">
-                            <h5 class="card-title">Eintragen</h5>
-                            @if (!string.IsNullOrEmpty(_errorMessage))
-                            {
-                                <div class="alert alert-danger alert-dismissible fade show" role="alert">
-                                    @_errorMessage
-                                    <button type="button" class="btn-close" @onclick="() => _errorMessage = string.Empty"></button>
-                                </div>
-                            }
-                            
-                            <div class="row">
-                                <div class="col-md-8 offset-md-2">
-                                    <div class="mb-3">
-                                        <label class="form-label">Mitgliedsnummer oder Name</label>
-                                        <div class="position-relative">
-                                            <div class="input-group input-group-lg">
-                                                <input type="text" 
-                                                       class="form-control text-center" 
-                                                       placeholder="ID eingeben oder Name suchen..." 
-                                                       value="@_memberIdInput"
-                                                       @oninput="OnCombinedInput"
-                                                       @onkeyup="HandleKeyPress"
-                                                       @ref="_inputElement"
-                                                       autocomplete="off" />
-                                                <button class="btn btn-primary btn-lg" @onclick="ClearMemberId" disabled="@(string.IsNullOrWhiteSpace(_memberIdInput))">
-                                                    Leeren
-                                                </button>
-                                            </div>
-                                            @if (_showSuggestions && _suggestions.Count > 0)
-                                            {
-                                                <div class="list-group position-absolute w-100 shadow" style="z-index: 1050; max-height: 300px; overflow:auto;">
-                                                    @foreach (var m in _suggestions)
-                                                    {
-                                                        <button type="button" class="list-group-item list-group-item-action" @onclick="() => SelectSuggestion(m)">
-                                                            @m.FirstName @m.LastName (@m.MemberNumber)
-                                                        </button>
-                                                    }
-                                                </div>
-                                            }
-                                        </div>
-                                    </div>
-                                    
-                                    <Numpad OnDigitEntered="OnDigitEntered" OnSubmit="ShowVehicleModal" OnClear="ClearMemberId" />
-                                </div>
-                            </div>
-                            
-        @if (_selectedMember != null)
-        {
-            <div class="row">
-                <div class="col-md-6">
-                    <div class="mb-3">
-                        <label class="form-label">Fahrzeug</label>
-                        <button class="btn btn-outline-primary btn-lg w-100" @onclick="ShowVehicleModal">
-                            @if (_selectedVehicle != null)
-                            {
-                                <span>@_selectedVehicle.Name (@_selectedVehicle.CallSign)</span>
-                            }
-                            else if (_noVehicle)
-                            {
-                                <span>Ohne Fahrzeug</span>
-                            }
-                            else
-                            {
-                                <span>Fahrzeug auswählen</span>
-                            }
-                        </button>
-                    </div>
-                </div>
-                
-                <div class="col-md-6">
-                    <div class="mb-3">
-                        <label class="form-label">Unter Atemschutz</label>
-                        <div class="form-check form-check-lg">
-                            <input class="form-check-input" type="checkbox" @bind="_withBreathingApparatus" id="breathingCheck" />
-                            <label class="form-check-label fs-5" for="breathingCheck">
-                                Ja
-                            </label>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="d-grid gap-2">
-                <button class="btn btn-primary btn-lg" @onclick="ShowVehicleModal" disabled="@(_selectedMember == null)">
-                    <i class="bi bi-truck"></i> Fahrzeug auswählen
-                </button>
-            </div>
-        }
-                        </div>
-                    </div>
+                <div class="col">
+                    <button class="btn btn-primary btn-lg" @onclick="ShowNumpad">
+                        <i class="bi bi-plus-circle"></i> Einsatzkraft eintragen
+                    </button>
                 </div>
             </div>
         }
+
+        <Numpad @ref="_numpad" OnInput="HandleNumpadInput" OnSearchByName="ShowMemberSelectionModal" />
+        <MemberSelectionModal @ref="_memberSelectionModal" OnMemberSelected="HandleMemberSelection" />
 
         <VehicleSelectionModal Vehicles="_vehicles" 
                                OnVehicleSelected="OnVehicleSelected" 
@@ -227,7 +142,7 @@
                             {
                                 <div class="mb-4">
                                     <h6 class="text-danger fw-bold mb-3">
-                                        <i class="bi bi-truck"></i> @vehicleGroup.Key (@vehicleGroup.Count())
+                                        @vehicleGroup.Key (@vehicleGroup.Count())
                                     </h6>
                                     <div class="table-responsive">
                                         <table class="table table-hover table-sm">
@@ -388,6 +303,8 @@
     private VehicleSelectionModal? _vehicleModal;
     private FunctionSelectionModal? _functionModal;
     private EntryOverviewModal? _overviewModal;
+    private Numpad? _numpad;
+    private MemberSelectionModal? _memberSelectionModal;
     
     private bool CanSubmit => _list?.Status == ListStatus.Open
         && _selectedMember != null
@@ -587,17 +504,9 @@
 
     private async Task ShowVehicleModal()
     {
-        if (string.IsNullOrWhiteSpace(_memberIdInput))
+        if (_selectedMember == null)
             return;
-
-        var member = await MemberRepo.FindByNameOrNumberAsync(_memberIdInput);
-        if (member == null)
-        {
-            _errorMessage = "Mitglied nicht gefunden!";
-            return;
-        }
-
-        _selectedMember = member;
+            
         _vehicleModal?.ShowModal();
     }
 
@@ -803,6 +712,43 @@
             return $"https://www.openstreetmap.org/export/embed.html?layer=mapnik&marker={latitude}%2C{longitude}&bbox={minLon}%2C{minLat}%2C{maxLon}%2C{maxLat}";
         }
         return GetOsmEmbedUrl(address);
+    }
+
+    private void ShowNumpad()
+    {
+        _numpad?.Show();
+    }
+    
+    private void ShowMemberSelectionModal()
+    {
+        _memberSelectionModal?.Show();
+    }
+
+    private async Task HandleNumpadInput(string input)
+    {
+        var members = await MemberRepo.SearchAsync(input);
+        if (members.Count == 1)
+        {
+            await HandleMemberSelection(members.First().Id);
+        }
+        else if (members.Count > 1)
+        {
+            _memberSelectionModal?.Show(members);
+        }
+        else
+        {
+            _errorMessage = "Mitglied nicht gefunden!";
+        }
+    }
+
+    private async Task HandleMemberSelection(int memberId)
+    {
+        var member = await MemberRepo.GetByIdAsync(memberId);
+        if (member != null)
+        {
+            _selectedMember = member;
+            _vehicleModal?.ShowModal();
+        }
     }
 }
 

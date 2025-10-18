@@ -1,0 +1,156 @@
+@page "/firesafetywatches/{Id:int}"
+@using FeuerwehrListen.Models
+@using FeuerwehrListen.Repositories
+@using Microsoft.AspNetCore.Components
+@using FeuerwehrListen.Components.Shared
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Components.Authorization
+@inject FireSafetyWatchRepository WatchRepo
+@inject FireSafetyWatchRequirementRepository RequirementRepo
+@inject FireSafetyWatchEntryRepository EntryRepo
+@inject MemberRepository MemberRepo
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+
+<PageTitle>Details Brandsicherheitswache</PageTitle>
+
+<div class="container mt-4">
+    @if (_watch == null)
+    {
+        <p><em>Lade...</em></p>
+    }
+    else
+    {
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+                <h1>@_watch.Name</h1>
+                <p class="lead text-muted">@_watch.Location | @_watch.EventDateTime.ToString("dd.MM.yyyy HH:mm 'Uhr'")</p>
+            </div>
+            <a href="/firesafetywatches" class="btn btn-secondary">Zurück zur Übersicht</a>
+        </div>
+
+        @foreach (var group in _groupedRequirements)
+        {
+            <div class="card bg-dark text-white mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        @if (group.Key.VehicleId != null)
+                        {
+                            @group.Key.VehicleName
+                        }
+                        else
+                        {
+                            @("Ohne Fahrzeug")
+                        }
+                    </h5>
+                </div>
+                <ul class="list-group list-group-flush">
+                    @foreach (var req in group)
+                    {
+                        var entriesForReq = _entries.Where(e => e.RequirementId == req.Id).ToList();
+                        for (int i = 0; i < req.Amount; i++)
+                        {
+                            var entry = entriesForReq.ElementAtOrDefault(i);
+                            <li class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+                                <div>
+                                    <strong>@req.FunctionDef.Name</strong>
+                                </div>
+                                <div>
+                                    @if (entry != null)
+                                    {
+                                        <span>@entry.Member.FirstName @entry.Member.LastName</span>
+                                        <AuthorizeView Roles="Admin">
+                                            <button class="btn btn-sm btn-outline-danger ms-2" @onclick="() => Unregister(entry.Id)">Austragen</button>
+                                        </AuthorizeView>
+                                    }
+                                    else
+                                    {
+                                        <button class="btn btn-sm btn-success" @onclick="() => Register(req.Id)">Eintragen</button>
+                                    }
+                                </div>
+                            </li>
+                        }
+                    }
+                </ul>
+            </div>
+        }
+    }
+</div>
+
+<Numpad @ref="_numpad" OnInput="HandleNumpadInput" OnSearchByName="ShowMemberSelectionModal" />
+<MemberSelectionModal @ref="_memberSelectionModal" OnMemberSelected="HandleMemberSelected" />
+
+@code {
+    [Parameter]
+    public int Id { get; set; }
+
+    private FireSafetyWatch _watch = null!;
+    private List<FireSafetyWatchRequirement> _requirements = new();
+    private List<FireSafetyWatchEntry> _entries = new();
+    private IEnumerable<IGrouping<dynamic, FireSafetyWatchRequirement>> _groupedRequirements = Enumerable.Empty<IGrouping<dynamic, FireSafetyWatchRequirement>>();
+    private MemberSelectionModal _memberSelectionModal = null!;
+    private Numpad _numpad = null!;
+    private int _selectedRequirementId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        _watch = await WatchRepo.GetByIdAsync(Id);
+        if (_watch != null)
+        {
+            _requirements = await RequirementRepo.GetByWatchIdAsync(Id);
+            _entries = await EntryRepo.GetByWatchIdAsync(Id);
+            
+            _groupedRequirements = _requirements.GroupBy(r => new { r.VehicleId, VehicleName = r.Vehicle?.Name })
+                                                .OrderBy(g => g.Key.VehicleId != null ? 0 : 1);
+        }
+    }
+
+    private void Register(int requirementId)
+    {
+        _selectedRequirementId = requirementId;
+        _numpad.Show();
+    }
+
+    private void ShowMemberSelectionModal()
+    {
+        _memberSelectionModal.Show();
+    }
+
+    private async Task HandleNumpadInput(string input)
+    {
+        var members = await MemberRepo.SearchAsync(input);
+        if (members.Count == 1)
+        {
+            await HandleMemberSelected(members.First().Id);
+        }
+        else
+        {
+            _memberSelectionModal.Show(members);
+        }
+    }
+
+    private async Task HandleMemberSelected(int memberId)
+    {
+        var entry = new FireSafetyWatchEntry
+        {
+            FireSafetyWatchId = Id,
+            RequirementId = _selectedRequirementId,
+            MemberId = memberId
+        };
+        await EntryRepo.InsertAsync(entry);
+        await LoadData();
+        StateHasChanged();
+    }
+
+    private async Task Unregister(int entryId)
+    {
+        await EntryRepo.DeleteAsync(entryId);
+        await LoadData();
+        StateHasChanged();
+    }
+}

@@ -41,71 +41,16 @@
         @if (_list.Status == ListStatus.Open)
         {
             <div class="row mb-4">
-                <div class="col-md-10 offset-md-1">
-                    <div class="card">
-                        <div class="card-body">
-                            <h5 class="card-title">Eintragen</h5>
-                            @if (!string.IsNullOrEmpty(_errorMessage))
-                            {
-                                <div class="alert alert-danger alert-dismissible fade show" role="alert">
-                                    @_errorMessage
-                                    <button type="button" class="btn-close" @onclick="() => _errorMessage = string.Empty"></button>
-                                </div>
-                            }
-                            
-                            <div class="row">
-                                <div class="col-12">
-                                    <div class="mb-3">
-                                        <label class="form-label">Mitgliedsnummer oder Name</label>
-                                        <div class="position-relative">
-                                            <input type="text" 
-                                                   class="form-control form-control-lg text-center" 
-                                                   placeholder="ID oder Name eingeben..." 
-                                                   value="@_combinedInput"
-                                                   @oninput="OnCombinedInput"
-                                                   @onkeyup="HandleKeyPress"
-                                                   @ref="_inputElement"
-                                                   autocomplete="off" />
-                                            @if (_showSuggestions && _suggestions.Count > 0)
-                                            {
-                                                <div class="list-group position-absolute w-100 shadow" style="z-index: 1050; max-height: 300px; overflow:auto;">
-                                                    @foreach (var m in _suggestions)
-                                                    {
-                                                        <button type="button" class="list-group-item list-group-item-action" @onclick="() => SelectSuggestion(m)">
-                                                            @m.FirstName @m.LastName (@m.MemberNumber)
-                                                        </button>
-                                                    }
-                                                </div>
-                                            }
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <div class="row">
-                                <div class="col-12">
-                                    <Numpad OnDigitEntered="OnDigitEntered" OnSubmit="AddEntry" OnClear="ClearInput" />
-                                </div>
-                            </div>
-                            
-                            @if (AuthService.IsAdmin)
-                            {
-                                <div class="row">
-                                    <div class="col-12">
-                                        <div class="form-check form-check-lg">
-                                            <input class="form-check-input" type="checkbox" id="isExcusedCheck" @bind="_isExcused">
-                                            <label class="form-check-label fs-5" for="isExcusedCheck">
-                                                Als entschuldigt eintragen
-                                            </label>
-                                        </div>
-                                    </div>
-                                </div>
-                            }
-                        </div>
-                    </div>
+                <div class="col">
+                    <button class="btn btn-primary btn-lg" @onclick="ShowNumpad">
+                        <i class="bi bi-plus-circle"></i> Mitglied eintragen
+                    </button>
                 </div>
             </div>
         }
+
+        <Numpad @ref="_numpad" OnInput="HandleNumpadInput" OnSearchByName="ShowMemberSelectionModal" />
+        <MemberSelectionModal @ref="_memberSelectionModal" OnMemberSelected="HandleMemberSelection" />
 
         <div class="row">
             <div class="col">
@@ -229,6 +174,8 @@
     private List<Member> _suggestions = new();
     private bool _showSuggestions = false;
     private CancellationTokenSource? _searchCts;
+    private Numpad? _numpad;
+    private MemberSelectionModal? _memberSelectionModal;
 
     protected override async Task OnInitializedAsync()
     {
@@ -297,6 +244,46 @@
         await LoadData();
     }
 
+    private void ShowNumpad()
+    {
+        _numpad?.Show();
+    }
+    
+    private void ShowMemberSelectionModal()
+    {
+        _memberSelectionModal?.Show();
+    }
+    
+    private async Task HandleNumpadInput(string input)
+    {
+        _combinedInput = input;
+        
+        var members = await MemberRepo.SearchAsync(input);
+        if (members.Count == 1)
+        {
+            SelectSuggestion(members.First());
+            await AddEntry();
+        }
+        else if (members.Count > 1)
+        {
+            _memberSelectionModal?.Show(members);
+        }
+        else
+        {
+            _errorMessage = "Mitglied nicht gefunden!";
+        }
+    }
+    
+    private async Task HandleMemberSelection(int memberId)
+    {
+        var member = await MemberRepo.GetByIdAsync(memberId);
+        if (member != null)
+        {
+            SelectSuggestion(member);
+            await AddEntry();
+        }
+    }
+
     private async Task HandleKeyPress(KeyboardEventArgs e)
     {
         if (e.Key == "Enter")
@@ -336,6 +323,7 @@
     {
         _combinedInput = $"{m.FirstName} {m.LastName} ({m.MemberNumber})";
         _showSuggestions = false;
+        _memberSelectionModal?.Hide();
     }
 
     private void OnDigitEntered(string digit)

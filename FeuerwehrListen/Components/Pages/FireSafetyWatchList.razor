@@ -1,0 +1,82 @@
+@page "/firesafetywatches"
+@using FeuerwehrListen.DTOs
+@using FeuerwehrListen.Repositories
+@using FeuerwehrListen.Components.Shared
+@using Microsoft.AspNetCore.Components.Authorization
+@inject FireSafetyWatchRepository WatchRepo
+@rendermode InteractiveServer
+
+<PageTitle>Brandsicherheitswachen</PageTitle>
+
+<div class="container mt-4">
+    <div class="row mb-4">
+        <div class="col">
+            <h1>Brandsicherheitswachen</h1>
+        </div>
+        <div class="col-auto">
+            <AuthorizeView Roles="Admin">
+                <a href="/firesafetywatches/create" class="btn btn-primary">Neue Wache anlegen</a>
+            </AuthorizeView>
+        </div>
+    </div>
+
+    @if (_watches == null)
+    {
+        <p><em>Lade...</em></p>
+    }
+    else
+    {
+        <ListComponent TItem="FireSafetyWatchDto"
+                       Items="_watches"
+                       EmptyListMessage="Aktuell sind keine Brandsicherheitswachen geplant."
+                       ItemClass="@GetWatchRowClass">
+            <ItemTemplate>
+                <a href="/firesafetywatches/@context.Id" class="text-white text-decoration-none d-block">
+                    <div class="d-flex w-100 justify-content-between align-items-center">
+                        <div>
+                            <h6 class="mb-1">
+                                @if (IsUrgent(context))
+                                {
+                                    <i class="bi bi-exclamation-triangle-fill me-2" title="Dringend: Weniger als 14 Tage Zeit und nicht voll besetzt!"></i>
+                                }
+                                @context.Name
+                            </h6>
+                            <p class="mb-1 text-muted">@context.Location</p>
+                        </div>
+                        <div class="text-end">
+                            <small>@context.EventDateTime.ToString("dd.MM.yyyy HH:mm")</small>
+                            <div>
+                                <span class="badge @(context.TotalRequired == context.TotalAssigned ? "bg-success" : "bg-warning")">
+                                    @context.TotalAssigned / @context.TotalRequired
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </a>
+            </ItemTemplate>
+        </ListComponent>
+    }
+</div>
+
+@code {
+    private List<FireSafetyWatchDto> _watches = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _watches = (await WatchRepo.GetAllWithStatusAsync()).OrderBy(w => w.EventDateTime).ToList();
+    }
+
+    private bool IsUrgent(FireSafetyWatchDto watch)
+    {
+        var isFull = watch.TotalRequired == watch.TotalAssigned;
+        return !isFull && (watch.EventDateTime - DateTime.Now).TotalDays < 14;
+    }
+
+    private string GetWatchRowClass(FireSafetyWatchDto watch)
+    {
+        var isFull = watch.TotalRequired == watch.TotalAssigned;
+        if (isFull) return "bg-success-subtle text-white";
+        
+        return IsUrgent(watch) ? "bg-danger-subtle text-white" : "bg-warning-subtle text-dark";
+    }
+}

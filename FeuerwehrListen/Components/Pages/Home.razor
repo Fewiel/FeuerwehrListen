@@ -1,9 +1,12 @@
 ﻿@page "/"
 @using FeuerwehrListen.Models
 @using FeuerwehrListen.Repositories
+@using FeuerwehrListen.Components.Shared
 @inject AttendanceListRepository AttendanceRepo
 @inject OperationListRepository OperationRepo
+@inject FireSafetyWatchRepository FireSafetyWatchRepo
 @inject NavigationManager Navigation
+@using Microsoft.AspNetCore.Components.Authorization
 @rendermode InteractiveServer
 
 <PageTitle>Übersicht - Feuerwehr Listen</PageTitle>
@@ -22,71 +25,67 @@
             <button class="btn btn-primary me-2" @onclick='() => Navigation.NavigateTo("/create-attendance")'>
                 <i class="bi bi-plus-circle"></i> Neue Anwesenheitsliste
             </button>
-            <button class="btn btn-danger" @onclick='() => Navigation.NavigateTo("/create-operation")'>
+            <button class="btn btn-danger me-2" @onclick='() => Navigation.NavigateTo("/create-operation")'>
                 <i class="bi bi-plus-circle"></i> Neue Einsatzliste
             </button>
+            <AuthorizeView Roles="Admin">
+                 <button class="btn btn-info" @onclick='() => Navigation.NavigateTo("/firesafetywatches/create")'>
+                     <i class="bi bi-plus-circle"></i> Neue Brandsicherheitswache
+                 </button>
+            </AuthorizeView>
         </div>
     </div>
 
     <div class="row">
-        <div class="col-md-6">
-            <div class="card mb-4">
-                <div class="card-header">
-                    <h5 class="mb-0">Anwesenheitslisten</h5>
-                </div>
-                <div class="card-body">
-                    @if (_attendanceLists.Count == 0)
-                    {
-                        <p class="text-muted">Keine offenen Anwesenheitslisten</p>
-                    }
-                    else
-                    {
-                        <div class="list-group">
-                            @foreach (var list in _attendanceLists)
-                            {
-                                <a href="/attendance/@list.Id" class="list-group-item list-group-item-action">
-                                    <div class="d-flex w-100 justify-content-between">
-                                        <h6 class="mb-1">@list.Title</h6>
-                                        <small>@list.CreatedAt.ToString("dd.MM.yyyy HH:mm")</small>
-                                    </div>
-                                    <p class="mb-1"><strong>@list.Unit</strong></p>
-                                    <small class="text-muted">@list.Description</small>
-                                </a>
-                            }
+        <div class="col-12">
+            <ListComponent TItem="OperationList"
+                           Title="Einsatzlisten"
+                           IconClass="bi bi-exclamation-triangle"
+                           Items="_operationLists"
+                           EmptyListMessage="Keine offenen Einsatzlisten">
+                <ItemTemplate>
+                    <a href="/operation/@context.Id" class="text-white text-decoration-none">
+                        <div class="d-flex w-100 justify-content-between">
+                            <h6 class="mb-1">@context.OperationNumber - @context.Keyword</h6>
+                            <small>@context.AlertTime.ToString("dd.MM.yyyy HH:mm")</small>
                         </div>
-                    }
-                </div>
-            </div>
-        </div>
-
-        <div class="col-md-6">
-            <div class="card mb-4">
-                <div class="card-header">
-                    <h5 class="mb-0">Einsatzlisten</h5>
-                </div>
-                <div class="card-body">
-                    @if (_operationLists.Count == 0)
-                    {
-                        <p class="text-muted">Keine offenen Einsatzlisten</p>
-                    }
-                    else
-                    {
-                        <div class="list-group">
-                            @foreach (var list in _operationLists)
-                            {
-                                <a href="/operation/@list.Id" class="list-group-item list-group-item-action">
-                                    <div class="d-flex w-100 justify-content-between">
-                                        <h6 class="mb-1">@list.OperationNumber</h6>
-                                        <small>@list.AlertTime.ToString("dd.MM.yyyy HH:mm")</small>
-                                    </div>
-                                    <p class="mb-1"><strong>@list.Keyword</strong></p>
-                                    <small class="text-muted">Erstellt: @list.CreatedAt.ToString("dd.MM.yyyy HH:mm")</small>
-                                </a>
-                            }
+                        <p class="mb-1"><strong>@context.Address</strong></p>
+                    </a>
+                </ItemTemplate>
+            </ListComponent>
+            
+            <ListComponent TItem="AttendanceList"
+                           Title="Anwesenheitslisten"
+                           IconClass="bi bi-calendar-check"
+                           Items="_attendanceLists"
+                           EmptyListMessage="Keine offenen Anwesenheitslisten">
+                <ItemTemplate>
+                    <a href="/attendance/@context.Id" class="text-white text-decoration-none">
+                        <div class="d-flex w-100 justify-content-between">
+                            <h6 class="mb-1">@context.Title</h6>
+                            <small>@context.CreatedAt.ToString("dd.MM.yyyy HH:mm")</small>
                         </div>
-                    }
-                </div>
-            </div>
+                        <p class="mb-1"><strong>@context.Unit</strong></p>
+                        <small class="text-muted">@context.Description</small>
+                    </a>
+                </ItemTemplate>
+            </ListComponent>
+            
+            <ListComponent TItem="FireSafetyWatch"
+                           Title="Brandsicherheitswachen"
+                           IconClass="bi bi-shield-check"
+                           Items="_fireSafetyWatches"
+                           EmptyListMessage="Keine offenen Brandsicherheitswachen">
+                <ItemTemplate>
+                    <a href="/firesafetywatches/@context.Id" class="text-white text-decoration-none">
+                        <div class="d-flex w-100 justify-content-between">
+                            <h6 class="mb-1">@context.Name</h6>
+                            <small>@context.EventDateTime.ToString("dd.MM.yyyy HH:mm")</small>
+                        </div>
+                        <p class="mb-1"><strong>@context.Location</strong></p>
+                    </a>
+                </ItemTemplate>
+            </ListComponent>
         </div>
     </div>
 </div>
@@ -94,6 +93,7 @@
 @code {
     private List<AttendanceList> _attendanceLists = new();
     private List<OperationList> _operationLists = new();
+    private List<FireSafetyWatch> _fireSafetyWatches = new();
     private System.Threading.Timer? _refreshTimer;
 
     protected override async Task OnInitializedAsync()
@@ -112,8 +112,11 @@
 
     private async Task LoadLists()
     {
-        _attendanceLists = await AttendanceRepo.GetOpenAsync();
-        _operationLists = await OperationRepo.GetOpenAsync();
+        _operationLists = (await OperationRepo.GetOpenAsync()).OrderByDescending(l => l.AlertTime).ToList();
+        _attendanceLists = (await AttendanceRepo.GetOpenAsync()).OrderByDescending(l => l.CreatedAt).ToList();
+        
+        var allWatches = await FireSafetyWatchRepo.GetAllAsync();
+        _fireSafetyWatches = allWatches.Where(w => w.EventDateTime >= DateTime.Now).OrderBy(w => w.EventDateTime).ToList();
     }
 
     public void Dispose()

@@ -23,5 +23,9 @@ public class AppDbConnection : DataConnection
     public ITable<OperationEntryFunction> OperationEntryFunctions => this.GetTable<OperationEntryFunction>();
     public ITable<Keyword> Keywords => this.GetTable<Keyword>();
     public ITable<PersonalRequirement> PersonalRequirements => this.GetTable<PersonalRequirement>();
+    
+    public ITable<FireSafetyWatch> FireSafetyWatches => this.GetTable<FireSafetyWatch>();
+    public ITable<FireSafetyWatchRequirement> FireSafetyWatchRequirements => this.GetTable<FireSafetyWatchRequirement>();
+    public ITable<FireSafetyWatchEntry> FireSafetyWatchEntries => this.GetTable<FireSafetyWatchEntry>();
 }
 

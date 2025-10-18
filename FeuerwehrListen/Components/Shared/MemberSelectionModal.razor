@@ -1,0 +1,84 @@
+@using FeuerwehrListen.Models
+@using FeuerwehrListen.Repositories
+@inject MemberRepository MemberRepo
+
+<div class="modal fade @(_showModal ? "show d-block" : "")" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content bg-dark text-white">
+            <div class="modal-header">
+                <h5 class="modal-title">Mitglied auswählen</h5>
+                <button type="button" class="btn-close btn-close-white" @onclick="Hide"></button>
+            </div>
+            <div class="modal-body">
+                <input type="text" class="form-control" placeholder="Name oder Nummer suchen..." 
+                       @bind="_searchString" @bind:event="oninput" @onkeyup="SearchMembers" />
+
+                @if (_searchResult.Any())
+                {
+                    <div class="list-group mt-3">
+                        @foreach (var member in _searchResult)
+                        {
+                            <button type="button" class="list-group-item list-group-item-action" @onclick="() => SelectMember(member.Id)">
+                                @member.FirstName @member.LastName (@member.MemberNumber)
+                            </button>
+                        }
+                    </div>
+                }
+                else if (!string.IsNullOrEmpty(_searchString))
+                {
+                    <p class="mt-3">Keine Mitglieder gefunden.</p>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public EventCallback<int> OnMemberSelected { get; set; }
+
+    private bool _showModal = false;
+    private string _searchString = "";
+    private List<Member> _searchResult = new();
+
+    public void Show()
+    {
+        _searchString = "";
+        _searchResult.Clear();
+        _showModal = true;
+        StateHasChanged();
+    }
+    
+    public void Show(List<Member> members)
+    {
+        _searchString = "";
+        _searchResult = members;
+        _showModal = true;
+        StateHasChanged();
+    }
+
+    public void Hide()
+    {
+        _showModal = false;
+        StateHasChanged();
+    }
+
+    private async Task SearchMembers()
+    {
+        if (string.IsNullOrWhiteSpace(_searchString))
+        {
+            _searchResult.Clear();
+        }
+        else
+        {
+            _searchResult = await MemberRepo.SearchAsync(_searchString);
+        }
+        StateHasChanged();
+    }
+
+    private async Task SelectMember(int memberId)
+    {
+        Hide();
+        await OnMemberSelected.InvokeAsync(memberId);
+    }
+}

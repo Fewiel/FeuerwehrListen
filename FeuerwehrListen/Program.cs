@@ -7,6 +7,7 @@ using LinqToDB;
 using LinqToDB.AspNet;
 using LinqToDB.AspNet.Logging;
 using FluentMigrator.Runner;
+using Microsoft.AspNetCore.Components.Authorization;
 using PdfSharp.Fonts;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -20,6 +21,11 @@ GlobalFontSettings.FontResolver = new FontResolver();
 
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
+
+builder.Services.AddScoped<AuthenticationService>();
+builder.Services.AddScoped<AuthenticationStateProvider>(sp => sp.GetRequiredService<AuthenticationService>());
+builder.Services.AddCascadingAuthenticationState();
+builder.Services.AddAuthorizationCore();
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
@@ -102,12 +108,14 @@ builder.Services.AddScoped<OperationFunctionRepository>();
 builder.Services.AddScoped<OperationEntryFunctionRepository>();
 builder.Services.AddScoped<KeywordRepository>();
 builder.Services.AddScoped<PersonalRequirementRepository>();
+builder.Services.AddScoped<FireSafetyWatchRepository>();
+builder.Services.AddScoped<FireSafetyWatchRequirementRepository>();
+builder.Services.AddScoped<FireSafetyWatchEntryRepository>();
 builder.Services.AddScoped<StatisticsService>();
 builder.Services.AddScoped<PdfExportService>();
 builder.Services.AddScoped<GeocodingService>();
 builder.Services.AddScoped<PersonalRequirementsService>();
 
-builder.Services.AddSingleton<AuthenticationService>();
 builder.Services.AddSingleton<SidebarService>();
 builder.Services.AddHostedService<ScheduledListBackgroundService>();
 
@@ -136,6 +144,9 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 app.UseStaticFiles();
+
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.UseMiddleware<ApiKeyAuthMiddleware>();
 
