@@ -126,17 +126,17 @@
     private async Task HandleValidSubmit()
     {
         _errorMessage = null;
-        var validRequirements = _requirements
-            .Where(r => r.FunctionDefId > 0 && r.Amount > 0)
+        var requirementsToSave = _requirements
+            .Where(r => r.Amount > 0)
             .ToList();
 
-        if (!validRequirements.Any())
+        if (!requirementsToSave.Any())
         {
-            _errorMessage = "Es muss mindestens eine gültige Anforderung (Funktion und Anzahl > 0) hinzugefügt werden.";
+            _errorMessage = "Es muss mindestens eine Anforderung mit einer Anzahl größer als 0 hinzugefügt werden.";
             return;
         }
 
-        await WatchRepo.InsertFireSafetyWatchWithRequirements(_watch, validRequirements);
+        await WatchRepo.InsertFireSafetyWatchWithRequirements(_watch, requirementsToSave);
         Navigation.NavigateTo("/firesafetywatches");
     }
 }

@@ -61,7 +61,7 @@
                             var entry = entriesForReq.ElementAtOrDefault(i);
                             <li class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
                                 <div>
-                                    <strong>@req.FunctionDef.Name</strong>
+                                    <strong>@(req.FunctionDef?.Name ?? "Trupp")</strong>
                                 </div>
                                 <div>
                                     @if (entry != null)
