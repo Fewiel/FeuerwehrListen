@@ -9,13 +9,16 @@ public class ScheduledListBackgroundService : BackgroundService
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<ScheduledListBackgroundService> _logger;
+    private readonly SettingsService _settingsService;
 
     public ScheduledListBackgroundService(
         IServiceProvider serviceProvider,
-        ILogger<ScheduledListBackgroundService> logger)
+        ILogger<ScheduledListBackgroundService> logger,
+        SettingsService settingsService)
     {
         _serviceProvider = serviceProvider;
         _logger = logger;
+        _settingsService = settingsService;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -70,6 +73,9 @@ public class ScheduledListBackgroundService : BackgroundService
 
                     _logger.LogInformation($"Processed scheduled list: {schedule.Title}");
                 }
+
+                // Auto-close logic
+                await AutoCloseListsAsync(db);
             }
             catch (Exception ex)
             {
@@ -77,6 +83,65 @@ public class ScheduledListBackgroundService : BackgroundService
             }
 
             await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);
+        }
+    }
+
+    private async Task AutoCloseListsAsync(AppDbConnection db)
+    {
+        var now = DateTime.Now;
+
+        // Auto-close attendance lists
+        var attendanceMinutes = _settingsService.GetAutoCloseMinutes("AutoClose.AttendanceMinutes");
+        if (attendanceMinutes > 0)
+        {
+            var cutoff = now.AddMinutes(-attendanceMinutes);
+            var openAttendance = await db.AttendanceLists
+                .Where(l => l.Status == ListStatus.Open && l.CreatedAt <= cutoff)
+                .ToListAsync();
+
+            foreach (var list in openAttendance)
+            {
+                list.Status = ListStatus.Closed;
+                list.ClosedAt = now;
+                await db.UpdateAsync(list);
+                _logger.LogInformation("Auto-closed attendance list: {Title} (ID: {Id})", list.Title, list.Id);
+            }
+        }
+
+        // Auto-close operation lists
+        var operationMinutes = _settingsService.GetAutoCloseMinutes("AutoClose.OperationMinutes");
+        if (operationMinutes > 0)
+        {
+            var cutoff = now.AddMinutes(-operationMinutes);
+            var openOperations = await db.OperationLists
+                .Where(l => l.Status == ListStatus.Open && l.CreatedAt <= cutoff)
+                .ToListAsync();
+
+            foreach (var list in openOperations)
+            {
+                list.Status = ListStatus.Closed;
+                list.ClosedAt = now;
+                await db.UpdateAsync(list);
+                _logger.LogInformation("Auto-closed operation list: {OperationNumber} (ID: {Id})", list.OperationNumber, list.Id);
+            }
+        }
+
+        // Auto-close fire safety watches
+        var fswMinutes = _settingsService.GetAutoCloseMinutes("AutoClose.FireSafetyWatchMinutes");
+        if (fswMinutes > 0)
+        {
+            var cutoff = now.AddMinutes(-fswMinutes);
+            var openWatches = await db.FireSafetyWatches
+                .Where(w => w.Status == ListStatus.Open && w.EventDateTime <= cutoff)
+                .ToListAsync();
+
+            foreach (var watch in openWatches)
+            {
+                watch.Status = ListStatus.Closed;
+                watch.ClosedAt = now;
+                await db.UpdateAsync(watch);
+                _logger.LogInformation("Auto-closed fire safety watch: {Name} (ID: {Id})", watch.Name, watch.Id);
+            }
         }
     }
 }

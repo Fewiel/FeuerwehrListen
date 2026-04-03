@@ -1,5 +1,6 @@
 ﻿@inject AuthenticationService AuthService
 @inject SidebarService SidebarService
+@inject SettingsService SettingsService
 @using Microsoft.AspNetCore.Components.Authorization
 @rendermode InteractiveServer
 
@@ -22,26 +23,35 @@
                 </NavLink>
             </div>
 
-            <div class="nav-item px-3">
-                <NavLink class="nav-link" href="create-attendance" title="@(SidebarService.IsCollapsed ? "Neue Anwesenheitsliste" : "")">
-                    <i class="bi bi-plus-circle @(SidebarService.IsCollapsed ? "" : "me-2")"></i>
-                    <span class="@(SidebarService.IsCollapsed ? "d-none" : "")">Neue Anwesenheitsliste</span>
-                </NavLink>
-            </div>
+            @if (SettingsService.IsModuleVisible("ModuleVisibility.Attendance"))
+            {
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="create-attendance" title="@(SidebarService.IsCollapsed ? "Neue Anwesenheitsliste" : "")">
+                        <i class="bi bi-plus-circle @(SidebarService.IsCollapsed ? "" : "me-2")"></i>
+                        <span class="@(SidebarService.IsCollapsed ? "d-none" : "")">Neue Anwesenheitsliste</span>
+                    </NavLink>
+                </div>
+            }
 
-            <div class="nav-item px-3">
-                <NavLink class="nav-link" href="create-operation" title="@(SidebarService.IsCollapsed ? "Neue Einsatzliste" : "")">
-                    <i class="bi bi-exclamation-triangle @(SidebarService.IsCollapsed ? "" : "me-2")"></i>
-                    <span class="@(SidebarService.IsCollapsed ? "d-none" : "")">Neue Einsatzliste</span>
-                </NavLink>
-            </div>
+            @if (SettingsService.IsModuleVisible("ModuleVisibility.Operations"))
+            {
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="create-operation" title="@(SidebarService.IsCollapsed ? "Neue Einsatzliste" : "")">
+                        <i class="bi bi-exclamation-triangle @(SidebarService.IsCollapsed ? "" : "me-2")"></i>
+                        <span class="@(SidebarService.IsCollapsed ? "d-none" : "")">Neue Einsatzliste</span>
+                    </NavLink>
+                </div>
+            }
 
-            <div class="nav-item px-3">
-                <NavLink class="nav-link" href="firesafetywatches" title="@(SidebarService.IsCollapsed ? "Brandsicherheitswachen" : "")">
-                    <i class="bi bi-shield-check @(SidebarService.IsCollapsed ? "" : "me-2")"></i>
-                    <span class="@(SidebarService.IsCollapsed ? "d-none" : "")">Brandsicherheitswachen</span>
-                </NavLink>
-            </div>
+            @if (SettingsService.IsModuleVisible("ModuleVisibility.FireSafetyWatch"))
+            {
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="firesafetywatches" title="@(SidebarService.IsCollapsed ? "Brandsicherheitswachen" : "")">
+                        <i class="bi bi-shield-check @(SidebarService.IsCollapsed ? "" : "me-2")"></i>
+                        <span class="@(SidebarService.IsCollapsed ? "d-none" : "")">Brandsicherheitswachen</span>
+                    </NavLink>
+                </div>
+            }
             
             <AuthorizeView>
                 <Authorized>
@@ -130,6 +140,13 @@
                                 <span class="@(SidebarService.IsCollapsed ? "d-none" : "")">Service Status</span>
                             </NavLink>
                         </div>
+
+                        <div class="nav-item px-3">
+                            <NavLink class="nav-link" href="admin/settings" title="@(SidebarService.IsCollapsed ? "Einstellungen" : "")">
+                                <i class="bi bi-sliders @(SidebarService.IsCollapsed ? "" : "me-2")"></i>
+                                <span class="@(SidebarService.IsCollapsed ? "d-none" : "")">Einstellungen</span>
+                            </NavLink>
+                        </div>
                     </AuthorizeView>
 
                     <hr class="my-3 mx-3"/>
@@ -160,10 +177,11 @@
 @code {
     protected override void OnInitialized()
     {
-        SidebarService.OnStateChanged += OnSidebarStateChanged;
+        SidebarService.OnStateChanged += OnStateChanged;
+        SettingsService.OnSettingsChanged += OnStateChanged;
     }
 
-    private void OnSidebarStateChanged()
+    private void OnStateChanged()
     {
         InvokeAsync(StateHasChanged);
     }
@@ -175,7 +193,8 @@
     
     public void Dispose()
     {
-        SidebarService.OnStateChanged -= OnSidebarStateChanged;
+        SidebarService.OnStateChanged -= OnStateChanged;
+        SettingsService.OnSettingsChanged -= OnStateChanged;
     }
 }
 

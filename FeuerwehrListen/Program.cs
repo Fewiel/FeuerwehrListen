@@ -111,12 +111,14 @@ builder.Services.AddScoped<PersonalRequirementRepository>();
 builder.Services.AddScoped<FireSafetyWatchRepository>();
 builder.Services.AddScoped<FireSafetyWatchRequirementRepository>();
 builder.Services.AddScoped<FireSafetyWatchEntryRepository>();
+builder.Services.AddScoped<SettingsRepository>();
 builder.Services.AddScoped<StatisticsService>();
 builder.Services.AddScoped<PdfExportService>();
 builder.Services.AddScoped<GeocodingService>();
 builder.Services.AddScoped<PersonalRequirementsService>();
 
 builder.Services.AddSingleton<SidebarService>();
+builder.Services.AddSingleton<SettingsService>();
 builder.Services.AddHostedService<ScheduledListBackgroundService>();
 
 var app = builder.Build();

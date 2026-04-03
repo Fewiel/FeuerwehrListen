@@ -1,0 +1,144 @@
+@page "/admin/settings"
+@using FeuerwehrListen.Services
+@using FeuerwehrListen.Components.Layout
+@inject SettingsService SettingsService
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+
+<PageTitle>Einstellungen</PageTitle>
+
+<AdminAuthCheck>
+    <div class="container mt-4">
+        <div class="row mb-4">
+            <div class="col">
+                <h1>Einstellungen</h1>
+            </div>
+        </div>
+
+        @if (_showSuccess)
+        {
+            <div class="alert alert-success alert-dismissible fade show" role="alert">
+                Einstellungen wurden gespeichert.
+                <button type="button" class="btn-close" @onclick="() => _showSuccess = false"></button>
+            </div>
+        }
+
+        <div class="row mb-4">
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-eye me-2"></i>Modul-Sichtbarkeit</h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted mb-3">Module ein- oder ausblenden. Ausgeblendete Module werden in der Navigation und auf der Startseite nicht angezeigt.</p>
+
+                        <div class="form-check form-switch mb-3">
+                            <input class="form-check-input" type="checkbox" id="visAttendance" @bind="_visAttendance" />
+                            <label class="form-check-label" for="visAttendance">Anwesenheitslisten</label>
+                        </div>
+
+                        <div class="form-check form-switch mb-3">
+                            <input class="form-check-input" type="checkbox" id="visOperations" @bind="_visOperations" />
+                            <label class="form-check-label" for="visOperations">Einsatzlisten</label>
+                        </div>
+
+                        <div class="form-check form-switch mb-3">
+                            <input class="form-check-input" type="checkbox" id="visFireSafety" @bind="_visFireSafetyWatch" />
+                            <label class="form-check-label" for="visFireSafety">Brandsicherheitswachen</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mb-4">
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-clock-history me-2"></i>Automatisches Schlie&szlig;en</h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted mb-3">Listen werden nach der angegebenen Zeit automatisch geschlossen. 0 = deaktiviert.</p>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="acAttendance">Anwesenheitslisten (Minuten)</label>
+                            <input type="number" class="form-control" id="acAttendance" min="0" @bind="_acAttendanceMinutes" style="max-width: 200px;" />
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="acOperation">Einsatzlisten (Minuten)</label>
+                            <input type="number" class="form-control" id="acOperation" min="0" @bind="_acOperationMinutes" style="max-width: 200px;" />
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="acFireSafety">Brandsicherheitswachen (Minuten)</label>
+                            <input type="number" class="form-control" id="acFireSafety" min="0" @bind="_acFireSafetyWatchMinutes" style="max-width: 200px;" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mb-4">
+            <div class="col-md-8">
+                <button class="btn btn-primary" @onclick="SaveSettings" disabled="@_isSaving">
+                    @if (_isSaving)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1"></span>
+                    }
+                    Speichern
+                </button>
+                <button class="btn btn-secondary ms-2" @onclick='() => Navigation.NavigateTo("/")'>Zur&uuml;ck zur &Uuml;bersicht</button>
+            </div>
+        </div>
+    </div>
+</AdminAuthCheck>
+
+@code {
+    private bool _visAttendance = true;
+    private bool _visOperations = true;
+    private bool _visFireSafetyWatch = true;
+    private int _acAttendanceMinutes;
+    private int _acOperationMinutes;
+    private int _acFireSafetyWatchMinutes;
+    private bool _isSaving;
+    private bool _showSuccess;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var settings = await SettingsService.GetAllSettingsAsync();
+
+        _visAttendance = GetBool(settings, "ModuleVisibility.Attendance", true);
+        _visOperations = GetBool(settings, "ModuleVisibility.Operations", true);
+        _visFireSafetyWatch = GetBool(settings, "ModuleVisibility.FireSafetyWatch", true);
+        _acAttendanceMinutes = GetInt(settings, "AutoClose.AttendanceMinutes", 0);
+        _acOperationMinutes = GetInt(settings, "AutoClose.OperationMinutes", 0);
+        _acFireSafetyWatchMinutes = GetInt(settings, "AutoClose.FireSafetyWatchMinutes", 0);
+    }
+
+    private async Task SaveSettings()
+    {
+        _isSaving = true;
+        _showSuccess = false;
+
+        await SettingsService.UpdateSettingAsync("ModuleVisibility.Attendance", _visAttendance.ToString().ToLower());
+        await SettingsService.UpdateSettingAsync("ModuleVisibility.Operations", _visOperations.ToString().ToLower());
+        await SettingsService.UpdateSettingAsync("ModuleVisibility.FireSafetyWatch", _visFireSafetyWatch.ToString().ToLower());
+        await SettingsService.UpdateSettingAsync("AutoClose.AttendanceMinutes", _acAttendanceMinutes.ToString());
+        await SettingsService.UpdateSettingAsync("AutoClose.OperationMinutes", _acOperationMinutes.ToString());
+        await SettingsService.UpdateSettingAsync("AutoClose.FireSafetyWatchMinutes", _acFireSafetyWatchMinutes.ToString());
+
+        _isSaving = false;
+        _showSuccess = true;
+    }
+
+    private static bool GetBool(Dictionary<string, string> settings, string key, bool defaultValue)
+    {
+        return settings.TryGetValue(key, out var val) ? val.Equals("true", StringComparison.OrdinalIgnoreCase) : defaultValue;
+    }
+
+    private static int GetInt(Dictionary<string, string> settings, string key, int defaultValue)
+    {
+        return settings.TryGetValue(key, out var val) && int.TryParse(val, out var result) ? result : defaultValue;
+    }
+}
