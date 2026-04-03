@@ -119,7 +119,31 @@
 
                 <div class="mb-3">
                     <label class="form-label">Mitgliedsnummer</label>
-                    <input type="text" class="form-control" @bind="_createMemberNumber" placeholder="z.B. 1001" />
+                    <div class="input-group">
+                        <input type="text" class="form-control" @bind="_createMemberNumber" placeholder="z.B. 1001" />
+                        <button class="btn btn-outline-secondary" type="button" @onclick="() => ToggleSearch(true)">
+                            <i class="bi bi-search"></i>
+                        </button>
+                    </div>
+                    @if (_showCreateSearch)
+                    {
+                        <div class="mt-1 position-relative">
+                            <input type="text" class="form-control form-control-sm" placeholder="Name suchen..."
+                                   @bind="_createSearchQuery" @bind:event="oninput" @onkeyup="OnCreateSearchInput" autofocus />
+                            @if (_createSearchResults.Count > 0)
+                            {
+                                <div class="list-group position-absolute w-100 shadow" style="z-index:1050; max-height:180px; overflow-y:auto;">
+                                    @foreach (var m in _createSearchResults)
+                                    {
+                                        <button type="button" class="list-group-item list-group-item-action list-group-item-dark py-1 px-2 small"
+                                                @onclick="() => SelectCreateMember(m)">
+                                            @m.FirstName @m.LastName <span class="text-muted">(@m.MemberNumber)</span>
+                                        </button>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
                 </div>
 
                 <div class="mb-3">
@@ -222,9 +246,33 @@
                             </div>
                             <div class="card-body">
                                 <div class="row g-2 align-items-end">
-                                    <div class="col-auto">
+                                    <div class="col-auto" style="position:relative;">
                                         <label class="form-label">Mitgliedsnummer</label>
-                                        <input type="text" class="form-control" @bind="_statusChangeMemberNumber" placeholder="z.B. 1001" />
+                                        <div class="input-group input-group-sm">
+                                            <input type="text" class="form-control" @bind="_statusChangeMemberNumber" placeholder="z.B. 1001" />
+                                            <button class="btn btn-outline-secondary" type="button" @onclick="() => ToggleSearch(false)">
+                                                <i class="bi bi-search"></i>
+                                            </button>
+                                        </div>
+                                        @if (_showDetailSearch)
+                                        {
+                                            <div class="mt-1" style="position:absolute; z-index:1050; min-width:250px;">
+                                                <input type="text" class="form-control form-control-sm" placeholder="Name suchen..."
+                                                       @bind="_detailSearchQuery" @bind:event="oninput" @onkeyup="OnDetailSearchInput" autofocus />
+                                                @if (_detailSearchResults.Count > 0)
+                                                {
+                                                    <div class="list-group shadow" style="max-height:150px; overflow-y:auto;">
+                                                        @foreach (var m in _detailSearchResults)
+                                                        {
+                                                            <button type="button" class="list-group-item list-group-item-action list-group-item-dark py-1 px-2 small"
+                                                                    @onclick="() => SelectDetailMember(m)">
+                                                                @m.FirstName @m.LastName <span class="text-muted">(@m.MemberNumber)</span>
+                                                            </button>
+                                                        }
+                                                    </div>
+                                                }
+                                            </div>
+                                        }
                                     </div>
                                     <div class="col-auto">
                                         <label class="form-label">Neuer Status</label>
@@ -316,6 +364,11 @@
     private string _createError = string.Empty;
     private bool _isCreating;
 
+    // Create member search
+    private bool _showCreateSearch;
+    private string _createSearchQuery = string.Empty;
+    private List<Member> _createSearchResults = new();
+
     // Detail modal
     private bool _showDetailModal;
     private Defect? _detailDefect;
@@ -324,6 +377,11 @@
     private DefectStatus _newStatus = DefectStatus.InProgress;
     private string _statusChangeComment = string.Empty;
     private string _statusChangeError = string.Empty;
+
+    // Detail member search
+    private bool _showDetailSearch;
+    private string _detailSearchQuery = string.Empty;
+    private List<Member> _detailSearchResults = new();
 
     protected override async Task OnInitializedAsync()
     {
@@ -361,6 +419,9 @@
         _createCustomVehicle = string.Empty;
         _createDescription = string.Empty;
         _createError = string.Empty;
+        _showCreateSearch = false;
+        _createSearchQuery = string.Empty;
+        _createSearchResults = new();
         _showCreateModal = true;
     }
 
@@ -471,6 +532,9 @@
         _statusChangeMemberNumber = string.Empty;
         _statusChangeComment = string.Empty;
         _statusChangeError = string.Empty;
+        _showDetailSearch = false;
+        _detailSearchQuery = string.Empty;
+        _detailSearchResults = new();
         _newStatus = _detailDefect?.Status == DefectStatus.Open ? DefectStatus.InProgress : DefectStatus.Done;
         _showDetailModal = true;
     }
@@ -524,6 +588,55 @@
         _statusChangeMemberNumber = string.Empty;
         _statusChangeComment = string.Empty;
         await LoadDefects();
+    }
+
+    // ===== Member Search =====
+    private void ToggleSearch(bool isCreate)
+    {
+        if (isCreate)
+        {
+            _showCreateSearch = !_showCreateSearch;
+            _createSearchQuery = string.Empty;
+            _createSearchResults = new();
+        }
+        else
+        {
+            _showDetailSearch = !_showDetailSearch;
+            _detailSearchQuery = string.Empty;
+            _detailSearchResults = new();
+        }
+    }
+
+    private async Task OnCreateSearchInput()
+    {
+        if (_createSearchQuery.Length >= 2)
+            _createSearchResults = await MemberRepo.SearchAsync(_createSearchQuery, 8);
+        else
+            _createSearchResults = new();
+    }
+
+    private void SelectCreateMember(Member m)
+    {
+        _createMemberNumber = m.MemberNumber;
+        _showCreateSearch = false;
+        _createSearchQuery = string.Empty;
+        _createSearchResults = new();
+    }
+
+    private async Task OnDetailSearchInput()
+    {
+        if (_detailSearchQuery.Length >= 2)
+            _detailSearchResults = await MemberRepo.SearchAsync(_detailSearchQuery, 8);
+        else
+            _detailSearchResults = new();
+    }
+
+    private void SelectDetailMember(Member m)
+    {
+        _statusChangeMemberNumber = m.MemberNumber;
+        _showDetailSearch = false;
+        _detailSearchQuery = string.Empty;
+        _detailSearchResults = new();
     }
 
     // ===== Helpers =====
