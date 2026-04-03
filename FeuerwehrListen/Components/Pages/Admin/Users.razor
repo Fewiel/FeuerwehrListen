@@ -4,6 +4,7 @@
 @using FeuerwehrListen.Components.Layout
 @using FeuerwehrListen.Services
 @inject UserRepository UserRepo
+@inject EmailSenderService EmailService
 @rendermode InteractiveServer
 
 <PageTitle>Benutzer - Admin</PageTitle>
@@ -209,6 +210,24 @@
         await UserRepo.CreateAsync(user);
         _showAddForm = false;
         _showGeneratedPassword = true;
+
+        // E-Mail mit Zugangsdaten senden, falls E-Mail angegeben
+        if (!string.IsNullOrWhiteSpace(user.Email))
+        {
+            var emailBody = "Hallo " + user.FirstName + " " + user.LastName + ",\n\n" +
+                "Ihr Konto bei Feuerwehr Listen wurde erfolgreich eingerichtet.\n\n" +
+                "Ihre Zugangsdaten:\n" +
+                "  Benutzername: " + user.Username + "\n" +
+                "  Passwort:     " + _generatedPassword + "\n\n" +
+                "Bitte melden Sie sich an und ändern Sie Ihr Passwort unter \"Passwort ändern\" in der Navigation.\n\n" +
+                "Mit freundlichen Grüßen\n" +
+                "Feuerwehr Listen";
+            await EmailService.SendAsync(
+                new[] { user.Email },
+                "Ihre Zugangsdaten - Feuerwehr Listen",
+                emailBody);
+        }
+
         await LoadUsers();
     }
 

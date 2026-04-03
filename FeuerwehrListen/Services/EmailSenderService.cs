@@ -15,12 +15,15 @@ public class EmailSenderService
         _logger = logger;
     }
 
+    public Task<bool> SendAsync(IEnumerable<string> recipients, string subject, string body)
+        => SendWithAttachmentAsync(recipients, subject, body, null, null);
+
     public async Task<bool> SendWithAttachmentAsync(
         IEnumerable<string> recipients,
         string subject,
         string body,
-        byte[] attachmentBytes,
-        string attachmentFileName)
+        byte[]? attachmentBytes,
+        string? attachmentFileName)
     {
         var settings = await _settingsService.GetAllSettingsAsync();
 
@@ -65,8 +68,11 @@ public class EmailSenderService
                 message.To.Add(new MailAddress(recipient));
             }
 
-            var stream = new MemoryStream(attachmentBytes);
-            message.Attachments.Add(new Attachment(stream, attachmentFileName, "application/pdf"));
+            if (attachmentBytes != null && !string.IsNullOrEmpty(attachmentFileName))
+            {
+                var stream = new MemoryStream(attachmentBytes);
+                message.Attachments.Add(new Attachment(stream, attachmentFileName, "application/pdf"));
+            }
 
             using var client = new SmtpClient(host, port)
             {
