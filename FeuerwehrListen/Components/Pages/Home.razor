@@ -82,7 +82,13 @@
                                 <h6 class="mb-1">@context.Title</h6>
                                 <small>@context.CreatedAt.ToString("dd.MM.yyyy HH:mm")</small>
                             </div>
-                            <p class="mb-1"><strong>@context.Unit</strong></p>
+                            <p class="mb-1">
+                                <strong>@context.Unit</strong>
+                                @if (context.UnitNumber.HasValue)
+                                {
+                                    <span class="badge bg-primary ms-2">Einheit @context.UnitNumber</span>
+                                }
+                            </p>
                             <small class="text-muted">@context.Description</small>
                         </a>
                     </ItemTemplate>

@@ -46,7 +46,7 @@
                 <h1>Einsatz @_list.OperationNumber</h1>
                 <p class="lead">Stichwort: @_list.Keyword</p>
                 
-                @if (_requirementsValidation != null)
+                @if (_requirementsValidation != null && _list.Status != ListStatus.Open)
                 {
                     <div class="alert @(_requirementsValidation.IsValid ? "alert-success" : "alert-info") mb-3">
                         <h6 class="alert-heading">

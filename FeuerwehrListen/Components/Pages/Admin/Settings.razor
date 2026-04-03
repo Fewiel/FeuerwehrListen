@@ -112,22 +112,43 @@
                     <div class="card-body">
                         <p class="text-muted mb-3">Mehrere Adressen mit Komma, Semikolon oder Zeilenumbruch trennen.</p>
 
-                        @for (var i = 1; i <= 9; i++)
-                        {
-                            <div class="mb-3">
-                                <label class="form-label" for="attRec_@i">Anwesenheitsliste Einheit @i</label>
-                                <input type="text" class="form-control" id="attRec_@i" @bind="_attendanceRecipientsByUnit[i]" />
-                            </div>
-                        }
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">
+                                <i class="bi bi-clipboard-check me-1"></i>Anwesenheitslisten nach Einheit
+                                <button type="button" class="btn btn-sm btn-outline-secondary ms-2" @onclick="() => _showUnitRecipients = !_showUnitRecipients">
+                                    <i class="bi @(_showUnitRecipients ? "bi-chevron-up" : "bi-chevron-down")"></i>
+                                    @(_showUnitRecipients ? "Einklappen" : "Aufklappen")
+                                </button>
+                            </label>
+                            @if (_showUnitRecipients)
+                            {
+                                <div class="table-responsive mt-2">
+                                    <table class="table table-sm table-borderless mb-0">
+                                        @for (var i = 1; i <= 9; i++)
+                                        {
+                                            var idx = i;
+                                            <tr>
+                                                <td class="align-middle text-nowrap" style="width: 90px;">Einheit @idx</td>
+                                                <td>
+                                                    <input type="text" class="form-control form-control-sm" id="attRec_@idx" placeholder="E-Mail-Adressen..." @bind="_attendanceRecipientsByUnit[idx]" />
+                                                </td>
+                                            </tr>
+                                        }
+                                    </table>
+                                </div>
+                            }
+                        </div>
+
+                        <hr class="my-3" />
 
                         <div class="mb-3">
-                            <label class="form-label" for="opRec">Einsatzlisten</label>
-                            <input type="text" class="form-control" id="opRec" @bind="_operationRecipients" />
+                            <label class="form-label" for="opRec"><i class="bi bi-exclamation-triangle me-1"></i>Einsatzlisten</label>
+                            <input type="text" class="form-control" id="opRec" placeholder="E-Mail-Adressen..." @bind="_operationRecipients" />
                         </div>
 
                         <div class="mb-3">
-                            <label class="form-label" for="fswRec">Brandsicherheitswachen</label>
-                            <input type="text" class="form-control" id="fswRec" @bind="_fireSafetyWatchRecipients" />
+                            <label class="form-label" for="fswRec"><i class="bi bi-fire me-1"></i>Brandsicherheitswachen</label>
+                            <input type="text" class="form-control" id="fswRec" placeholder="E-Mail-Adressen..." @bind="_fireSafetyWatchRecipients" />
                         </div>
                     </div>
                 </div>
@@ -193,6 +214,7 @@
     private readonly string[] _attendanceRecipientsByUnit = new string[10];
     private string _operationRecipients = string.Empty;
     private string _fireSafetyWatchRecipients = string.Empty;
+    private bool _showUnitRecipients;
     private bool _isSaving;
     private bool _showSuccess;
     private bool _showError;

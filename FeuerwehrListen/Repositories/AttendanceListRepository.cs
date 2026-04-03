@@ -53,6 +53,22 @@ public class AttendanceListRepository
             .FirstOrDefaultAsync();
     }
 
+    public async Task<List<AttendanceList>> GetAllOpenByUnitNumberAsync(int unitNumber)
+    {
+        return await _db.AttendanceLists
+            .Where(x => x.Status == ListStatus.Open && !x.IsArchived && x.UnitNumber == unitNumber)
+            .OrderByDescending(x => x.CreatedAt)
+            .ToListAsync();
+    }
+
+    public async Task<List<AttendanceList>> GetOpenWithoutUnitAsync()
+    {
+        return await _db.AttendanceLists
+            .Where(x => x.Status == ListStatus.Open && !x.IsArchived && x.UnitNumber == null)
+            .OrderByDescending(x => x.CreatedAt)
+            .ToListAsync();
+    }
+
     public async Task<int> CreateAsync(AttendanceList list)
     {
         return await _db.InsertWithInt32IdentityAsync(list);
