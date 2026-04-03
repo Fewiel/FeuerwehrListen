@@ -29,5 +29,8 @@ public class AttendanceList
     
     [Column("IsArchived")]
     public bool IsArchived { get; set; }
+
+    [Column("UnitNumber")]
+    public int? UnitNumber { get; set; }
 }
 

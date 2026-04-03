@@ -10,6 +10,7 @@
 @inject FireSafetyWatchEntryRepository EntryRepo
 @inject MemberRepository MemberRepo
 @inject NavigationManager Navigation
+@inject ListNotificationService ListNotificationService
 @rendermode InteractiveServer
 
 <PageTitle>Details Brandsicherheitswache</PageTitle>
@@ -183,6 +184,7 @@
         _watch.Status = ListStatus.Closed;
         _watch.ClosedAt = DateTime.Now;
         await WatchRepo.UpdateAsync(_watch);
+        await ListNotificationService.NotifyFireSafetyWatchClosedAsync(_watch);
         await LoadData();
     }
 }

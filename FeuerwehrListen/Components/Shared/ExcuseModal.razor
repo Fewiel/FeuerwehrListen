@@ -1,0 +1,182 @@
+@using FeuerwehrListen.Models
+@using FeuerwehrListen.Repositories
+@using FeuerwehrListen.Services
+@inject MemberRepository MemberRepo
+@inject AttendanceEntryRepository EntryRepo
+@inject UnitAssignmentService UnitAssignmentService
+
+@if (_visible)
+{
+    <div class="modal show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content bg-dark text-light border-secondary">
+                <div class="modal-header border-secondary">
+                    <h5 class="modal-title"><i class="bi bi-person-check me-2"></i>Mitglieder als entschuldigt eintragen</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="Hide"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <input type="text" class="form-control bg-dark text-light border-secondary" placeholder="Suchen..." @bind="_searchTerm" @bind:event="oninput" />
+                    </div>
+
+                    @if (_loading)
+                    {
+                        <div class="d-flex justify-content-center py-3">
+                            <div class="spinner-border" role="status"></div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="list-group">
+                            @foreach (var item in FilteredMembers)
+                            {
+                                var m = item;
+                                var isExcused = _excusedMemberNumbers.Contains(m.MemberNumber);
+                                var isPresent = _presentMemberNumbers.Contains(m.MemberNumber);
+                                <div class="list-group-item bg-dark text-light border-secondary d-flex justify-content-between align-items-center @(isPresent ? "opacity-50" : "")">
+                                    <div>
+                                        <strong>@m.LastName</strong>, @m.FirstName
+                                        <small class="text-muted ms-2">(@m.MemberNumber)</small>
+                                        @if (isPresent)
+                                        {
+                                            <span class="badge bg-success ms-2">Anwesend</span>
+                                        }
+                                    </div>
+                                    @if (!isPresent)
+                                    {
+                                        <div class="form-check form-switch">
+                                            <input class="form-check-input" type="checkbox" checked="@isExcused"
+                                                   @onchange="(e) => ToggleExcused(m, (bool)(e.Value ?? false))" />
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+
+                        @if (!FilteredMembers.Any())
+                        {
+                            <p class="text-muted text-center py-3">Keine Mitglieder gefunden.</p>
+                        }
+                    }
+                </div>
+                <div class="modal-footer border-secondary">
+                    <span class="me-auto text-muted">@_excusedMemberNumbers.Count Entschuldigte</span>
+                    <button type="button" class="btn btn-secondary" @onclick="Hide">Schließen</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public int ListId { get; set; }
+
+    [Parameter]
+    public int? UnitNumber { get; set; }
+
+    [Parameter]
+    public EventCallback OnChanged { get; set; }
+
+    private bool _visible;
+    private bool _loading;
+    private string _searchTerm = string.Empty;
+    private List<Member> _members = new();
+    private HashSet<string> _excusedMemberNumbers = new();
+    private HashSet<string> _presentMemberNumbers = new();
+    private List<AttendanceEntry> _existingEntries = new();
+
+    private IEnumerable<Member> FilteredMembers =>
+        string.IsNullOrWhiteSpace(_searchTerm)
+            ? _members
+            : _members.Where(m =>
+                m.LastName.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase) ||
+                m.FirstName.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase) ||
+                m.MemberNumber.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase));
+
+    public async Task Show()
+    {
+        _visible = true;
+        _loading = true;
+        _searchTerm = string.Empty;
+        StateHasChanged();
+
+        var allMembers = await MemberRepo.GetActiveAsync();
+
+        if (UnitNumber.HasValue)
+        {
+            _members = allMembers.Where(m =>
+                UnitAssignmentService.ResolveUnitNumber(m.MemberNumber) == UnitNumber.Value).ToList();
+        }
+        else
+        {
+            _members = allMembers;
+        }
+
+        _existingEntries = await EntryRepo.GetByListIdAsync(ListId);
+        _presentMemberNumbers = _existingEntries
+            .Where(e => !e.IsExcused)
+            .Select(e => ExtractMemberNumber(e.NameOrId))
+            .Where(n => n != null)
+            .ToHashSet()!;
+        _excusedMemberNumbers = _existingEntries
+            .Where(e => e.IsExcused)
+            .Select(e => ExtractMemberNumber(e.NameOrId))
+            .Where(n => n != null)
+            .ToHashSet()!;
+
+        _loading = false;
+        StateHasChanged();
+    }
+
+    public void Hide()
+    {
+        _visible = false;
+        StateHasChanged();
+    }
+
+    private async Task ToggleExcused(Member member, bool excused)
+    {
+        var memberNumber = member.MemberNumber;
+        var nameOrId = $"{member.FirstName} {member.LastName} ({member.MemberNumber})";
+
+        if (excused)
+        {
+            var entry = new AttendanceEntry
+            {
+                AttendanceListId = ListId,
+                NameOrId = nameOrId,
+                EnteredAt = DateTime.Now,
+                IsExcused = true
+            };
+            await EntryRepo.CreateAsync(entry);
+            _excusedMemberNumbers.Add(memberNumber);
+        }
+        else
+        {
+            var existing = _existingEntries.FirstOrDefault(e =>
+                e.IsExcused && ExtractMemberNumber(e.NameOrId) == memberNumber);
+            if (existing != null)
+            {
+                await EntryRepo.DeleteAsync(existing.Id);
+                _existingEntries.Remove(existing);
+            }
+            _excusedMemberNumbers.Remove(memberNumber);
+        }
+
+        _existingEntries = await EntryRepo.GetByListIdAsync(ListId);
+        await OnChanged.InvokeAsync();
+        StateHasChanged();
+    }
+
+    private static string? ExtractMemberNumber(string nameOrId)
+    {
+        var openIdx = nameOrId.LastIndexOf('(');
+        var closeIdx = nameOrId.LastIndexOf(')');
+        if (openIdx >= 0 && closeIdx > openIdx)
+        {
+            return nameOrId.Substring(openIdx + 1, closeIdx - openIdx - 1).Trim();
+        }
+        return null;
+    }
+}

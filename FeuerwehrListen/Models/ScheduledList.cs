@@ -33,6 +33,9 @@ public class ScheduledList
     [Column("MinutesBeforeEvent")]
     public int MinutesBeforeEvent { get; set; }
     
+    [Column("UnitNumber")]
+    public int? UnitNumber { get; set; }
+
     [Column("IsProcessed")]
     public bool IsProcessed { get; set; }
     

@@ -1,12 +1,15 @@
 ﻿@page "/"
 @using FeuerwehrListen.Models
+@using FeuerwehrListen.Services
 @using FeuerwehrListen.Repositories
 @using FeuerwehrListen.Components.Shared
+@using Microsoft.AspNetCore.Components.Authorization
+@implements IDisposable
 @inject AttendanceListRepository AttendanceRepo
 @inject OperationListRepository OperationRepo
 @inject FireSafetyWatchRepository FireSafetyWatchRepo
 @inject NavigationManager Navigation
-@using Microsoft.AspNetCore.Components.Authorization
+@inject SettingsService SettingsService
 @rendermode InteractiveServer
 
 <PageTitle>Übersicht - Feuerwehr Listen</PageTitle>
@@ -22,70 +25,94 @@
             </p>
         </div>
         <div class="col-auto">
-            <button class="btn btn-primary me-2" @onclick='() => Navigation.NavigateTo("/create-attendance")'>
-                <i class="bi bi-plus-circle"></i> Neue Anwesenheitsliste
-            </button>
-            <button class="btn btn-danger me-2" @onclick='() => Navigation.NavigateTo("/create-operation")'>
-                <i class="bi bi-plus-circle"></i> Neue Einsatzliste
-            </button>
-            <AuthorizeView Roles="Admin">
-                 <button class="btn btn-info" @onclick='() => Navigation.NavigateTo("/firesafetywatches/create")'>
-                     <i class="bi bi-plus-circle"></i> Neue Brandsicherheitswache
-                 </button>
-            </AuthorizeView>
+            @if (SettingsService.IsModuleVisible(SettingKeys.VisibilityAttendance))
+            {
+                <button class="btn btn-primary me-2" @onclick='() => Navigation.NavigateTo("/create-attendance")'>
+                    <i class="bi bi-plus-circle"></i> Neue Anwesenheitsliste
+                </button>
+            }
+            @if (SettingsService.IsModuleVisible(SettingKeys.VisibilityOperations))
+            {
+                <button class="btn btn-danger me-2" @onclick='() => Navigation.NavigateTo("/create-operation")'>
+                    <i class="bi bi-plus-circle"></i> Neue Einsatzliste
+                </button>
+            }
+            @if (SettingsService.IsModuleVisible(SettingKeys.VisibilityFireSafetyWatch))
+            {
+                <AuthorizeView Roles="Admin">
+                     <button class="btn btn-info" @onclick='() => Navigation.NavigateTo("/firesafetywatches/create")'>
+                         <i class="bi bi-plus-circle"></i> Neue Brandsicherheitswache
+                     </button>
+                </AuthorizeView>
+            }
         </div>
     </div>
 
     <div class="row">
         <div class="col-12">
-            <ListComponent TItem="OperationList"
-                           Title="Einsatzlisten"
-                           IconClass="bi bi-exclamation-triangle"
-                           Items="_operationLists"
-                           EmptyListMessage="Keine offenen Einsatzlisten">
-                <ItemTemplate>
-                    <a href="/operation/@context.Id" class="text-white text-decoration-none">
-                        <div class="d-flex w-100 justify-content-between">
-                            <h6 class="mb-1">@context.OperationNumber - @context.Keyword</h6>
-                            <small>@context.AlertTime.ToString("dd.MM.yyyy HH:mm")</small>
-                        </div>
-                        <p class="mb-1"><strong>@context.Address</strong></p>
-                    </a>
-                </ItemTemplate>
-            </ListComponent>
-            
-            <ListComponent TItem="AttendanceList"
-                           Title="Anwesenheitslisten"
-                           IconClass="bi bi-calendar-check"
-                           Items="_attendanceLists"
-                           EmptyListMessage="Keine offenen Anwesenheitslisten">
-                <ItemTemplate>
-                    <a href="/attendance/@context.Id" class="text-white text-decoration-none">
-                        <div class="d-flex w-100 justify-content-between">
-                            <h6 class="mb-1">@context.Title</h6>
-                            <small>@context.CreatedAt.ToString("dd.MM.yyyy HH:mm")</small>
-                        </div>
-                        <p class="mb-1"><strong>@context.Unit</strong></p>
-                        <small class="text-muted">@context.Description</small>
-                    </a>
-                </ItemTemplate>
-            </ListComponent>
-            
-            <ListComponent TItem="FireSafetyWatch"
-                           Title="Brandsicherheitswachen"
-                           IconClass="bi bi-shield-check"
-                           Items="_fireSafetyWatches"
-                           EmptyListMessage="Keine offenen Brandsicherheitswachen">
-                <ItemTemplate>
-                    <a href="/firesafetywatches/@context.Id" class="text-white text-decoration-none">
-                        <div class="d-flex w-100 justify-content-between">
-                            <h6 class="mb-1">@context.Name</h6>
-                            <small>@context.EventDateTime.ToString("dd.MM.yyyy HH:mm")</small>
-                        </div>
-                        <p class="mb-1"><strong>@context.Location</strong></p>
-                    </a>
-                </ItemTemplate>
-            </ListComponent>
+            @if (SettingsService.IsModuleVisible(SettingKeys.VisibilityOperations))
+            {
+                <ListComponent TItem="OperationList"
+                               Title="Einsatzlisten"
+                               IconClass="bi bi-exclamation-triangle"
+                               Items="_operationLists"
+                               EmptyListMessage="Keine offenen Einsatzlisten">
+                    <ItemTemplate>
+                        <a href="/operation/@context.Id" class="text-white text-decoration-none">
+                            <div class="d-flex w-100 justify-content-between">
+                                <h6 class="mb-1">@context.OperationNumber - @context.Keyword</h6>
+                                <small>@context.AlertTime.ToString("dd.MM.yyyy HH:mm")</small>
+                            </div>
+                            <p class="mb-1"><strong>@context.Address</strong></p>
+                        </a>
+                    </ItemTemplate>
+                </ListComponent>
+            }
+
+            @if (SettingsService.IsModuleVisible(SettingKeys.VisibilityAttendance))
+            {
+                <ListComponent TItem="AttendanceList"
+                               Title="Anwesenheitslisten"
+                               IconClass="bi bi-calendar-check"
+                               Items="_attendanceLists"
+                               EmptyListMessage="Keine offenen Anwesenheitslisten">
+                    <ItemTemplate>
+                        <a href="/attendance/@context.Id" class="text-white text-decoration-none">
+                            <div class="d-flex w-100 justify-content-between">
+                                <h6 class="mb-1">@context.Title</h6>
+                                <small>@context.CreatedAt.ToString("dd.MM.yyyy HH:mm")</small>
+                            </div>
+                            <p class="mb-1">
+                                <strong>@context.Unit</strong>
+                                @if (context.UnitNumber.HasValue)
+                                {
+                                    <span class="badge bg-primary ms-2">Einheit @context.UnitNumber</span>
+                                }
+                            </p>
+                            <small class="text-muted">@context.Description</small>
+                        </a>
+                    </ItemTemplate>
+                </ListComponent>
+            }
+
+            @if (SettingsService.IsModuleVisible(SettingKeys.VisibilityFireSafetyWatch))
+            {
+                <ListComponent TItem="FireSafetyWatch"
+                               Title="Brandsicherheitswachen"
+                               IconClass="bi bi-shield-check"
+                               Items="_fireSafetyWatches"
+                               EmptyListMessage="Keine offenen Brandsicherheitswachen">
+                    <ItemTemplate>
+                        <a href="/firesafetywatches/@context.Id" class="text-white text-decoration-none">
+                            <div class="d-flex w-100 justify-content-between">
+                                <h6 class="mb-1">@context.Name</h6>
+                                <small>@context.EventDateTime.ToString("dd.MM.yyyy HH:mm")</small>
+                            </div>
+                            <p class="mb-1"><strong>@context.Location</strong></p>
+                        </a>
+                    </ItemTemplate>
+                </ListComponent>
+            }
         </div>
     </div>
 </div>
@@ -98,11 +125,12 @@
 
     protected override async Task OnInitializedAsync()
     {
+        SettingsService.OnSettingsChanged += OnSettingsChanged;
         await LoadLists();
-        
-        _refreshTimer = new System.Threading.Timer(async _ => 
+
+        _refreshTimer = new System.Threading.Timer(async _ =>
         {
-            await InvokeAsync(async () => 
+            await InvokeAsync(async () =>
             {
                 await LoadLists();
                 StateHasChanged();
@@ -110,19 +138,39 @@
         }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
     }
 
+    private void OnSettingsChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            await LoadLists();
+            StateHasChanged();
+        });
+    }
+
     private async Task LoadLists()
     {
-        _operationLists = (await OperationRepo.GetOpenAsync()).OrderByDescending(l => l.AlertTime).ToList();
-        _attendanceLists = (await AttendanceRepo.GetOpenAsync()).OrderByDescending(l => l.CreatedAt).ToList();
-        
-        var allWatches = await FireSafetyWatchRepo.GetAllAsync();
-        _fireSafetyWatches = allWatches.Where(w => !w.IsArchived && w.Status == ListStatus.Open && w.EventDateTime >= DateTime.Now).OrderBy(w => w.EventDateTime).ToList();
+        if (SettingsService.IsModuleVisible(SettingKeys.VisibilityOperations))
+            _operationLists = (await OperationRepo.GetOpenAsync()).OrderByDescending(l => l.AlertTime).ToList();
+        else
+            _operationLists = new();
+
+        if (SettingsService.IsModuleVisible(SettingKeys.VisibilityAttendance))
+            _attendanceLists = (await AttendanceRepo.GetOpenAsync()).OrderByDescending(l => l.CreatedAt).ToList();
+        else
+            _attendanceLists = new();
+
+        if (SettingsService.IsModuleVisible(SettingKeys.VisibilityFireSafetyWatch))
+        {
+            var allWatches = await FireSafetyWatchRepo.GetAllAsync();
+            _fireSafetyWatches = allWatches.Where(w => !w.IsArchived && w.Status == ListStatus.Open && w.EventDateTime >= DateTime.Now).OrderBy(w => w.EventDateTime).ToList();
+        }
+        else
+            _fireSafetyWatches = new();
     }
 
     public void Dispose()
     {
         _refreshTimer?.Dispose();
+        SettingsService.OnSettingsChanged -= OnSettingsChanged;
     }
 }
-
-@implements IDisposable

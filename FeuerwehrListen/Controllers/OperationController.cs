@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using FeuerwehrListen.Models;
 using FeuerwehrListen.Repositories;
 using FeuerwehrListen.DTOs;
+using FeuerwehrListen.Services;
 
 namespace FeuerwehrListen.Controllers;
 
@@ -13,17 +14,20 @@ public class OperationController : ControllerBase
     private readonly OperationEntryRepository _entryRepo;
     private readonly MemberRepository _memberRepo;
     private readonly VehicleRepository _vehicleRepo;
+    private readonly ListNotificationService _listNotificationService;
 
     public OperationController(
         OperationListRepository listRepo,
         OperationEntryRepository entryRepo,
         MemberRepository memberRepo,
-        VehicleRepository vehicleRepo)
+        VehicleRepository vehicleRepo,
+        ListNotificationService listNotificationService)
     {
         _listRepo = listRepo;
         _entryRepo = entryRepo;
         _memberRepo = memberRepo;
         _vehicleRepo = vehicleRepo;
+        _listNotificationService = listNotificationService;
     }
 
     [HttpGet("lists")]
@@ -172,6 +176,7 @@ public class OperationController : ControllerBase
         list.Status = ListStatus.Closed;
         list.ClosedAt = DateTime.Now;
         await _listRepo.UpdateAsync(list);
+        await _listNotificationService.NotifyOperationClosedAsync(list);
 
         return Ok(new ApiResponse<string>
         {

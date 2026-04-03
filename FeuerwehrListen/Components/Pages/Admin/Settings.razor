@@ -1,0 +1,311 @@
+@page "/admin/settings"
+@using FeuerwehrListen.Services
+@using FeuerwehrListen.Models
+@using FeuerwehrListen.Components.Layout
+@inject SettingsService SettingsService
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+
+<PageTitle>Einstellungen</PageTitle>
+
+<AdminAuthCheck>
+    <div class="container mt-4">
+        <div class="row mb-4">
+            <div class="col">
+                <h1>Einstellungen</h1>
+            </div>
+        </div>
+
+        @if (_showSuccess)
+        {
+            <div class="alert alert-success alert-dismissible fade show" role="alert">
+                Einstellungen wurden gespeichert.
+                <button type="button" class="btn-close" @onclick="() => _showSuccess = false"></button>
+            </div>
+        }
+
+        @if (_showError)
+        {
+            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                Fehler beim Speichern der Einstellungen.
+                <button type="button" class="btn-close" @onclick="() => _showError = false"></button>
+            </div>
+        }
+
+        <div class="row mb-4">
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-eye me-2"></i>Modul-Sichtbarkeit</h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted mb-3">Module ein- oder ausblenden. Ausgeblendete Module werden in der Navigation und auf der Startseite nicht angezeigt.</p>
+
+                        <div class="form-check form-switch mb-3">
+                            <input class="form-check-input" type="checkbox" id="visAttendance" @bind="_visAttendance" />
+                            <label class="form-check-label" for="visAttendance">Anwesenheitslisten</label>
+                        </div>
+
+                        <div class="form-check form-switch mb-3">
+                            <input class="form-check-input" type="checkbox" id="visOperations" @bind="_visOperations" />
+                            <label class="form-check-label" for="visOperations">Einsatzlisten</label>
+                        </div>
+
+                        <div class="form-check form-switch mb-3">
+                            <input class="form-check-input" type="checkbox" id="visFireSafety" @bind="_visFireSafetyWatch" />
+                            <label class="form-check-label" for="visFireSafety">Brandsicherheitswachen</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mb-4">
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-envelope me-2"></i>E-Mail SMTP</h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted mb-3">Konfiguration für den automatischen Versand abgeschlossener Listen.</p>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="smtpHost">SMTP Host</label>
+                            <input type="text" class="form-control" id="smtpHost" @bind="_smtpHost" />
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="smtpPort">SMTP Port</label>
+                            <input type="number" class="form-control" id="smtpPort" min="1" max="65535" @bind="_smtpPort" style="max-width: 200px;" />
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="smtpFrom">Absender-Adresse</label>
+                            <input type="email" class="form-control" id="smtpFrom" @bind="_smtpFromAddress" />
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="smtpUser">SMTP Benutzername (optional)</label>
+                            <input type="text" class="form-control" id="smtpUser" @bind="_smtpUsername" />
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="smtpPassword">SMTP Passwort (optional)</label>
+                            <input type="password" class="form-control" id="smtpPassword" @bind="_smtpPassword" />
+                        </div>
+
+                        <div class="form-check form-switch mb-3">
+                            <input class="form-check-input" type="checkbox" id="smtpSsl" @bind="_smtpUseSsl" />
+                            <label class="form-check-label" for="smtpSsl">SSL/TLS verwenden</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mb-4">
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-send-check me-2"></i>Empfänger für abgeschlossene Listen</h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted mb-3">Mehrere Adressen mit Komma, Semikolon oder Zeilenumbruch trennen.</p>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">
+                                <i class="bi bi-clipboard-check me-1"></i>Anwesenheitslisten nach Einheit
+                                <button type="button" class="btn btn-sm btn-outline-secondary ms-2" @onclick="() => _showUnitRecipients = !_showUnitRecipients">
+                                    <i class="bi @(_showUnitRecipients ? "bi-chevron-up" : "bi-chevron-down")"></i>
+                                    @(_showUnitRecipients ? "Einklappen" : "Aufklappen")
+                                </button>
+                            </label>
+                            @if (_showUnitRecipients)
+                            {
+                                <div class="table-responsive mt-2">
+                                    <table class="table table-sm table-borderless mb-0">
+                                        @for (var i = 1; i <= 9; i++)
+                                        {
+                                            var idx = i;
+                                            <tr>
+                                                <td class="align-middle text-nowrap" style="width: 90px;">Einheit @idx</td>
+                                                <td>
+                                                    <input type="text" class="form-control form-control-sm" id="attRec_@idx" placeholder="E-Mail-Adressen..." @bind="_attendanceRecipientsByUnit[idx]" />
+                                                </td>
+                                            </tr>
+                                        }
+                                    </table>
+                                </div>
+                            }
+                        </div>
+
+                        <hr class="my-3" />
+
+                        <div class="mb-3">
+                            <label class="form-label" for="opRec"><i class="bi bi-exclamation-triangle me-1"></i>Einsatzlisten</label>
+                            <input type="text" class="form-control" id="opRec" placeholder="E-Mail-Adressen..." @bind="_operationRecipients" />
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="fswRec"><i class="bi bi-fire me-1"></i>Brandsicherheitswachen</label>
+                            <input type="text" class="form-control" id="fswRec" placeholder="E-Mail-Adressen..." @bind="_fireSafetyWatchRecipients" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mb-4">
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-clock-history me-2"></i>Automatisches Schlie&szlig;en</h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted mb-3">Listen werden nach der angegebenen Zeit automatisch geschlossen. 0 = deaktiviert.</p>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="acAttendance">Anwesenheitslisten (Minuten)</label>
+                            <input type="number" class="form-control" id="acAttendance" min="0" @bind="_acAttendanceMinutes" style="max-width: 200px;" />
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="acOperation">Einsatzlisten (Minuten)</label>
+                            <input type="number" class="form-control" id="acOperation" min="0" @bind="_acOperationMinutes" style="max-width: 200px;" />
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="acFireSafety">Brandsicherheitswachen (Minuten)</label>
+                            <input type="number" class="form-control" id="acFireSafety" min="0" @bind="_acFireSafetyWatchMinutes" style="max-width: 200px;" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mb-4">
+            <div class="col-md-8">
+                <button class="btn btn-primary" @onclick="SaveSettings" disabled="@_isSaving">
+                    @if (_isSaving)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1"></span>
+                    }
+                    Speichern
+                </button>
+                <button class="btn btn-secondary ms-2" @onclick='() => Navigation.NavigateTo("/")'>Zur&uuml;ck zur &Uuml;bersicht</button>
+            </div>
+        </div>
+    </div>
+</AdminAuthCheck>
+
+@code {
+    private bool _visAttendance = true;
+    private bool _visOperations = true;
+    private bool _visFireSafetyWatch = true;
+    private int _acAttendanceMinutes;
+    private int _acOperationMinutes;
+    private int _acFireSafetyWatchMinutes;
+    private string _smtpHost = string.Empty;
+    private int _smtpPort = 587;
+    private string _smtpFromAddress = string.Empty;
+    private string _smtpUsername = string.Empty;
+    private string _smtpPassword = string.Empty;
+    private bool _smtpUseSsl = true;
+    private readonly string[] _attendanceRecipientsByUnit = new string[10];
+    private string _operationRecipients = string.Empty;
+    private string _fireSafetyWatchRecipients = string.Empty;
+    private bool _showUnitRecipients;
+    private bool _isSaving;
+    private bool _showSuccess;
+    private bool _showError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var settings = await SettingsService.GetAllSettingsAsync();
+
+        _visAttendance = GetBool(settings, SettingKeys.VisibilityAttendance, true);
+        _visOperations = GetBool(settings, SettingKeys.VisibilityOperations, true);
+        _visFireSafetyWatch = GetBool(settings, SettingKeys.VisibilityFireSafetyWatch, true);
+        _acAttendanceMinutes = GetInt(settings, SettingKeys.AutoCloseAttendance, 0);
+        _acOperationMinutes = GetInt(settings, SettingKeys.AutoCloseOperations, 0);
+        _acFireSafetyWatchMinutes = GetInt(settings, SettingKeys.AutoCloseFireSafetyWatch, 0);
+
+        _smtpHost = GetString(settings, SettingKeys.SmtpHost, string.Empty);
+        _smtpPort = GetInt(settings, SettingKeys.SmtpPort, 587);
+        _smtpFromAddress = GetString(settings, SettingKeys.SmtpFromAddress, string.Empty);
+        _smtpUsername = GetString(settings, SettingKeys.SmtpUsername, string.Empty);
+        _smtpPassword = GetString(settings, SettingKeys.SmtpPassword, string.Empty);
+        _smtpUseSsl = GetBool(settings, SettingKeys.SmtpUseSsl, true);
+
+        for (var i = 1; i <= 9; i++)
+        {
+            _attendanceRecipientsByUnit[i] = GetString(settings, SettingKeys.GetAttendanceRecipientsKey(i), string.Empty);
+        }
+
+        _operationRecipients = GetString(settings, SettingKeys.NotificationOperationRecipients, string.Empty);
+        _fireSafetyWatchRecipients = GetString(settings, SettingKeys.NotificationFireSafetyWatchRecipients, string.Empty);
+    }
+
+    private async Task SaveSettings()
+    {
+        _isSaving = true;
+        _showSuccess = false;
+        _showError = false;
+
+        // Clamp negative values to 0
+        _acAttendanceMinutes = Math.Max(0, _acAttendanceMinutes);
+        _acOperationMinutes = Math.Max(0, _acOperationMinutes);
+        _acFireSafetyWatchMinutes = Math.Max(0, _acFireSafetyWatchMinutes);
+        _smtpPort = Math.Clamp(_smtpPort, 1, 65535);
+
+        try
+        {
+            await SettingsService.UpdateSettingAsync(SettingKeys.VisibilityAttendance, _visAttendance.ToString().ToLower());
+            await SettingsService.UpdateSettingAsync(SettingKeys.VisibilityOperations, _visOperations.ToString().ToLower());
+            await SettingsService.UpdateSettingAsync(SettingKeys.VisibilityFireSafetyWatch, _visFireSafetyWatch.ToString().ToLower());
+            await SettingsService.UpdateSettingAsync(SettingKeys.AutoCloseAttendance, _acAttendanceMinutes.ToString());
+            await SettingsService.UpdateSettingAsync(SettingKeys.AutoCloseOperations, _acOperationMinutes.ToString());
+            await SettingsService.UpdateSettingAsync(SettingKeys.AutoCloseFireSafetyWatch, _acFireSafetyWatchMinutes.ToString());
+
+            await SettingsService.UpdateSettingAsync(SettingKeys.SmtpHost, _smtpHost.Trim());
+            await SettingsService.UpdateSettingAsync(SettingKeys.SmtpPort, _smtpPort.ToString());
+            await SettingsService.UpdateSettingAsync(SettingKeys.SmtpFromAddress, _smtpFromAddress.Trim());
+            await SettingsService.UpdateSettingAsync(SettingKeys.SmtpUsername, _smtpUsername.Trim());
+            await SettingsService.UpdateSettingAsync(SettingKeys.SmtpPassword, _smtpPassword);
+            await SettingsService.UpdateSettingAsync(SettingKeys.SmtpUseSsl, _smtpUseSsl.ToString().ToLower());
+
+            for (var i = 1; i <= 9; i++)
+            {
+                await SettingsService.UpdateSettingAsync(SettingKeys.GetAttendanceRecipientsKey(i), (_attendanceRecipientsByUnit[i] ?? "").Trim());
+            }
+
+            await SettingsService.UpdateSettingAsync(SettingKeys.NotificationOperationRecipients, _operationRecipients.Trim());
+            await SettingsService.UpdateSettingAsync(SettingKeys.NotificationFireSafetyWatchRecipients, _fireSafetyWatchRecipients.Trim());
+
+            _showSuccess = true;
+        }
+        catch (Exception)
+        {
+            _showError = true;
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private static bool GetBool(Dictionary<string, string> settings, string key, bool defaultValue)
+    {
+        return settings.TryGetValue(key, out var val) ? val.Equals("true", StringComparison.OrdinalIgnoreCase) : defaultValue;
+    }
+
+    private static int GetInt(Dictionary<string, string> settings, string key, int defaultValue)
+    {
+        return settings.TryGetValue(key, out var val) && int.TryParse(val, out var result) ? result : defaultValue;
+    }
+
+    private static string GetString(Dictionary<string, string> settings, string key, string defaultValue)
+    {
+        return settings.TryGetValue(key, out var val) ? val : defaultValue;
+    }
+}

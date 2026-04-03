@@ -18,32 +18,45 @@ public class StatisticsService
 
     public async Task<ListStatistics> GetListStatisticsAsync()
     {
-        var attendanceLists = await _db.AttendanceLists.ToListAsync();
-        var operationLists = await _db.OperationLists.ToListAsync();
-        var attendanceEntries = await _db.AttendanceEntries.ToListAsync();
-        var operationEntries = await _db.OperationEntries.ToListAsync();
+        // Use server-side counts instead of loading entire tables
+        var attendanceListCount = await _db.AttendanceLists.CountAsync();
+        var operationListCount = await _db.OperationLists.CountAsync();
+        var fswListCount = await _db.FireSafetyWatches.CountAsync();
 
-        var allLists = attendanceLists.Count + operationLists.Count;
-        var openLists = attendanceLists.Count(x => x.Status == ListStatus.Open) + 
-                       operationLists.Count(x => x.Status == ListStatus.Open);
-        var closedLists = attendanceLists.Count(x => x.Status == ListStatus.Closed) + 
-                         operationLists.Count(x => x.Status == ListStatus.Closed);
-        var archivedLists = attendanceLists.Count(x => x.IsArchived) + 
-                           operationLists.Count(x => x.IsArchived);
+        var openAttendance = await _db.AttendanceLists.CountAsync(x => x.Status == ListStatus.Open);
+        var openOperations = await _db.OperationLists.CountAsync(x => x.Status == ListStatus.Open);
+        var openFsw = await _db.FireSafetyWatches.CountAsync(x => x.Status == ListStatus.Open);
 
-        var totalParticipants = attendanceEntries.Count + operationEntries.Count;
+        var closedAttendance = await _db.AttendanceLists.CountAsync(x => x.Status == ListStatus.Closed);
+        var closedOperations = await _db.OperationLists.CountAsync(x => x.Status == ListStatus.Closed);
+        var closedFsw = await _db.FireSafetyWatches.CountAsync(x => x.Status == ListStatus.Closed);
+
+        var archivedAttendance = await _db.AttendanceLists.CountAsync(x => x.IsArchived);
+        var archivedOperations = await _db.OperationLists.CountAsync(x => x.IsArchived);
+        var archivedFsw = await _db.FireSafetyWatches.CountAsync(x => x.IsArchived);
+
+        var attendanceEntryCount = await _db.AttendanceEntries.CountAsync();
+        var operationEntryCount = await _db.OperationEntries.CountAsync();
+        var fswEntryCount = await _db.FireSafetyWatchEntries.CountAsync();
+
+        var allLists = attendanceListCount + operationListCount + fswListCount;
+        var totalParticipants = attendanceEntryCount + operationEntryCount + fswEntryCount;
         var averageParticipants = allLists > 0 ? (double)totalParticipants / allLists : 0;
 
         var lastCreated = new List<DateTime>();
-        if (attendanceLists.Any()) lastCreated.Add(attendanceLists.Max(x => x.CreatedAt));
-        if (operationLists.Any()) lastCreated.Add(operationLists.Max(x => x.CreatedAt));
+        if (attendanceListCount > 0)
+            lastCreated.Add(await _db.AttendanceLists.MaxAsync(x => x.CreatedAt));
+        if (operationListCount > 0)
+            lastCreated.Add(await _db.OperationLists.MaxAsync(x => x.CreatedAt));
+        if (fswListCount > 0)
+            lastCreated.Add(await _db.FireSafetyWatches.MaxAsync(x => x.EventDateTime));
 
         return new ListStatistics
         {
             TotalLists = allLists,
-            OpenLists = openLists,
-            ClosedLists = closedLists,
-            ArchivedLists = archivedLists,
+            OpenLists = openAttendance + openOperations + openFsw,
+            ClosedLists = closedAttendance + closedOperations + closedFsw,
+            ArchivedLists = archivedAttendance + archivedOperations + archivedFsw,
             AverageParticipants = Math.Round(averageParticipants, 2),
             TotalParticipants = totalParticipants,
             LastListCreated = lastCreated.Any() ? lastCreated.Max() : DateTime.MinValue
@@ -54,45 +67,56 @@ public class StatisticsService
     {
         var attendanceEntries = await _db.AttendanceEntries.ToListAsync();
         var operationEntries = await _db.OperationEntries.ToListAsync();
+        var fswEntries = await _db.FireSafetyWatchEntries.ToListAsync();
         var members = await _db.Members.Where(x => x.IsActive).ToListAsync();
-        var attendanceLists = await _db.AttendanceLists.CountAsync();
-        var operationLists = await _db.OperationLists.CountAsync();
+
+        var totalLists = await _db.AttendanceLists.CountAsync()
+                       + await _db.OperationLists.CountAsync()
+                       + await _db.FireSafetyWatches.CountAsync();
+
+        // Pre-build member number lookup
+        var memberByNumber = members.ToDictionary(m => m.MemberNumber, m => m);
+        var memberById = members.ToDictionary(m => m.Id, m => m);
 
         var memberParticipation = new Dictionary<int, int>();
 
-        // Zähle Teilnahmen pro Mitglied
+        // Count attendance + operation entries (by member number extraction)
         foreach (var entry in attendanceEntries)
         {
             var memberNumber = ExtractMemberNumber(entry.NameOrId);
-            var member = members.FirstOrDefault(m => m.MemberNumber == memberNumber);
-            if (member != null)
+            if (memberByNumber.TryGetValue(memberNumber, out var member))
             {
-                if (!memberParticipation.ContainsKey(member.Id))
-                    memberParticipation[member.Id] = 0;
-                memberParticipation[member.Id]++;
+                memberParticipation.TryGetValue(member.Id, out var count);
+                memberParticipation[member.Id] = count + 1;
             }
         }
 
         foreach (var entry in operationEntries)
         {
             var memberNumber = ExtractMemberNumber(entry.NameOrId);
-            var member = members.FirstOrDefault(m => m.MemberNumber == memberNumber);
-            if (member != null)
+            if (memberByNumber.TryGetValue(memberNumber, out var member))
             {
-                if (!memberParticipation.ContainsKey(member.Id))
-                    memberParticipation[member.Id] = 0;
-                memberParticipation[member.Id]++;
+                memberParticipation.TryGetValue(member.Id, out var count);
+                memberParticipation[member.Id] = count + 1;
             }
         }
 
-        var totalLists = attendanceLists + operationLists;
+        // Count FSW entries (by MemberId directly)
+        foreach (var entry in fswEntries)
+        {
+            if (memberById.ContainsKey(entry.MemberId))
+            {
+                memberParticipation.TryGetValue(entry.MemberId, out var count);
+                memberParticipation[entry.MemberId] = count + 1;
+            }
+        }
 
         return memberParticipation
             .OrderByDescending(x => x.Value)
             .Take(limit)
             .Select(x =>
             {
-                var member = members.First(m => m.Id == x.Key);
+                var member = memberById[x.Key];
                 return new TopParticipant
                 {
                     MemberId = member.Id,
@@ -110,47 +134,47 @@ public class StatisticsService
         var members = await _db.Members.Where(x => x.IsActive).ToListAsync();
         var attendanceEntries = await _db.AttendanceEntries.ToListAsync();
         var operationEntries = await _db.OperationEntries.ToListAsync();
+        var fswEntries = await _db.FireSafetyWatchEntries.ToListAsync();
         var attendanceLists = await _db.AttendanceLists.ToListAsync();
         var operationLists = await _db.OperationLists.ToListAsync();
+
+        // Pre-group entries by member number for O(1) lookups
+        var attendanceByMember = attendanceEntries
+            .GroupBy(e => ExtractMemberNumber(e.NameOrId))
+            .ToDictionary(g => g.Key, g => g.ToList());
+        var operationByMember = operationEntries
+            .GroupBy(e => ExtractMemberNumber(e.NameOrId))
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        // Pre-group FSW entries by MemberId
+        var fswByMember = fswEntries
+            .GroupBy(e => e.MemberId)
+            .ToDictionary(g => g.Key, g => g.Count());
 
         var result = new List<MemberStatistics>();
 
         foreach (var member in members)
         {
-            var memberAttendance = attendanceEntries.Count(e => 
-                ExtractMemberNumber(e.NameOrId) == member.MemberNumber);
-            var memberOperations = operationEntries.Count(e => 
-                ExtractMemberNumber(e.NameOrId) == member.MemberNumber);
+            var memberAttendanceEntries = attendanceByMember.GetValueOrDefault(member.MemberNumber, new List<AttendanceEntry>());
+            var memberOperationEntries = operationByMember.GetValueOrDefault(member.MemberNumber, new List<OperationEntry>());
+            var memberFswCount = fswByMember.GetValueOrDefault(member.Id, 0);
 
-            // Berechne Teilnahmequote basierend auf der Anzahl der Teilnahmen
-            // Die prozentuale Gesamt-Teilnahmequote wird entfernt, da sie irreführend ist.
-            // Stattdessen fokussieren wir uns auf absolute Zahlen und monatliche Quoten.
-            var totalParticipations = memberAttendance + memberOperations;
-            
+            var memberAttendance = memberAttendanceEntries.Count;
+            var memberOperations = memberOperationEntries.Count;
+            var totalParticipations = memberAttendance + memberOperations + memberFswCount;
+
+            // Determine last participation
             var lastParticipation = DateTime.MinValue;
-            var memberEntries = attendanceEntries.Where(e => 
-                ExtractMemberNumber(e.NameOrId) == member.MemberNumber)
-                .Cast<object>()
-                .Concat(operationEntries.Where(e => 
-                    ExtractMemberNumber(e.NameOrId) == member.MemberNumber).Cast<object>());
-            
-            if (memberEntries.Any())
-            {
-                var attendanceEntriesForMember = attendanceEntries.Where(e => 
-                    ExtractMemberNumber(e.NameOrId) == member.MemberNumber);
-                var operationEntriesForMember = operationEntries.Where(e => 
-                    ExtractMemberNumber(e.NameOrId) == member.MemberNumber);
-                
-                var allEntries = attendanceEntriesForMember.Cast<object>()
-                    .Concat(operationEntriesForMember.Cast<object>());
-                
-                lastParticipation = allEntries.Max(e => 
-                    e is AttendanceEntry ae ? ae.EnteredAt : 
-                    e is OperationEntry oe ? oe.EnteredAt : DateTime.MinValue);
-            }
+            var dates = new List<DateTime>();
+            if (memberAttendanceEntries.Any())
+                dates.Add(memberAttendanceEntries.Max(e => e.EnteredAt));
+            if (memberOperationEntries.Any())
+                dates.Add(memberOperationEntries.Max(e => e.EnteredAt));
+            if (dates.Any())
+                lastParticipation = dates.Max();
 
-            var monthlyData = CalculateMonthlyParticipation(member.MemberNumber, 
-                attendanceEntries, operationEntries, attendanceLists, operationLists);
+            var monthlyData = CalculateMonthlyParticipation(
+                memberAttendanceEntries, memberOperationEntries, attendanceLists, operationLists);
 
             result.Add(new MemberStatistics
             {
@@ -159,8 +183,7 @@ public class StatisticsService
                 MemberNumber = member.MemberNumber,
                 TotalAttendance = memberAttendance,
                 TotalOperations = memberOperations,
-                // Veraltetes, irreführendes Feld. Wird nicht mehr berechnet.
-                AttendancePercentage = totalParticipations, // Zeigt jetzt die Gesamtzahl an, nicht einen Prozentsatz
+                AttendancePercentage = totalParticipations, // Total participation count (legacy field name)
                 LastParticipation = lastParticipation,
                 MonthlyData = monthlyData
             });
@@ -180,8 +203,25 @@ public class StatisticsService
         var operationLists = await _db.OperationLists
             .Where(x => x.CreatedAt >= startDate)
             .ToListAsync();
-        var attendanceEntries = await _db.AttendanceEntries.ToListAsync();
-        var operationEntries = await _db.OperationEntries.ToListAsync();
+
+        // Only load entries for relevant lists (not entire tables)
+        var attendanceListIds = attendanceLists.Select(l => l.Id).ToHashSet();
+        var operationListIds = operationLists.Select(l => l.Id).ToHashSet();
+
+        var attendanceEntries = await _db.AttendanceEntries
+            .Where(e => attendanceListIds.Contains(e.AttendanceListId))
+            .ToListAsync();
+        var operationEntries = await _db.OperationEntries
+            .Where(e => operationListIds.Contains(e.OperationListId))
+            .ToListAsync();
+
+        // Pre-group entries by list ID for O(1) lookups
+        var attendanceEntryCountByList = attendanceEntries
+            .GroupBy(e => e.AttendanceListId)
+            .ToDictionary(g => g.Key, g => g.Count());
+        var operationEntryCountByList = operationEntries
+            .GroupBy(e => e.OperationListId)
+            .ToDictionary(g => g.Key, g => g.Count());
 
         var result = new List<TrendData>();
 
@@ -190,24 +230,17 @@ public class StatisticsService
             var dayAttendanceLists = attendanceLists.Where(x => x.CreatedAt.Date == date).ToList();
             var dayOperationLists = operationLists.Where(x => x.CreatedAt.Date == date).ToList();
 
-            var attendanceCount = dayAttendanceLists.Count;
-            var operationCount = dayOperationLists.Count;
-
             var totalParticipants = 0;
             foreach (var list in dayAttendanceLists)
-            {
-                totalParticipants += attendanceEntries.Count(e => e.AttendanceListId == list.Id);
-            }
+                totalParticipants += attendanceEntryCountByList.GetValueOrDefault(list.Id, 0);
             foreach (var list in dayOperationLists)
-            {
-                totalParticipants += operationEntries.Count(e => e.OperationListId == list.Id);
-            }
+                totalParticipants += operationEntryCountByList.GetValueOrDefault(list.Id, 0);
 
             result.Add(new TrendData
             {
                 Date = date,
-                AttendanceCount = attendanceCount,
-                OperationCount = operationCount,
+                AttendanceCount = dayAttendanceLists.Count,
+                OperationCount = dayOperationLists.Count,
                 TotalParticipants = totalParticipants
             });
         }
@@ -222,9 +255,7 @@ public class StatisticsService
             .ToListAsync();
 
         if (!operationEntries.Any())
-        {
             return new List<VehicleStatistics>();
-        }
 
         var vehicleStats = operationEntries
             .GroupBy(e => e.Vehicle!)
@@ -258,17 +289,11 @@ public class StatisticsService
 
         var totalOperationParticipants = operationEntries.Count;
         if (totalOperationParticipants == 0)
-        {
             return new List<FunctionStatistics>();
-        }
 
         var functionCounts = functionLinks
             .GroupBy(f => f.FunctionDefId)
-            .Select(g => new
-            {
-                FunctionId = g.Key,
-                Count = g.Count()
-            })
+            .Select(g => new { FunctionId = g.Key, Count = g.Count() })
             .ToList();
 
         var result = new List<FunctionStatistics>();
@@ -288,7 +313,7 @@ public class StatisticsService
 
         var entryIdsWithFunctions = functionLinks.Select(f => f.OperationEntryId).Distinct().ToHashSet();
         var truppCount = operationEntries.Count(e => !entryIdsWithFunctions.Contains(e.Id));
-        
+
         if (truppCount > 0)
         {
             result.Add(new FunctionStatistics
@@ -305,11 +330,11 @@ public class StatisticsService
     public async Task<BreathingApparatusStatistics> GetBreathingApparatusStatisticsAsync()
     {
         var operationEntries = await _db.OperationEntries.ToListAsync();
-        
+
         var atemschutzFunctions = await _db.OperationFunctionDefs
             .Where(f => f.Name.Contains("Atemschutz") || f.Name.Contains("AGT"))
             .ToListAsync();
-        
+
         int withApparatus = 0;
         if (atemschutzFunctions.Any())
         {
@@ -320,7 +345,7 @@ public class StatisticsService
 
         var totalParticipants = operationEntries.Count;
         var withoutApparatus = totalParticipants - withApparatus;
-        
+
         return new BreathingApparatusStatistics
         {
             WithApparatus = withApparatus,
@@ -337,22 +362,34 @@ public class StatisticsService
             .ToListAsync();
 
         if (!recentOperations.Any())
-        {
             return new List<OperationComposition>();
-        }
 
         var operationIds = recentOperations.Select(o => o.Id).ToList();
 
+        // Bulk-load entries and functions to avoid N+1 queries
         var entries = await _db.OperationEntries
             .Where(e => operationIds.Contains(e.OperationListId))
             .ToListAsync();
 
+        var entryIds = entries.Select(e => e.Id).ToList();
         var functionLinks = await _db.OperationEntryFunctions
-            .Where(ef => entries.Select(e => e.Id).Contains(ef.OperationEntryId))
+            .Where(ef => entryIds.Contains(ef.OperationEntryId))
             .ToListAsync();
 
         var functionDefs = await _db.OperationFunctionDefs.ToListAsync();
         var functionDefMap = functionDefs.ToDictionary(f => f.Id, f => f.Name);
+
+        // Bulk-load requirements for all keywords at once
+        var keywordIds = recentOperations
+            .Where(o => o.KeywordId.HasValue)
+            .Select(o => o.KeywordId!.Value)
+            .Distinct()
+            .ToList();
+        var allRequirements = new Dictionary<int, List<PersonalRequirement>>();
+        foreach (var kwId in keywordIds)
+        {
+            allRequirements[kwId] = await _requirementsService.GetRequirementsForKeywordAsync(kwId);
+        }
 
         var result = new List<OperationComposition>();
 
@@ -372,68 +409,52 @@ public class StatisticsService
                 NoVehicleFunctionCounts = functionDefs.ToDictionary(f => f.Name, f => 0)
             };
 
-            // Personal Requirements Validierung
+            // Requirements validation using in-memory data
             if (op.KeywordId.HasValue)
             {
                 var validationResult = await _requirementsService.ValidateRequirementsAsync(op.Id, op.KeywordId.Value);
                 composition.HasPersonalRequirements = true;
-                composition.RequirementsFulfillmentRate = validationResult.IsValid ? 100.0 : 
-                    Math.Max(0, 100.0 - (validationResult.MissingRequirements.Count * 20.0)); // Vereinfachte Berechnung
                 composition.RequirementsFulfilled = validationResult.IsValid;
-            }
-            else
-            {
-                composition.HasPersonalRequirements = false;
-                composition.RequirementsFulfillmentRate = 0;
-                composition.RequirementsFulfilled = false;
+
+                // Calculate actual fulfillment rate based on requirement counts
+                if (allRequirements.TryGetValue(op.KeywordId.Value, out var reqs) && reqs.Any())
+                {
+                    var totalReqs = reqs.Count;
+                    var metReqs = totalReqs - validationResult.MissingRequirements.Count;
+                    composition.RequirementsFulfillmentRate = Math.Round((double)Math.Max(0, metReqs) / totalReqs * 100, 1);
+                }
+                else
+                {
+                    composition.RequirementsFulfillmentRate = validationResult.IsValid ? 100.0 : 0;
+                }
             }
 
             var entriesWithVehicle = opEntries.Where(e => !string.IsNullOrWhiteSpace(e.Vehicle)).ToList();
             var entriesWithoutVehicle = opEntries.Where(e => string.IsNullOrWhiteSpace(e.Vehicle)).ToList();
 
-            var entryIdsWithVehicle = entriesWithVehicle.Select(e => e.Id).ToList();
-            var entryIdsWithoutVehicle = entriesWithoutVehicle.Select(e => e.Id).ToList();
+            var entryIdsWithVehicle = entriesWithVehicle.Select(e => e.Id).ToHashSet();
+            var entryIdsWithoutVehicle = entriesWithoutVehicle.Select(e => e.Id).ToHashSet();
 
-            var functionsWithVehicle = functionLinks
-                .Where(fl => entryIdsWithVehicle.Contains(fl.OperationEntryId));
-            var functionsWithoutVehicle = functionLinks
-                .Where(fl => entryIdsWithoutVehicle.Contains(fl.OperationEntryId));
+            var functionsWithVehicle = functionLinks.Where(fl => entryIdsWithVehicle.Contains(fl.OperationEntryId));
+            var functionsWithoutVehicle = functionLinks.Where(fl => entryIdsWithoutVehicle.Contains(fl.OperationEntryId));
 
-            var countsWithVehicle = functionsWithVehicle
-                .GroupBy(fl => fl.FunctionDefId)
-                .ToDictionary(g => g.Key, g => g.Count());
-            var countsWithoutVehicle = functionsWithoutVehicle
-                .GroupBy(fl => fl.FunctionDefId)
-                .ToDictionary(g => g.Key, g => g.Count());
+            var countsWithVehicle = functionsWithVehicle.GroupBy(fl => fl.FunctionDefId).ToDictionary(g => g.Key, g => g.Count());
+            var countsWithoutVehicle = functionsWithoutVehicle.GroupBy(fl => fl.FunctionDefId).ToDictionary(g => g.Key, g => g.Count());
 
             foreach (var (functionId, count) in countsWithVehicle)
-            {
                 if (functionDefMap.TryGetValue(functionId, out var functionName))
-                {
                     composition.FunctionCounts[functionName] = count;
-                }
-            }
 
             foreach (var (functionId, count) in countsWithoutVehicle)
-            {
                 if (functionDefMap.TryGetValue(functionId, out var functionName))
-                {
                     composition.NoVehicleFunctionCounts[functionName] = count;
-                }
-            }
 
-            var entryIdsWithFunctionsWithVehicle = functionsWithVehicle
-                .Select(f => f.OperationEntryId)
-                .Distinct()
-                .ToHashSet();
-            var entryIdsWithFunctionsWithoutVehicle = functionsWithoutVehicle
-                .Select(f => f.OperationEntryId)
-                .Distinct()
-                .ToHashSet();
+            var entryIdsWithFunctionsWithVehicle = functionsWithVehicle.Select(f => f.OperationEntryId).Distinct().ToHashSet();
+            var entryIdsWithFunctionsWithoutVehicle = functionsWithoutVehicle.Select(f => f.OperationEntryId).Distinct().ToHashSet();
 
             composition.WithVehicleTruppCount = entriesWithVehicle.Count(e => !entryIdsWithFunctionsWithVehicle.Contains(e.Id));
             composition.WithoutVehicleTruppCount = entriesWithoutVehicle.Count(e => !entryIdsWithFunctionsWithoutVehicle.Contains(e.Id));
-            
+
             result.Add(composition);
         }
 
@@ -447,59 +468,47 @@ public class StatisticsService
     }
 
     private static List<MonthlyParticipation> CalculateMonthlyParticipation(
-        string memberNumber,
-        List<AttendanceEntry> attendanceEntries,
-        List<OperationEntry> operationEntries,
+        List<AttendanceEntry> memberAttendanceEntries,
+        List<OperationEntry> memberOperationEntries,
         List<AttendanceList> attendanceLists,
         List<OperationList> operationLists)
     {
         var result = new List<MonthlyParticipation>();
         var endDate = DateTime.Now;
-        var startDate = endDate.AddMonths(-12);
+        // Use first-of-month to ensure consistent month boundaries
+        var startDate = new DateTime(endDate.Year, endDate.Month, 1).AddMonths(-12);
 
-        for (var date = startDate.Date; date <= endDate.Date; date = date.AddMonths(1))
+        // Pre-group member entries by list ID for O(1) lookups
+        var memberAttendanceListIds = memberAttendanceEntries
+            .Select(e => e.AttendanceListId).ToHashSet();
+        var memberOperationListIds = memberOperationEntries
+            .Select(e => e.OperationListId).ToHashSet();
+
+        for (var date = startDate; date <= endDate; date = date.AddMonths(1))
         {
             var year = date.Year;
             var month = date.Month;
 
-            var monthAttendanceLists = attendanceLists
-                .Where(x => x.CreatedAt.Year == year && x.CreatedAt.Month == month)
-                .ToList();
-            var monthOperationLists = operationLists
-                .Where(x => x.CreatedAt.Year == year && x.CreatedAt.Month == month)
-                .ToList();
+            var monthAttendanceCount = attendanceLists
+                .Count(x => x.CreatedAt.Year == year && x.CreatedAt.Month == month
+                    && memberAttendanceListIds.Contains(x.Id));
+            var monthOperationCount = operationLists
+                .Count(x => x.CreatedAt.Year == year && x.CreatedAt.Month == month
+                    && memberOperationListIds.Contains(x.Id));
 
-            var attendanceCount = 0;
-            var operationCount = 0;
+            var totalListsInMonth = attendanceLists.Count(x => x.CreatedAt.Year == year && x.CreatedAt.Month == month)
+                + operationLists.Count(x => x.CreatedAt.Year == year && x.CreatedAt.Month == month);
 
-            foreach (var list in monthAttendanceLists)
-            {
-                if (attendanceEntries.Any(e => e.AttendanceListId == list.Id && 
-                    ExtractMemberNumber(e.NameOrId) == memberNumber))
-                {
-                    attendanceCount++;
-                }
-            }
-
-            foreach (var list in monthOperationLists)
-            {
-                if (operationEntries.Any(e => e.OperationListId == list.Id && 
-                    ExtractMemberNumber(e.NameOrId) == memberNumber))
-                {
-                    operationCount++;
-                }
-            }
-
-            var totalLists = monthAttendanceLists.Count + monthOperationLists.Count;
-            var percentage = totalLists > 0 ? 
-                Math.Round((double)(attendanceCount + operationCount) / totalLists * 100, 2) : 0;
+            var percentage = totalListsInMonth > 0
+                ? Math.Round((double)(monthAttendanceCount + monthOperationCount) / totalListsInMonth * 100, 2)
+                : 0;
 
             result.Add(new MonthlyParticipation
             {
                 Year = year,
                 Month = month,
-                AttendanceCount = attendanceCount,
-                OperationCount = operationCount,
+                AttendanceCount = monthAttendanceCount,
+                OperationCount = monthOperationCount,
                 Percentage = percentage
             });
         }
@@ -511,12 +520,10 @@ public class StatisticsService
     {
         var operationLists = await _db.OperationLists.ToListAsync();
         var keywords = await _db.Keywords.Where(k => k.IsActive).ToListAsync();
-        
+
         var totalOperations = operationLists.Count;
         if (totalOperations == 0)
-        {
             return new List<KeywordStatistics>();
-        }
 
         var keywordUsage = operationLists
             .Where(o => o.KeywordId.HasValue)
@@ -524,30 +531,34 @@ public class StatisticsService
             .ToDictionary(g => g.Key, g => g.Count());
 
         var result = new List<KeywordStatistics>();
-        
+
         foreach (var keyword in keywords)
         {
             var usageCount = keywordUsage.GetValueOrDefault(keyword.Id, 0);
             var operationsWithKeyword = operationLists.Where(o => o.KeywordId == keyword.Id).ToList();
-            
+
+            // Check if this keyword has requirements defined at all
+            var definedRequirements = await _requirementsService.GetRequirementsForKeywordAsync(keyword.Id);
+            var hasRequirements = definedRequirements.Any();
+
             var operationsWithRequirements = 0;
             var operationsFulfillingRequirements = 0;
-            
-            foreach (var operation in operationsWithKeyword)
+
+            if (hasRequirements)
             {
-                var validation = await _requirementsService.ValidateRequirementsAsync(operation.Id, keyword.Id);
-                if (validation.MissingRequirements.Any())
+                foreach (var operation in operationsWithKeyword)
                 {
+                    var validation = await _requirementsService.ValidateRequirementsAsync(operation.Id, keyword.Id);
+                    // Count ALL operations that have requirements defined (not just those missing some)
                     operationsWithRequirements++;
                     if (validation.IsValid)
-                    {
                         operationsFulfillingRequirements++;
-                    }
                 }
             }
-            
-            var requirementsFulfillmentRate = operationsWithRequirements > 0 ? 
-                Math.Round((double)operationsFulfillingRequirements / operationsWithRequirements * 100, 1) : 0;
+
+            var requirementsFulfillmentRate = operationsWithRequirements > 0
+                ? Math.Round((double)operationsFulfillingRequirements / operationsWithRequirements * 100, 1)
+                : 0;
 
             result.Add(new KeywordStatistics
             {
@@ -568,36 +579,41 @@ public class StatisticsService
     {
         var operationLists = await _db.OperationLists.ToListAsync();
         var keywords = await _db.Keywords.Where(k => k.IsActive).ToListAsync();
-        
+
         var totalOperations = operationLists.Count;
         var operationsWithKeywords = operationLists.Count(o => o.KeywordId.HasValue);
-        
+
         var operationsWithRequirements = 0;
         var operationsFulfillingRequirements = 0;
         var keywordSummaries = new List<KeywordRequirementsSummary>();
-        
+
         foreach (var keyword in keywords)
         {
             var operationsWithKeyword = operationLists.Where(o => o.KeywordId == keyword.Id).ToList();
+            var definedRequirements = await _requirementsService.GetRequirementsForKeywordAsync(keyword.Id);
+            var hasRequirements = definedRequirements.Any();
+
             var keywordOperationsWithRequirements = 0;
             var keywordOperationsFulfillingRequirements = 0;
             var functionSummaries = new Dictionary<string, FunctionRequirementSummary>();
-            
-            foreach (var operation in operationsWithKeyword)
+
+            if (hasRequirements)
             {
-                var validation = await _requirementsService.ValidateRequirementsAsync(operation.Id, keyword.Id);
-                if (validation.MissingRequirements.Any())
+                foreach (var operation in operationsWithKeyword)
                 {
+                    var validation = await _requirementsService.ValidateRequirementsAsync(operation.Id, keyword.Id);
+
+                    // Count ALL operations with defined requirements
                     operationsWithRequirements++;
                     keywordOperationsWithRequirements++;
-                    
+
                     if (validation.IsValid)
                     {
                         operationsFulfillingRequirements++;
                         keywordOperationsFulfillingRequirements++;
                     }
-                    
-                    // Sammle Function-Statistiken
+
+                    // Collect function statistics from missing requirements
                     foreach (var missing in validation.MissingRequirements)
                     {
                         if (!functionSummaries.ContainsKey(missing.FunctionName))
@@ -612,19 +628,21 @@ public class StatisticsService
                                 FulfillmentRate = 0
                             };
                         }
-                        
+
                         var summary = functionSummaries[missing.FunctionName];
                         summary.ActualCount = Math.Max(summary.ActualCount, missing.CurrentCount);
                         summary.MissingCount = Math.Max(summary.MissingCount, missing.RequiredCount - missing.CurrentCount);
-                        summary.FulfillmentRate = summary.RequiredCount > 0 ? 
-                            Math.Round((double)summary.ActualCount / summary.RequiredCount * 100, 1) : 0;
+                        summary.FulfillmentRate = summary.RequiredCount > 0
+                            ? Math.Round((double)summary.ActualCount / summary.RequiredCount * 100, 1)
+                            : 0;
                     }
                 }
             }
-            
-            var keywordFulfillmentRate = keywordOperationsWithRequirements > 0 ? 
-                Math.Round((double)keywordOperationsFulfillingRequirements / keywordOperationsWithRequirements * 100, 1) : 0;
-            
+
+            var keywordFulfillmentRate = keywordOperationsWithRequirements > 0
+                ? Math.Round((double)keywordOperationsFulfillingRequirements / keywordOperationsWithRequirements * 100, 1)
+                : 0;
+
             keywordSummaries.Add(new KeywordRequirementsSummary
             {
                 KeywordName = keyword.Name,
@@ -635,10 +653,11 @@ public class StatisticsService
                 FunctionSummaries = functionSummaries.Values.ToList()
             });
         }
-        
-        var overallFulfillmentRate = operationsWithRequirements > 0 ? 
-            Math.Round((double)operationsFulfillingRequirements / operationsWithRequirements * 100, 1) : 0;
-        
+
+        var overallFulfillmentRate = operationsWithRequirements > 0
+            ? Math.Round((double)operationsFulfillingRequirements / operationsWithRequirements * 100, 1)
+            : 0;
+
         return new PersonalRequirementsStatistics
         {
             TotalOperations = totalOperations,
@@ -650,4 +669,3 @@ public class StatisticsService
         };
     }
 }
-

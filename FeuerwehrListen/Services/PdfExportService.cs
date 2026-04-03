@@ -20,6 +20,9 @@ public class PdfExportService
     private readonly OperationEntryFunctionRepository _entryFunctionRepo;
     private readonly GeocodingService _geocodingService;
     private readonly PersonalRequirementsService _requirementsService;
+    private readonly FireSafetyWatchRepository _fireSafetyWatchRepo;
+    private readonly FireSafetyWatchRequirementRepository _fireSafetyWatchRequirementRepo;
+    private readonly FireSafetyWatchEntryRepository _fireSafetyWatchEntryRepo;
 
     public PdfExportService(
         AttendanceListRepository attendanceRepo,
@@ -29,7 +32,10 @@ public class PdfExportService
         StatisticsService statisticsService,
         OperationEntryFunctionRepository entryFunctionRepo,
         GeocodingService geocodingService,
-        PersonalRequirementsService requirementsService)
+        PersonalRequirementsService requirementsService,
+        FireSafetyWatchRepository fireSafetyWatchRepo,
+        FireSafetyWatchRequirementRepository fireSafetyWatchRequirementRepo,
+        FireSafetyWatchEntryRepository fireSafetyWatchEntryRepo)
     {
         _attendanceRepo = attendanceRepo;
         _operationRepo = operationRepo;
@@ -39,6 +45,9 @@ public class PdfExportService
         _entryFunctionRepo = entryFunctionRepo;
         _geocodingService = geocodingService;
         _requirementsService = requirementsService;
+        _fireSafetyWatchRepo = fireSafetyWatchRepo;
+        _fireSafetyWatchRequirementRepo = fireSafetyWatchRequirementRepo;
+        _fireSafetyWatchEntryRepo = fireSafetyWatchEntryRepo;
     }
 
     private XFont CreateFont(string fontFamily, double size, bool isBold = false)
@@ -507,6 +516,131 @@ public class PdfExportService
         {
             throw new InvalidOperationException($"Fehler beim PDF-Export: {ex.GetType().Name}: {ex.Message}", ex);
         }
+    }
+
+    public async Task<byte[]> ExportFireSafetyWatchAsync(int watchId)
+    {
+        var watch = await _fireSafetyWatchRepo.GetByIdAsync(watchId);
+        if (watch == null)
+        {
+            throw new ArgumentException("Fire safety watch not found");
+        }
+
+        var requirements = await _fireSafetyWatchRequirementRepo.GetByWatchIdAsync(watchId);
+        var entries = await _fireSafetyWatchEntryRepo.GetByWatchIdAsync(watchId);
+        var requirementById = requirements.ToDictionary(r => r.Id, r => r);
+
+        var document = new PdfDocument();
+        var page = document.AddPage();
+        var gfx = XGraphics.FromPdfPage(page);
+
+        var font = CreateFont("CreatoDisplay", 12);
+        var titleFont = CreateFont("CreatoDisplay", 16, true);
+        var headerBold = CreateFont("CreatoDisplay", 12, true);
+
+        double left = 40, right = 40, top = 50, bottom = 40;
+        double contentWidth = page.Width - left - right;
+        int pageNumber = 1;
+
+        DrawHeader(gfx, "BRANDSICHERHEITSWACHE", titleFont, left, top, contentWidth);
+        double y = top + 36;
+
+        gfx.DrawString($"Name: {watch.Name}", font, XBrushes.Black, new XRect(left, y, contentWidth, 16), XStringFormats.TopLeft); y += 16;
+        gfx.DrawString($"Ort: {watch.Location}", font, XBrushes.Black, new XRect(left, y, contentWidth, 16), XStringFormats.TopLeft); y += 16;
+        gfx.DrawString($"Beginn: {watch.EventDateTime:dd.MM.yyyy HH:mm}", font, XBrushes.Black, new XRect(left, y, contentWidth, 16), XStringFormats.TopLeft); y += 16;
+        gfx.DrawString($"Status: {(watch.Status == ListStatus.Open ? "Offen" : "Geschlossen")}", font, XBrushes.Black, new XRect(left, y, contentWidth, 16), XStringFormats.TopLeft); y += 24;
+
+        gfx.DrawString($"Anforderungen ({requirements.Count})", headerBold, XBrushes.Black, new XRect(left, y, contentWidth, 16), XStringFormats.TopLeft); y += 20;
+        var reqWidths = new[] { 50d, contentWidth - 250d, 140d, 60d };
+        DrawTableHeader(gfx, font, headerBold, left, y, reqWidths, new[] { "#", "Funktion", "Fahrzeug", "Anzahl" });
+        y += 16;
+
+        for (var i = 0; i < requirements.Count; i++)
+        {
+            if (y > page.Height - bottom - 24)
+            {
+                DrawFooter(document, page, gfx, font, left, page.Height, contentWidth, pageNumber);
+                page = document.AddPage();
+                pageNumber++;
+                gfx.Dispose();
+                gfx = XGraphics.FromPdfPage(page);
+                DrawHeader(gfx, "BRANDSICHERHEITSWACHE", titleFont, left, top, contentWidth);
+                y = top + 36;
+                DrawTableHeader(gfx, font, headerBold, left, y, reqWidths, new[] { "#", "Funktion", "Fahrzeug", "Anzahl" });
+                y += 16;
+            }
+
+            var req = requirements[i];
+            var functionName = req.FunctionDef?.Name ?? "-";
+            var vehicleName = req.Vehicle?.Name ?? "Kein Fahrzeug";
+            DrawTableRow(gfx, font, left, y, reqWidths, new[]
+            {
+                (i + 1).ToString(),
+                functionName,
+                vehicleName,
+                req.Amount.ToString()
+            });
+            y += 16;
+        }
+
+        y += 10;
+        if (y > page.Height - bottom - 80)
+        {
+            DrawFooter(document, page, gfx, font, left, page.Height, contentWidth, pageNumber);
+            page = document.AddPage();
+            pageNumber++;
+            gfx.Dispose();
+            gfx = XGraphics.FromPdfPage(page);
+            DrawHeader(gfx, "BRANDSICHERHEITSWACHE", titleFont, left, top, contentWidth);
+            y = top + 36;
+        }
+
+        gfx.DrawString($"Eingetragene Personen ({entries.Count})", headerBold, XBrushes.Black, new XRect(left, y, contentWidth, 16), XStringFormats.TopLeft); y += 20;
+        var entryWidths = new[] { 50d, contentWidth - 250d, 140d, 60d };
+        DrawTableHeader(gfx, font, headerBold, left, y, entryWidths, new[] { "#", "Name", "Funktion", "Req.#" });
+        y += 16;
+
+        for (var i = 0; i < entries.Count; i++)
+        {
+            if (y > page.Height - bottom - 24)
+            {
+                DrawFooter(document, page, gfx, font, left, page.Height, contentWidth, pageNumber);
+                page = document.AddPage();
+                pageNumber++;
+                gfx.Dispose();
+                gfx = XGraphics.FromPdfPage(page);
+                DrawHeader(gfx, "BRANDSICHERHEITSWACHE", titleFont, left, top, contentWidth);
+                y = top + 36;
+                DrawTableHeader(gfx, font, headerBold, left, y, entryWidths, new[] { "#", "Name", "Funktion", "Req.#" });
+                y += 16;
+            }
+
+            var entry = entries[i];
+            var memberName = entry.Member != null
+                ? $"{entry.Member.FirstName} {entry.Member.LastName} ({entry.Member.MemberNumber})"
+                : entry.MemberId.ToString();
+
+            var functionName = "-";
+            if (requirementById.TryGetValue(entry.RequirementId, out var req))
+            {
+                functionName = req.FunctionDef?.Name ?? "-";
+            }
+
+            DrawTableRow(gfx, font, left, y, entryWidths, new[]
+            {
+                (i + 1).ToString(),
+                memberName,
+                functionName,
+                entry.RequirementId.ToString()
+            });
+            y += 16;
+        }
+
+        DrawFooter(document, page, gfx, font, left, page.Height, contentWidth, pageNumber);
+
+        using var memoryStream = new MemoryStream();
+        document.Save(memoryStream);
+        return memoryStream.ToArray();
     }
 
     private async Task<XImage?> TryLoadStaticMapAsync(string? address, double? latitude, double? longitude, int width, int height)

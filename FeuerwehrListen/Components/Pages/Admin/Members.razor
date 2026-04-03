@@ -2,6 +2,7 @@
 @using FeuerwehrListen.Models
 @using FeuerwehrListen.Repositories
 @using FeuerwehrListen.Components.Layout
+@using Microsoft.AspNetCore.Components.Forms
 @inject MemberRepository MemberRepo
 @inject NavigationManager Navigation
 @rendermode InteractiveServer
@@ -14,8 +15,13 @@
             <div class="col">
                 <h1>Mitgliederverwaltung</h1>
             </div>
-            <div class="col-auto">
-                <button class="btn btn-primary" @onclick="ShowCreateForm">Neues Mitglied</button>
+            <div class="col-auto d-flex gap-2">
+                <button class="btn btn-primary" @onclick="ShowCreateForm">
+                    <i class="bi bi-plus-circle me-1"></i> Neues Mitglied
+                </button>
+                <button class="btn btn-outline-primary" @onclick="() => _showCsvImport = !_showCsvImport">
+                    <i class="bi bi-upload me-1"></i> CSV Import
+                </button>
             </div>
         </div>
 
@@ -58,6 +64,64 @@
                                 <button class="btn btn-primary" @onclick="SaveMember">Speichern</button>
                                 <button class="btn btn-secondary" @onclick="CancelEdit">Abbrechen</button>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @if (_showCsvImport)
+        {
+            <div class="row mb-4">
+                <div class="col-md-8 offset-md-2">
+                    <div class="card">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0"><i class="bi bi-upload me-2"></i>CSV Import</h5>
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="() => _showCsvImport = false">
+                                <i class="bi bi-x"></i>
+                            </button>
+                        </div>
+                        <div class="card-body">
+                            <div class="alert alert-info">
+                                <strong>CSV-Format:</strong> Die CSV-Datei muss folgende Spalten enthalten (mit Semikolon als Trennzeichen):
+                                <br/>
+                                <code>Mitgliedsnummer;Vorname;Nachname;Aktiv</code>
+                                <br/>
+                                <small class="text-muted">
+                                    Die erste Zeile wird als Header erkannt und übersprungen.
+                                    "Aktiv" akzeptiert: ja/nein, true/false, 1/0.
+                                    Existierende Mitgliedsnummern werden übersprungen.
+                                </small>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label">CSV-Datei auswählen</label>
+                                <InputFile class="form-control" OnChange="OnCsvFileSelected" accept=".csv" />
+                            </div>
+
+                            @if (_csvImporting)
+                            {
+                                <div class="d-flex align-items-center">
+                                    <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                                    <span>Importiere...</span>
+                                </div>
+                            }
+
+                            @if (_csvImportResult != null)
+                            {
+                                <div class="alert @(_csvImportErrors.Any() ? "alert-warning" : "alert-success") mt-3">
+                                    <strong>@_csvImportResult</strong>
+                                    @if (_csvImportErrors.Any())
+                                    {
+                                        <ul class="mb-0 mt-2">
+                                            @foreach (var error in _csvImportErrors)
+                                            {
+                                                <li>@error</li>
+                                            }
+                                        </ul>
+                                    }
+                                </div>
+                            }
                         </div>
                     </div>
                 </div>
@@ -132,6 +196,10 @@
     private List<Member> _members = new();
     private Member? _editingMember;
     private bool _showForm = false;
+    private bool _showCsvImport = false;
+    private bool _csvImporting = false;
+    private string? _csvImportResult;
+    private List<string> _csvImportErrors = new();
 
     protected override async Task OnInitializedAsync()
     {
@@ -197,6 +265,112 @@
     {
         await MemberRepo.DeleteAsync(id);
         await LoadMembers();
+    }
+
+    private async Task OnCsvFileSelected(InputFileChangeEventArgs e)
+    {
+        _csvImportResult = null;
+        _csvImportErrors = new List<string>();
+        _csvImporting = true;
+        StateHasChanged();
+
+        try
+        {
+            var file = e.File;
+            if (file == null)
+                return;
+
+            // Limit to 5MB
+            if (file.Size > 5 * 1024 * 1024)
+            {
+                _csvImportResult = "Datei ist zu groß (max. 5 MB).";
+                return;
+            }
+
+            using var reader = new System.IO.StreamReader(file.OpenReadStream(maxAllowedSize: 5 * 1024 * 1024));
+            var content = await reader.ReadToEndAsync();
+            var lines = content.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+
+            if (lines.Length < 2)
+            {
+                _csvImportResult = "Die CSV-Datei enthält keine Daten (nur Header oder leer).";
+                return;
+            }
+
+            // Load existing member numbers to skip duplicates
+            var existingMembers = await MemberRepo.GetAllAsync();
+            var existingNumbers = existingMembers.Select(m => m.MemberNumber.Trim()).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            var imported = 0;
+            var skipped = 0;
+
+            // Skip first line (header)
+            for (var i = 1; i < lines.Length; i++)
+            {
+                var line = lines[i].Trim();
+                if (string.IsNullOrWhiteSpace(line))
+                    continue;
+
+                var parts = line.Split(';');
+
+                if (parts.Length < 3)
+                {
+                    _csvImportErrors.Add($"Zeile {i + 1}: Zu wenige Spalten ({parts.Length}), erwartet mindestens 3.");
+                    continue;
+                }
+
+                var memberNumber = parts[0].Trim();
+                var firstName = parts[1].Trim();
+                var lastName = parts[2].Trim();
+
+                if (string.IsNullOrWhiteSpace(memberNumber) || string.IsNullOrWhiteSpace(firstName) || string.IsNullOrWhiteSpace(lastName))
+                {
+                    _csvImportErrors.Add($"Zeile {i + 1}: Mitgliedsnummer, Vorname oder Nachname ist leer.");
+                    continue;
+                }
+
+                if (existingNumbers.Contains(memberNumber))
+                {
+                    skipped++;
+                    continue;
+                }
+
+                var isActive = true;
+                if (parts.Length >= 4)
+                {
+                    var activeValue = parts[3].Trim().ToLowerInvariant();
+                    isActive = activeValue is "ja" or "true" or "1";
+                }
+
+                var member = new Member
+                {
+                    MemberNumber = memberNumber,
+                    FirstName = firstName,
+                    LastName = lastName,
+                    IsActive = isActive,
+                    CreatedAt = DateTime.Now
+                };
+
+                await MemberRepo.CreateAsync(member);
+                existingNumbers.Add(memberNumber);
+                imported++;
+            }
+
+            _csvImportResult = $"Import abgeschlossen: {imported} Mitglieder importiert, {skipped} übersprungen (bereits vorhanden).";
+            if (_csvImportErrors.Any())
+                _csvImportResult += $" {_csvImportErrors.Count} Fehler.";
+
+            await LoadMembers();
+        }
+        catch (Exception ex)
+        {
+            _csvImportResult = $"Fehler beim Import: {ex.Message}";
+        }
+        finally
+        {
+            _csvImporting = false;
+            StateHasChanged();
+        }
     }
 }
 

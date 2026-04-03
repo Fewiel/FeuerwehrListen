@@ -1,0 +1,86 @@
+@using FeuerwehrListen.Models
+
+@if (_visible)
+{
+    <div class="modal show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog">
+            <div class="modal-content bg-dark text-light border-secondary">
+                <div class="modal-header border-secondary">
+                    <h5 class="modal-title"><i class="bi bi-signpost-split me-2"></i>Einheit wählen</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="Hide"></button>
+                </div>
+                <div class="modal-body">
+                    <p>
+                        <strong>@_memberName</strong> gehört zu Einheit @_memberUnit,
+                        aber diese Liste ist für Einheit @_currentUnit.
+                    </p>
+                    <p>Bitte wähle eine Liste für dieses Mitglied:</p>
+
+                    <div class="list-group">
+                        @foreach (var list in _availableLists)
+                        {
+                            <button type="button" class="list-group-item list-group-item-action bg-dark text-light border-secondary d-flex justify-content-between align-items-center"
+                                    @onclick="() => SelectList(list.Id)">
+                                <div>
+                                    <strong>@list.Title</strong>
+                                    @if (list.UnitNumber.HasValue)
+                                    {
+                                        <span class="badge bg-primary ms-2">Einheit @list.UnitNumber</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-secondary ms-2">Keine Einheit</span>
+                                    }
+                                </div>
+                                <small class="text-muted">@list.CreatedAt.ToString("dd.MM. HH:mm")</small>
+                            </button>
+                        }
+                    </div>
+
+                    @if (!_availableLists.Any())
+                    {
+                        <div class="alert alert-warning mt-3 mb-0">
+                            Keine offene Liste für Einheit @_memberUnit gefunden.
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer border-secondary">
+                    <button type="button" class="btn btn-secondary" @onclick="Hide">Abbrechen</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public EventCallback<int> OnListSelected { get; set; }
+
+    private bool _visible;
+    private string _memberName = string.Empty;
+    private int _memberUnit;
+    private int _currentUnit;
+    private List<AttendanceList> _availableLists = new();
+
+    public void Show(string memberName, int memberUnit, int currentUnit, List<AttendanceList> availableLists)
+    {
+        _memberName = memberName;
+        _memberUnit = memberUnit;
+        _currentUnit = currentUnit;
+        _availableLists = availableLists;
+        _visible = true;
+        StateHasChanged();
+    }
+
+    public void Hide()
+    {
+        _visible = false;
+        StateHasChanged();
+    }
+
+    private async Task SelectList(int listId)
+    {
+        _visible = false;
+        await OnListSelected.InvokeAsync(listId);
+    }
+}

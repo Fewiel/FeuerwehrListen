@@ -14,6 +14,7 @@
 @inject GeocodingService Geocoder
 @inject KeywordRepository KeywordRepo
 @inject PersonalRequirementsService RequirementsService
+@inject ListNotificationService ListNotificationService
 @rendermode InteractiveServer
 
 <PageTitle>Einsatzliste - @_list?.OperationNumber</PageTitle>
@@ -45,7 +46,7 @@
                 <h1>Einsatz @_list.OperationNumber</h1>
                 <p class="lead">Stichwort: @_list.Keyword</p>
                 
-                @if (_requirementsValidation != null)
+                @if (_requirementsValidation != null && _list.Status != ListStatus.Open)
                 {
                     <div class="alert @(_requirementsValidation.IsValid ? "alert-success" : "alert-info") mb-3">
                         <h6 class="alert-heading">
@@ -594,6 +595,7 @@
         _list.Status = ListStatus.Closed;
         _list.ClosedAt = DateTime.Now;
         await OperationRepo.UpdateAsync(_list);
+        await ListNotificationService.NotifyOperationClosedAsync(_list);
         await LoadData();
     }
 

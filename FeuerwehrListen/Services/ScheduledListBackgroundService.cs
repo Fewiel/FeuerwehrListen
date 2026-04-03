@@ -9,13 +9,16 @@ public class ScheduledListBackgroundService : BackgroundService
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<ScheduledListBackgroundService> _logger;
+    private readonly SettingsService _settingsService;
 
     public ScheduledListBackgroundService(
         IServiceProvider serviceProvider,
-        ILogger<ScheduledListBackgroundService> logger)
+        ILogger<ScheduledListBackgroundService> logger,
+        SettingsService settingsService)
     {
         _serviceProvider = serviceProvider;
         _logger = logger;
+        _settingsService = settingsService;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -31,6 +34,7 @@ public class ScheduledListBackgroundService : BackgroundService
                 var scheduledRepo = new ScheduledListRepository(db);
                 var attendanceRepo = new AttendanceListRepository(db);
                 var operationRepo = new OperationListRepository(db);
+                var listNotificationService = scope.ServiceProvider.GetRequiredService<ListNotificationService>();
 
                 var dueSchedules = await scheduledRepo.GetDueAsync();
                 
@@ -47,6 +51,7 @@ public class ScheduledListBackgroundService : BackgroundService
                             Title = schedule.Title,
                             Unit = schedule.Unit,
                             Description = schedule.Description,
+                            UnitNumber = schedule.UnitNumber,
                             CreatedAt = DateTime.Now,
                             Status = ListStatus.Open
                         };
@@ -70,6 +75,9 @@ public class ScheduledListBackgroundService : BackgroundService
 
                     _logger.LogInformation($"Processed scheduled list: {schedule.Title}");
                 }
+
+                // Auto-close logic
+                await AutoCloseListsAsync(db, listNotificationService);
             }
             catch (Exception ex)
             {
@@ -77,6 +85,70 @@ public class ScheduledListBackgroundService : BackgroundService
             }
 
             await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);
+        }
+    }
+
+    private async Task AutoCloseListsAsync(AppDbConnection db, ListNotificationService listNotificationService)
+    {
+        var now = DateTime.Now;
+
+        // Auto-close attendance lists
+        var attendanceMinutes = _settingsService.GetAutoCloseMinutes(SettingKeys.AutoCloseAttendance);
+        if (attendanceMinutes > 0)
+        {
+            var cutoff = now.AddMinutes(-attendanceMinutes);
+            var openAttendance = await db.AttendanceLists
+                .Where(l => l.Status == ListStatus.Open && l.CreatedAt <= cutoff)
+                .ToListAsync();
+
+            foreach (var list in openAttendance)
+            {
+                list.Status = ListStatus.Closed;
+                list.ClosedAt = now;
+                await db.UpdateAsync(list);
+                await listNotificationService.NotifyAttendanceClosedAsync(list);
+                _logger.LogInformation("Auto-closed attendance list: {Title} (ID: {Id})", list.Title, list.Id);
+            }
+        }
+
+        // Auto-close operation lists
+        var operationMinutes = _settingsService.GetAutoCloseMinutes(SettingKeys.AutoCloseOperations);
+        if (operationMinutes > 0)
+        {
+            var cutoff = now.AddMinutes(-operationMinutes);
+            var openOperations = await db.OperationLists
+                .Where(l => l.Status == ListStatus.Open && l.CreatedAt <= cutoff)
+                .ToListAsync();
+
+            foreach (var list in openOperations)
+            {
+                list.Status = ListStatus.Closed;
+                list.ClosedAt = now;
+                await db.UpdateAsync(list);
+                await listNotificationService.NotifyOperationClosedAsync(list);
+                _logger.LogInformation("Auto-closed operation list: {OperationNumber} (ID: {Id})", list.OperationNumber, list.Id);
+            }
+        }
+
+        // Auto-close fire safety watches
+        // Note: FSW uses EventDateTime (not CreatedAt which doesn't exist on this model).
+        // This means watches are closed N minutes after the event time, which is the intended behavior.
+        var fswMinutes = _settingsService.GetAutoCloseMinutes(SettingKeys.AutoCloseFireSafetyWatch);
+        if (fswMinutes > 0)
+        {
+            var cutoff = now.AddMinutes(-fswMinutes);
+            var openWatches = await db.FireSafetyWatches
+                .Where(w => w.Status == ListStatus.Open && w.EventDateTime <= cutoff)
+                .ToListAsync();
+
+            foreach (var watch in openWatches)
+            {
+                watch.Status = ListStatus.Closed;
+                watch.ClosedAt = now;
+                await db.UpdateAsync(watch);
+                await listNotificationService.NotifyFireSafetyWatchClosedAsync(watch);
+                _logger.LogInformation("Auto-closed fire safety watch: {Name} (ID: {Id})", watch.Name, watch.Id);
+            }
         }
     }
 }

@@ -101,12 +101,19 @@
     private string _password = string.Empty;
     private string _errorMessage = string.Empty;
     private bool _isLoggingIn = false;
+    private bool _checkDone;
 
-    protected override void OnInitialized()
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (AuthService.IsAdmin)
+        if (firstRender && !_checkDone)
         {
-            Navigation.NavigateTo("/", false);
+            _checkDone = true;
+            var state = await AuthService.GetAuthenticationStateAsync();
+            if (state.User.Identity?.IsAuthenticated == true)
+            {
+                Navigation.NavigateTo("/", false);
+            }
+            StateHasChanged();
         }
     }
 
@@ -129,9 +136,8 @@
             var success = await AuthService.LoginAsync(_username, _password);
             if (success)
             {
-                StateHasChanged();
-                await Task.Delay(100);
-                Navigation.NavigateTo("/", false);
+                Navigation.NavigateTo("/", forceLoad: true);
+                return;
             }
             else
             {

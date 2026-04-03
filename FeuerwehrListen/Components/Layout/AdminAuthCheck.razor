@@ -1,23 +1,40 @@
 @using FeuerwehrListen.Services
 @inject AuthenticationService AuthService
 @using Microsoft.AspNetCore.Components.Authorization
-@inject NavigationManager Navigation
+@rendermode InteractiveServer
 
-<CascadingAuthenticationState>
-    <AuthorizeView Roles="Admin">
-        <Authorized>
-            @ChildContent
-        </Authorized>
-        <NotAuthorized>
-            <div class="alert alert-danger">
-                <p>Zugriff verweigert. Sie müssen Administrator sein, um diesen Bereich zu sehen.</p>
-            </div>
-        </NotAuthorized>
-    </AuthorizeView>
-</CascadingAuthenticationState>
+@if (_loading)
+{
+    <div class="d-flex justify-content-center py-5">
+        <div class="spinner-border text-light" role="status">
+            <span class="visually-hidden">Laden...</span>
+        </div>
+    </div>
+}
+else if (AuthService.IsAdmin)
+{
+    @ChildContent
+}
+else
+{
+    <div class="alert alert-danger">
+        <p>Zugriff verweigert. Sie müssen Administrator sein, um diesen Bereich zu sehen.</p>
+    </div>
+}
 
 @code {
     [Parameter]
     public RenderFragment? ChildContent { get; set; }
-}
 
+    private bool _loading = true;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await AuthService.TryRestoreSessionAsync();
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+}

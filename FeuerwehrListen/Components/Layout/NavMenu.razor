@@ -1,6 +1,7 @@
-﻿@inject AuthenticationService AuthService
+﻿@using FeuerwehrListen.Models
+@inject AuthenticationService AuthService
 @inject SidebarService SidebarService
-@using Microsoft.AspNetCore.Components.Authorization
+@inject SettingsService SettingsService
 @rendermode InteractiveServer
 
 <div class="sidebar @(SidebarService.IsCollapsed ? "collapsed" : "")">
@@ -22,135 +23,152 @@
                 </NavLink>
             </div>
 
-            <div class="nav-item px-3">
-                <NavLink class="nav-link" href="create-attendance" title="@(SidebarService.IsCollapsed ? "Neue Anwesenheitsliste" : "")">
-                    <i class="bi bi-plus-circle @(SidebarService.IsCollapsed ? "" : "me-2")"></i>
-                    <span class="@(SidebarService.IsCollapsed ? "d-none" : "")">Neue Anwesenheitsliste</span>
-                </NavLink>
-            </div>
+            @if (SettingsService.IsModuleVisible(SettingKeys.VisibilityAttendance))
+            {
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="create-attendance" title="@(SidebarService.IsCollapsed ? "Neue Anwesenheitsliste" : "")">
+                        <i class="bi bi-plus-circle @(SidebarService.IsCollapsed ? "" : "me-2")"></i>
+                        <span class="@(SidebarService.IsCollapsed ? "d-none" : "")">Neue Anwesenheitsliste</span>
+                    </NavLink>
+                </div>
+            }
 
-            <div class="nav-item px-3">
-                <NavLink class="nav-link" href="create-operation" title="@(SidebarService.IsCollapsed ? "Neue Einsatzliste" : "")">
-                    <i class="bi bi-exclamation-triangle @(SidebarService.IsCollapsed ? "" : "me-2")"></i>
-                    <span class="@(SidebarService.IsCollapsed ? "d-none" : "")">Neue Einsatzliste</span>
-                </NavLink>
-            </div>
+            @if (SettingsService.IsModuleVisible(SettingKeys.VisibilityOperations))
+            {
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="create-operation" title="@(SidebarService.IsCollapsed ? "Neue Einsatzliste" : "")">
+                        <i class="bi bi-exclamation-triangle @(SidebarService.IsCollapsed ? "" : "me-2")"></i>
+                        <span class="@(SidebarService.IsCollapsed ? "d-none" : "")">Neue Einsatzliste</span>
+                    </NavLink>
+                </div>
+            }
 
-            <div class="nav-item px-3">
-                <NavLink class="nav-link" href="firesafetywatches" title="@(SidebarService.IsCollapsed ? "Brandsicherheitswachen" : "")">
-                    <i class="bi bi-shield-check @(SidebarService.IsCollapsed ? "" : "me-2")"></i>
-                    <span class="@(SidebarService.IsCollapsed ? "d-none" : "")">Brandsicherheitswachen</span>
-                </NavLink>
-            </div>
+            @if (SettingsService.IsModuleVisible(SettingKeys.VisibilityFireSafetyWatch))
+            {
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="firesafetywatches" title="@(SidebarService.IsCollapsed ? "Brandsicherheitswachen" : "")">
+                        <i class="bi bi-shield-check @(SidebarService.IsCollapsed ? "" : "me-2")"></i>
+                        <span class="@(SidebarService.IsCollapsed ? "d-none" : "")">Brandsicherheitswachen</span>
+                    </NavLink>
+                </div>
+            }
             
-            <AuthorizeView>
-                <Authorized>
-                    <AuthorizeView Roles="Admin" Context="adminContext">
-                        <hr class="my-3 mx-3"/>
-
-                        <div class="nav-item px-3">
-                            <div class="nav-link-header @(SidebarService.IsCollapsed ? "d-none" : "")">
-                                Admin-Bereich
-                            </div>
-                        </div>
-
-                        <div class="nav-item px-3">
-                            <NavLink class="nav-link" href="admin/closed-lists" title="@(SidebarService.IsCollapsed ? "Abgeschlossene Listen" : "")">
-                                <i class="bi bi-check-circle @(SidebarService.IsCollapsed ? "" : "me-2")"></i>
-                                <span class="@(SidebarService.IsCollapsed ? "d-none" : "")">Abgeschlossene Listen</span>
-                            </NavLink>
-                        </div>
-
-                        <div class="nav-item px-3">
-                            <NavLink class="nav-link" href="admin/archive" title="@(SidebarService.IsCollapsed ? "Archiv" : "")">
-                                <i class="bi bi-archive @(SidebarService.IsCollapsed ? "" : "me-2")"></i>
-                                <span class="@(SidebarService.IsCollapsed ? "d-none" : "")">Archiv</span>
-                            </NavLink>
-                        </div>
-
-                        <div class="nav-item px-3">
-                            <NavLink class="nav-link" href="admin/members" title="@(SidebarService.IsCollapsed ? "Mitglieder" : "")">
-                                <i class="bi bi-person @(SidebarService.IsCollapsed ? "" : "me-2")"></i>
-                                <span class="@(SidebarService.IsCollapsed ? "d-none" : "")">Mitglieder</span>
-                            </NavLink>
-                        </div>
-
-                        <div class="nav-item px-3">
-                            <NavLink class="nav-link" href="admin/vehicles" title="@(SidebarService.IsCollapsed ? "Fahrzeuge" : "")">
-                                <i class="bi bi-truck @(SidebarService.IsCollapsed ? "" : "me-2")"></i>
-                                <span class="@(SidebarService.IsCollapsed ? "d-none" : "")">Fahrzeuge</span>
-                            </NavLink>
-                        </div>
-
-                        <div class="nav-item px-3">
-                            <NavLink class="nav-link" href="admin/functions" title="@(SidebarService.IsCollapsed ? "Funktionen" : "")">
-                                <i class="bi bi-puzzle @(SidebarService.IsCollapsed ? "" : "me-2")"></i>
-                                <span class="@(SidebarService.IsCollapsed ? "d-none" : "")">Funktionen</span>
-                            </NavLink>
-                        </div>
-
-                        <div class="nav-item px-3">
-                            <NavLink class="nav-link" href="admin/keywords" title="@(SidebarService.IsCollapsed ? "Stichwörter" : "")">
-                                <i class="bi bi-tags @(SidebarService.IsCollapsed ? "" : "me-2")"></i>
-                                <span class="@(SidebarService.IsCollapsed ? "d-none" : "")">Stichwörter</span>
-                            </NavLink>
-                        </div>
-
-                        <div class="nav-item px-3">
-                            <NavLink class="nav-link" href="admin/users" title="@(SidebarService.IsCollapsed ? "Benutzer" : "")">
-                                <i class="bi bi-people @(SidebarService.IsCollapsed ? "" : "me-2")"></i>
-                                <span class="@(SidebarService.IsCollapsed ? "d-none" : "")">Benutzer</span>
-                            </NavLink>
-                        </div>
-
-                        <div class="nav-item px-3">
-                            <NavLink class="nav-link" href="admin/apikeys" title="@(SidebarService.IsCollapsed ? "API Keys" : "")">
-                                <i class="bi bi-key @(SidebarService.IsCollapsed ? "" : "me-2")"></i>
-                                <span class="@(SidebarService.IsCollapsed ? "d-none" : "")">API Keys</span>
-                            </NavLink>
-                        </div>
-
-                        <div class="nav-item px-3">
-                            <NavLink class="nav-link" href="admin/statistics" title="@(SidebarService.IsCollapsed ? "Statistiken" : "")">
-                                <i class="bi bi-bar-chart @(SidebarService.IsCollapsed ? "" : "me-2")"></i>
-                                <span class="@(SidebarService.IsCollapsed ? "d-none" : "")">Statistiken</span>
-                            </NavLink>
-                        </div>
-
-                        <div class="nav-item px-3">
-                            <NavLink class="nav-link" href="admin/scheduled" title="@(SidebarService.IsCollapsed ? "Geplante Listen" : "")">
-                                <i class="bi bi-calendar @(SidebarService.IsCollapsed ? "" : "me-2")"></i>
-                                <span class="@(SidebarService.IsCollapsed ? "d-none" : "")">Geplante Listen</span>
-                            </NavLink>
-                        </div>
-
-                        <div class="nav-item px-3">
-                            <NavLink class="nav-link" href="admin/service-status" title="@(SidebarService.IsCollapsed ? "Service Status" : "")">
-                                <i class="bi bi-gear @(SidebarService.IsCollapsed ? "" : "me-2")"></i>
-                                <span class="@(SidebarService.IsCollapsed ? "d-none" : "")">Service Status</span>
-                            </NavLink>
-                        </div>
-                    </AuthorizeView>
-
+            @if (AuthService.IsAuthenticated)
+            {
+                @if (AuthService.IsAdmin)
+                {
                     <hr class="my-3 mx-3"/>
 
                     <div class="nav-item px-3">
-                        <NavLink class="nav-link" href="logout" title="@(SidebarService.IsCollapsed ? "Logout" : "")">
-                            <i class="bi bi-box-arrow-right @(SidebarService.IsCollapsed ? "" : "me-2")"></i>
-                            <span class="@(SidebarService.IsCollapsed ? "d-none" : "")">Logout</span>
-                        </NavLink>
+                        <div class="nav-link-header @(SidebarService.IsCollapsed ? "d-none" : "")">
+                            Admin-Bereich
+                        </div>
                     </div>
-                </Authorized>
-                <NotAuthorized>
-                    <hr class="my-3 mx-3"/>
+
                     <div class="nav-item px-3">
-                        <NavLink class="nav-link" href="login" title="@(SidebarService.IsCollapsed ? "Login" : "")">
-                            <i class="bi bi-unlock @(SidebarService.IsCollapsed ? "" : "me-2")"></i>
-                            <span class="@(SidebarService.IsCollapsed ? "d-none" : "")">Login</span>
+                        <NavLink class="nav-link" href="admin/closed-lists" title="@(SidebarService.IsCollapsed ? "Abgeschlossene Listen" : "")">
+                            <i class="bi bi-check-circle @(SidebarService.IsCollapsed ? "" : "me-2")"></i>
+                            <span class="@(SidebarService.IsCollapsed ? "d-none" : "")">Abgeschlossene Listen</span>
                         </NavLink>
                     </div>
-                </NotAuthorized>
-            </AuthorizeView>
+
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="admin/archive" title="@(SidebarService.IsCollapsed ? "Archiv" : "")">
+                            <i class="bi bi-archive @(SidebarService.IsCollapsed ? "" : "me-2")"></i>
+                            <span class="@(SidebarService.IsCollapsed ? "d-none" : "")">Archiv</span>
+                        </NavLink>
+                    </div>
+
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="admin/members" title="@(SidebarService.IsCollapsed ? "Mitglieder" : "")">
+                            <i class="bi bi-person @(SidebarService.IsCollapsed ? "" : "me-2")"></i>
+                            <span class="@(SidebarService.IsCollapsed ? "d-none" : "")">Mitglieder</span>
+                        </NavLink>
+                    </div>
+
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="admin/vehicles" title="@(SidebarService.IsCollapsed ? "Fahrzeuge" : "")">
+                            <i class="bi bi-truck @(SidebarService.IsCollapsed ? "" : "me-2")"></i>
+                            <span class="@(SidebarService.IsCollapsed ? "d-none" : "")">Fahrzeuge</span>
+                        </NavLink>
+                    </div>
+
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="admin/functions" title="@(SidebarService.IsCollapsed ? "Funktionen" : "")">
+                            <i class="bi bi-puzzle @(SidebarService.IsCollapsed ? "" : "me-2")"></i>
+                            <span class="@(SidebarService.IsCollapsed ? "d-none" : "")">Funktionen</span>
+                        </NavLink>
+                    </div>
+
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="admin/keywords" title="@(SidebarService.IsCollapsed ? "Stichwörter" : "")">
+                            <i class="bi bi-tags @(SidebarService.IsCollapsed ? "" : "me-2")"></i>
+                            <span class="@(SidebarService.IsCollapsed ? "d-none" : "")">Stichwörter</span>
+                        </NavLink>
+                    </div>
+
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="admin/users" title="@(SidebarService.IsCollapsed ? "Benutzer" : "")">
+                            <i class="bi bi-people @(SidebarService.IsCollapsed ? "" : "me-2")"></i>
+                            <span class="@(SidebarService.IsCollapsed ? "d-none" : "")">Benutzer</span>
+                        </NavLink>
+                    </div>
+
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="admin/apikeys" title="@(SidebarService.IsCollapsed ? "API Keys" : "")">
+                            <i class="bi bi-key @(SidebarService.IsCollapsed ? "" : "me-2")"></i>
+                            <span class="@(SidebarService.IsCollapsed ? "d-none" : "")">API Keys</span>
+                        </NavLink>
+                    </div>
+
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="admin/statistics" title="@(SidebarService.IsCollapsed ? "Statistiken" : "")">
+                            <i class="bi bi-bar-chart @(SidebarService.IsCollapsed ? "" : "me-2")"></i>
+                            <span class="@(SidebarService.IsCollapsed ? "d-none" : "")">Statistiken</span>
+                        </NavLink>
+                    </div>
+
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="admin/scheduled" title="@(SidebarService.IsCollapsed ? "Geplante Listen" : "")">
+                            <i class="bi bi-calendar @(SidebarService.IsCollapsed ? "" : "me-2")"></i>
+                            <span class="@(SidebarService.IsCollapsed ? "d-none" : "")">Geplante Listen</span>
+                        </NavLink>
+                    </div>
+
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="admin/service-status" title="@(SidebarService.IsCollapsed ? "Service Status" : "")">
+                            <i class="bi bi-gear @(SidebarService.IsCollapsed ? "" : "me-2")"></i>
+                            <span class="@(SidebarService.IsCollapsed ? "d-none" : "")">Service Status</span>
+                        </NavLink>
+                    </div>
+
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="admin/settings" title="@(SidebarService.IsCollapsed ? "Einstellungen" : "")">
+                            <i class="bi bi-sliders @(SidebarService.IsCollapsed ? "" : "me-2")"></i>
+                            <span class="@(SidebarService.IsCollapsed ? "d-none" : "")">Einstellungen</span>
+                        </NavLink>
+                    </div>
+                }
+
+                <hr class="my-3 mx-3"/>
+
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="logout" title="@(SidebarService.IsCollapsed ? "Logout" : "")">
+                        <i class="bi bi-box-arrow-right @(SidebarService.IsCollapsed ? "" : "me-2")"></i>
+                        <span class="@(SidebarService.IsCollapsed ? "d-none" : "")">Logout</span>
+                    </NavLink>
+                </div>
+            }
+            else
+            {
+                <hr class="my-3 mx-3"/>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="login" title="@(SidebarService.IsCollapsed ? "Login" : "")">
+                        <i class="bi bi-unlock @(SidebarService.IsCollapsed ? "" : "me-2")"></i>
+                        <span class="@(SidebarService.IsCollapsed ? "d-none" : "")">Login</span>
+                    </NavLink>
+                </div>
+            }
         </nav>
     </div>
 </div>
@@ -158,12 +176,28 @@
 @implements IDisposable
 
 @code {
+    private bool _sessionChecked;
+
     protected override void OnInitialized()
     {
-        SidebarService.OnStateChanged += OnSidebarStateChanged;
+        SidebarService.OnStateChanged += OnStateChanged;
+        SettingsService.OnSettingsChanged += OnStateChanged;
     }
 
-    private void OnSidebarStateChanged()
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !_sessionChecked)
+        {
+            _sessionChecked = true;
+            var restored = await AuthService.TryRestoreSessionAsync();
+            if (restored)
+            {
+                StateHasChanged();
+            }
+        }
+    }
+
+    private void OnStateChanged()
     {
         InvokeAsync(StateHasChanged);
     }
@@ -175,8 +209,7 @@
     
     public void Dispose()
     {
-        SidebarService.OnStateChanged -= OnSidebarStateChanged;
+        SidebarService.OnStateChanged -= OnStateChanged;
+        SettingsService.OnSettingsChanged -= OnStateChanged;
     }
 }
-
-@inject NavigationManager Navigation
