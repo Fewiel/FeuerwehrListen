@@ -1,13 +1,15 @@
 ﻿@page "/"
 @using FeuerwehrListen.Models
+@using FeuerwehrListen.Services
 @using FeuerwehrListen.Repositories
 @using FeuerwehrListen.Components.Shared
+@using Microsoft.AspNetCore.Components.Authorization
+@implements IDisposable
 @inject AttendanceListRepository AttendanceRepo
 @inject OperationListRepository OperationRepo
 @inject FireSafetyWatchRepository FireSafetyWatchRepo
 @inject NavigationManager Navigation
 @inject SettingsService SettingsService
-@using Microsoft.AspNetCore.Components.Authorization
 @rendermode InteractiveServer
 
 <PageTitle>Übersicht - Feuerwehr Listen</PageTitle>
@@ -23,19 +25,19 @@
             </p>
         </div>
         <div class="col-auto">
-            @if (SettingsService.IsModuleVisible("ModuleVisibility.Attendance"))
+            @if (SettingsService.IsModuleVisible(SettingKeys.VisibilityAttendance))
             {
                 <button class="btn btn-primary me-2" @onclick='() => Navigation.NavigateTo("/create-attendance")'>
                     <i class="bi bi-plus-circle"></i> Neue Anwesenheitsliste
                 </button>
             }
-            @if (SettingsService.IsModuleVisible("ModuleVisibility.Operations"))
+            @if (SettingsService.IsModuleVisible(SettingKeys.VisibilityOperations))
             {
                 <button class="btn btn-danger me-2" @onclick='() => Navigation.NavigateTo("/create-operation")'>
                     <i class="bi bi-plus-circle"></i> Neue Einsatzliste
                 </button>
             }
-            @if (SettingsService.IsModuleVisible("ModuleVisibility.FireSafetyWatch"))
+            @if (SettingsService.IsModuleVisible(SettingKeys.VisibilityFireSafetyWatch))
             {
                 <AuthorizeView Roles="Admin">
                      <button class="btn btn-info" @onclick='() => Navigation.NavigateTo("/firesafetywatches/create")'>
@@ -48,7 +50,7 @@
 
     <div class="row">
         <div class="col-12">
-            @if (SettingsService.IsModuleVisible("ModuleVisibility.Operations"))
+            @if (SettingsService.IsModuleVisible(SettingKeys.VisibilityOperations))
             {
                 <ListComponent TItem="OperationList"
                                Title="Einsatzlisten"
@@ -67,7 +69,7 @@
                 </ListComponent>
             }
 
-            @if (SettingsService.IsModuleVisible("ModuleVisibility.Attendance"))
+            @if (SettingsService.IsModuleVisible(SettingKeys.VisibilityAttendance))
             {
                 <ListComponent TItem="AttendanceList"
                                Title="Anwesenheitslisten"
@@ -87,7 +89,7 @@
                 </ListComponent>
             }
 
-            @if (SettingsService.IsModuleVisible("ModuleVisibility.FireSafetyWatch"))
+            @if (SettingsService.IsModuleVisible(SettingKeys.VisibilityFireSafetyWatch))
             {
                 <ListComponent TItem="FireSafetyWatch"
                                Title="Brandsicherheitswachen"
@@ -117,11 +119,12 @@
 
     protected override async Task OnInitializedAsync()
     {
+        SettingsService.OnSettingsChanged += OnSettingsChanged;
         await LoadLists();
-        
-        _refreshTimer = new System.Threading.Timer(async _ => 
+
+        _refreshTimer = new System.Threading.Timer(async _ =>
         {
-            await InvokeAsync(async () => 
+            await InvokeAsync(async () =>
             {
                 await LoadLists();
                 StateHasChanged();
@@ -129,19 +132,39 @@
         }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
     }
 
+    private void OnSettingsChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            await LoadLists();
+            StateHasChanged();
+        });
+    }
+
     private async Task LoadLists()
     {
-        _operationLists = (await OperationRepo.GetOpenAsync()).OrderByDescending(l => l.AlertTime).ToList();
-        _attendanceLists = (await AttendanceRepo.GetOpenAsync()).OrderByDescending(l => l.CreatedAt).ToList();
-        
-        var allWatches = await FireSafetyWatchRepo.GetAllAsync();
-        _fireSafetyWatches = allWatches.Where(w => !w.IsArchived && w.Status == ListStatus.Open && w.EventDateTime >= DateTime.Now).OrderBy(w => w.EventDateTime).ToList();
+        if (SettingsService.IsModuleVisible(SettingKeys.VisibilityOperations))
+            _operationLists = (await OperationRepo.GetOpenAsync()).OrderByDescending(l => l.AlertTime).ToList();
+        else
+            _operationLists = new();
+
+        if (SettingsService.IsModuleVisible(SettingKeys.VisibilityAttendance))
+            _attendanceLists = (await AttendanceRepo.GetOpenAsync()).OrderByDescending(l => l.CreatedAt).ToList();
+        else
+            _attendanceLists = new();
+
+        if (SettingsService.IsModuleVisible(SettingKeys.VisibilityFireSafetyWatch))
+        {
+            var allWatches = await FireSafetyWatchRepo.GetAllAsync();
+            _fireSafetyWatches = allWatches.Where(w => !w.IsArchived && w.Status == ListStatus.Open && w.EventDateTime >= DateTime.Now).OrderBy(w => w.EventDateTime).ToList();
+        }
+        else
+            _fireSafetyWatches = new();
     }
 
     public void Dispose()
     {
         _refreshTimer?.Dispose();
+        SettingsService.OnSettingsChanged -= OnSettingsChanged;
     }
 }
-
-@implements IDisposable

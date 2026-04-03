@@ -7,6 +7,7 @@ public class CreateAttendanceListRequest
     public string Title { get; set; } = string.Empty;
     public string Unit { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
+    public int? UnitNumber { get; set; }
 }
 
 public class CreateOperationListRequest
@@ -38,6 +39,7 @@ public class CreateScheduledListRequest
     public string? Description { get; set; }
     public string? OperationNumber { get; set; }
     public string? Keyword { get; set; }
+    public int? UnitNumber { get; set; }
     public DateTime ScheduledEventTime { get; set; }
     public int MinutesBeforeEvent { get; set; } = 30;
 }

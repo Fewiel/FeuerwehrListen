@@ -45,6 +45,14 @@ public class AttendanceListRepository
             .FirstOrDefaultAsync(x => x.Id == id);
     }
 
+    public async Task<AttendanceList?> GetOpenByUnitNumberAsync(int unitNumber)
+    {
+        return await _db.AttendanceLists
+            .Where(x => x.Status == ListStatus.Open && !x.IsArchived && x.UnitNumber == unitNumber)
+            .OrderByDescending(x => x.CreatedAt)
+            .FirstOrDefaultAsync();
+    }
+
     public async Task<int> CreateAsync(AttendanceList list)
     {
         return await _db.InsertWithInt32IdentityAsync(list);

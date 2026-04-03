@@ -1,12 +1,22 @@
 @page "/create-operation"
 @using FeuerwehrListen.Models
+@using FeuerwehrListen.Services
 @using FeuerwehrListen.Repositories
 @inject OperationListRepository OperationRepo
 @inject KeywordRepository KeywordRepo
+@inject SettingsService SettingsService
 @inject NavigationManager Navigation
 @rendermode InteractiveServer
 
 <PageTitle>Neue Einsatzliste</PageTitle>
+
+@if (!SettingsService.IsModuleVisible(SettingKeys.VisibilityOperations))
+{
+    <div class="container mt-4">
+        <div class="alert alert-warning">Dieses Modul ist deaktiviert.</div>
+    </div>
+    return;
+}
 
 <div class="container mt-4">
     <div class="row">

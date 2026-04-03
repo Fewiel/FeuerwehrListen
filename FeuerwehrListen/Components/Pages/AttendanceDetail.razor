@@ -9,6 +9,8 @@
 @inject PdfExportService PdfService
 @inject NavigationManager Navigation
 @inject AuthenticationService AuthService
+@inject UnitAssignmentService UnitAssignmentService
+@inject ListNotificationService ListNotificationService
 @rendermode InteractiveServer
 
 <PageTitle>Anwesenheitsliste - @_list?.Title</PageTitle>
@@ -20,6 +22,10 @@
             <div class="col">
                 <h1>@_list.Title</h1>
                 <p class="lead">@_list.Unit</p>
+                @if (_list.UnitNumber.HasValue)
+                {
+                    <p><strong>Einheit:</strong> @_list.UnitNumber</p>
+                }
                 <p>@_list.Description</p>
                 <small class="text-muted">Erstellt: @_list.CreatedAt.ToString("dd.MM.yyyy HH:mm")</small>
             </div>
@@ -51,6 +57,16 @@
 
         <Numpad @ref="_numpad" OnInput="HandleNumpadInput" OnSearchByName="ShowMemberSelectionModal" />
         <MemberSelectionModal @ref="_memberSelectionModal" OnMemberSelected="HandleMemberSelection" />
+
+        @if (!string.IsNullOrWhiteSpace(_infoMessage))
+        {
+            <div class="alert alert-info mt-3" role="alert">@_infoMessage</div>
+        }
+
+        @if (!string.IsNullOrWhiteSpace(_errorMessage))
+        {
+            <div class="alert alert-danger mt-3" role="alert">@_errorMessage</div>
+        }
 
         <div class="row">
             <div class="col">
@@ -169,6 +185,7 @@
     private List<AttendanceEntry> _entries = new();
     private string _combinedInput = string.Empty;
     private string _errorMessage = string.Empty;
+    private string _infoMessage = string.Empty;
     private bool _isExcused = false;
     private ElementReference _inputElement;
     private List<Member> _suggestions = new();
@@ -197,6 +214,7 @@
             return;
 
         _errorMessage = string.Empty;
+        _infoMessage = string.Empty;
         
         if (string.IsNullOrWhiteSpace(_combinedInput))
             return;
@@ -226,12 +244,30 @@
             return;
         }
 
+        var targetListId = Id;
+        int? resolvedUnit = null;
+        if (_list.UnitNumber.HasValue)
+        {
+            resolvedUnit = UnitAssignmentService.ResolveUnitNumber(member.MemberNumber);
+            if (resolvedUnit.HasValue && resolvedUnit.Value != _list.UnitNumber.Value)
+            {
+                var unitList = await AttendanceRepo.GetOpenByUnitNumberAsync(resolvedUnit.Value);
+                if (unitList == null)
+                {
+                    _errorMessage = $"Keine offene Anwesenheitsliste für Einheit {resolvedUnit.Value} gefunden.";
+                    return;
+                }
+
+                targetListId = unitList.Id;
+            }
+        }
+
         // Nur Admins können als entschuldigt eintragen
         var isExcused = AuthService.IsAdmin && _isExcused;
 
         var entry = new AttendanceEntry
         {
-            AttendanceListId = Id,
+            AttendanceListId = targetListId,
             NameOrId = $"{member.FirstName} {member.LastName} ({member.MemberNumber})",
             EnteredAt = DateTime.Now,
             IsExcused = isExcused
@@ -241,7 +277,15 @@
         _combinedInput = string.Empty;
         _isExcused = false;
         _showSuggestions = false;
-        await LoadData();
+
+        if (targetListId == Id)
+        {
+            await LoadData();
+        }
+        else
+        {
+            _infoMessage = $"Eintrag wurde automatisch in die Liste von Einheit {resolvedUnit} übertragen.";
+        }
     }
 
     private void ShowNumpad()
@@ -370,6 +414,7 @@
         _list.Status = ListStatus.Closed;
         _list.ClosedAt = DateTime.Now;
         await AttendanceRepo.UpdateAsync(_list);
+        await ListNotificationService.NotifyAttendanceClosedAsync(_list);
         await LoadData();
     }
 

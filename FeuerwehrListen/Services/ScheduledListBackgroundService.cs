@@ -34,6 +34,7 @@ public class ScheduledListBackgroundService : BackgroundService
                 var scheduledRepo = new ScheduledListRepository(db);
                 var attendanceRepo = new AttendanceListRepository(db);
                 var operationRepo = new OperationListRepository(db);
+                var listNotificationService = scope.ServiceProvider.GetRequiredService<ListNotificationService>();
 
                 var dueSchedules = await scheduledRepo.GetDueAsync();
                 
@@ -50,6 +51,7 @@ public class ScheduledListBackgroundService : BackgroundService
                             Title = schedule.Title,
                             Unit = schedule.Unit,
                             Description = schedule.Description,
+                            UnitNumber = schedule.UnitNumber,
                             CreatedAt = DateTime.Now,
                             Status = ListStatus.Open
                         };
@@ -75,7 +77,7 @@ public class ScheduledListBackgroundService : BackgroundService
                 }
 
                 // Auto-close logic
-                await AutoCloseListsAsync(db);
+                await AutoCloseListsAsync(db, listNotificationService);
             }
             catch (Exception ex)
             {
@@ -86,12 +88,12 @@ public class ScheduledListBackgroundService : BackgroundService
         }
     }
 
-    private async Task AutoCloseListsAsync(AppDbConnection db)
+    private async Task AutoCloseListsAsync(AppDbConnection db, ListNotificationService listNotificationService)
     {
         var now = DateTime.Now;
 
         // Auto-close attendance lists
-        var attendanceMinutes = _settingsService.GetAutoCloseMinutes("AutoClose.AttendanceMinutes");
+        var attendanceMinutes = _settingsService.GetAutoCloseMinutes(SettingKeys.AutoCloseAttendance);
         if (attendanceMinutes > 0)
         {
             var cutoff = now.AddMinutes(-attendanceMinutes);
@@ -104,12 +106,13 @@ public class ScheduledListBackgroundService : BackgroundService
                 list.Status = ListStatus.Closed;
                 list.ClosedAt = now;
                 await db.UpdateAsync(list);
+                await listNotificationService.NotifyAttendanceClosedAsync(list);
                 _logger.LogInformation("Auto-closed attendance list: {Title} (ID: {Id})", list.Title, list.Id);
             }
         }
 
         // Auto-close operation lists
-        var operationMinutes = _settingsService.GetAutoCloseMinutes("AutoClose.OperationMinutes");
+        var operationMinutes = _settingsService.GetAutoCloseMinutes(SettingKeys.AutoCloseOperations);
         if (operationMinutes > 0)
         {
             var cutoff = now.AddMinutes(-operationMinutes);
@@ -122,12 +125,15 @@ public class ScheduledListBackgroundService : BackgroundService
                 list.Status = ListStatus.Closed;
                 list.ClosedAt = now;
                 await db.UpdateAsync(list);
+                await listNotificationService.NotifyOperationClosedAsync(list);
                 _logger.LogInformation("Auto-closed operation list: {OperationNumber} (ID: {Id})", list.OperationNumber, list.Id);
             }
         }
 
         // Auto-close fire safety watches
-        var fswMinutes = _settingsService.GetAutoCloseMinutes("AutoClose.FireSafetyWatchMinutes");
+        // Note: FSW uses EventDateTime (not CreatedAt which doesn't exist on this model).
+        // This means watches are closed N minutes after the event time, which is the intended behavior.
+        var fswMinutes = _settingsService.GetAutoCloseMinutes(SettingKeys.AutoCloseFireSafetyWatch);
         if (fswMinutes > 0)
         {
             var cutoff = now.AddMinutes(-fswMinutes);
@@ -140,6 +146,7 @@ public class ScheduledListBackgroundService : BackgroundService
                 watch.Status = ListStatus.Closed;
                 watch.ClosedAt = now;
                 await db.UpdateAsync(watch);
+                await listNotificationService.NotifyFireSafetyWatchClosedAsync(watch);
                 _logger.LogInformation("Auto-closed fire safety watch: {Name} (ID: {Id})", watch.Name, watch.Id);
             }
         }

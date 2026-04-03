@@ -19,6 +19,9 @@ public class ScheduledController : ControllerBase
     [HttpPost("lists")]
     public async Task<ActionResult<ApiResponse<int>>> CreateScheduledList([FromBody] CreateScheduledListRequest request)
     {
+        if (request.UnitNumber.HasValue && (request.UnitNumber < 1 || request.UnitNumber > 9))
+            return BadRequest(new ApiError { Error = "UnitNumber must be between 1 and 9" });
+
         var scheduled = new ScheduledList
         {
             Type = request.Type,
@@ -27,6 +30,7 @@ public class ScheduledController : ControllerBase
             Description = request.Description ?? string.Empty,
             OperationNumber = request.OperationNumber ?? string.Empty,
             Keyword = request.Keyword ?? string.Empty,
+            UnitNumber = request.Type == ScheduledListType.Attendance ? request.UnitNumber : null,
             ScheduledEventTime = request.ScheduledEventTime,
             MinutesBeforeEvent = request.MinutesBeforeEvent,
             CreatedAt = DateTime.Now,

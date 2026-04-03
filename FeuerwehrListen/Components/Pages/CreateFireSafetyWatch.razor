@@ -1,15 +1,25 @@
 @page "/firesafetywatches/create"
 @using FeuerwehrListen.Models
+@using FeuerwehrListen.Services
 @using FeuerwehrListen.Repositories
 @using FeuerwehrListen.Components.Layout
 @using Microsoft.AspNetCore.Components.Forms
 @inject FireSafetyWatchRepository WatchRepo
 @inject OperationFunctionRepository FunctionRepo
 @inject VehicleRepository VehicleRepo
+@inject SettingsService SettingsService
 @inject NavigationManager Navigation
 @rendermode InteractiveServer
 
 <PageTitle>Neue Brandsicherheitswache</PageTitle>
+
+@if (!SettingsService.IsModuleVisible(SettingKeys.VisibilityFireSafetyWatch))
+{
+    <div class="container mt-4">
+        <div class="alert alert-warning">Dieses Modul ist deaktiviert.</div>
+    </div>
+    return;
+}
 
 <AdminAuthCheck>
 

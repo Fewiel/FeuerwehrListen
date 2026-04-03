@@ -116,6 +116,9 @@ builder.Services.AddScoped<StatisticsService>();
 builder.Services.AddScoped<PdfExportService>();
 builder.Services.AddScoped<GeocodingService>();
 builder.Services.AddScoped<PersonalRequirementsService>();
+builder.Services.AddScoped<UnitAssignmentService>();
+builder.Services.AddScoped<EmailSenderService>();
+builder.Services.AddScoped<ListNotificationService>();
 
 builder.Services.AddSingleton<SidebarService>();
 builder.Services.AddSingleton<SettingsService>();
@@ -128,6 +131,10 @@ using (var scope = app.Services.CreateScope())
     var runner = scope.ServiceProvider.GetRequiredService<IMigrationRunner>();
     runner.MigrateUp();
 }
+
+// Pre-warm settings cache after migrations
+var settingsService = app.Services.GetRequiredService<SettingsService>();
+await settingsService.InitializeAsync();
 
 if (!app.Environment.IsDevelopment())
 {

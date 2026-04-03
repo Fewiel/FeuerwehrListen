@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using FeuerwehrListen.Data;
-using FeuerwehrListen.Models;
 using FeuerwehrListen.Repositories;
 
 namespace FeuerwehrListen.Services;
@@ -9,7 +8,8 @@ public class SettingsService
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ConcurrentDictionary<string, string> _cache = new();
-    private bool _isLoaded;
+    private readonly SemaphoreSlim _loadLock = new(1, 1);
+    private volatile bool _isLoaded;
 
     public event Action? OnSettingsChanged;
 
@@ -18,42 +18,52 @@ public class SettingsService
         _serviceProvider = serviceProvider;
     }
 
-    private async Task EnsureLoadedAsync()
+    /// <summary>
+    /// Must be called once at startup (from Program.cs) to pre-warm the cache.
+    /// This avoids sync-over-async deadlocks in Blazor Server components.
+    /// </summary>
+    public async Task InitializeAsync()
     {
-        if (_isLoaded) return;
-
-        using var scope = _serviceProvider.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbConnection>();
-        var repo = new SettingsRepository(db);
-        var settings = await repo.GetAllAsync();
-
-        foreach (var s in settings)
+        await _loadLock.WaitAsync();
+        try
         {
-            _cache[s.Key] = s.Value;
-        }
+            if (_isLoaded) return;
 
-        _isLoaded = true;
+            using var scope = _serviceProvider.CreateScope();
+            var repo = scope.ServiceProvider.GetRequiredService<SettingsRepository>();
+            var settings = await repo.GetAllAsync();
+
+            foreach (var s in settings)
+            {
+                _cache[s.Key] = s.Value;
+            }
+
+            _isLoaded = true;
+        }
+        finally
+        {
+            _loadLock.Release();
+        }
     }
 
     public bool IsModuleVisible(string moduleKey)
     {
-        EnsureLoadedAsync().GetAwaiter().GetResult();
+        // Cache is pre-warmed at startup, so no async needed
         return _cache.TryGetValue(moduleKey, out var value) && value.Equals("true", StringComparison.OrdinalIgnoreCase);
     }
 
     public int GetAutoCloseMinutes(string key)
     {
-        EnsureLoadedAsync().GetAwaiter().GetResult();
+        // Cache is pre-warmed at startup, so no async needed
         if (_cache.TryGetValue(key, out var value) && int.TryParse(value, out var minutes))
-            return minutes;
+            return Math.Max(0, minutes); // Never return negative values
         return 0;
     }
 
     public async Task UpdateSettingAsync(string key, string value)
     {
         using var scope = _serviceProvider.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbConnection>();
-        var repo = new SettingsRepository(db);
+        var repo = scope.ServiceProvider.GetRequiredService<SettingsRepository>();
         await repo.UpsertAsync(key, value);
         _cache[key] = value;
         OnSettingsChanged?.Invoke();
@@ -61,7 +71,10 @@ public class SettingsService
 
     public async Task<Dictionary<string, string>> GetAllSettingsAsync()
     {
-        await EnsureLoadedAsync();
+        if (!_isLoaded)
+        {
+            await InitializeAsync();
+        }
         return new Dictionary<string, string>(_cache);
     }
 }

@@ -1,7 +1,8 @@
-﻿@inject AuthenticationService AuthService
+﻿@using FeuerwehrListen.Models
+@using Microsoft.AspNetCore.Components.Authorization
+@inject AuthenticationService AuthService
 @inject SidebarService SidebarService
 @inject SettingsService SettingsService
-@using Microsoft.AspNetCore.Components.Authorization
 @rendermode InteractiveServer
 
 <div class="sidebar @(SidebarService.IsCollapsed ? "collapsed" : "")">
@@ -23,7 +24,7 @@
                 </NavLink>
             </div>
 
-            @if (SettingsService.IsModuleVisible("ModuleVisibility.Attendance"))
+            @if (SettingsService.IsModuleVisible(SettingKeys.VisibilityAttendance))
             {
                 <div class="nav-item px-3">
                     <NavLink class="nav-link" href="create-attendance" title="@(SidebarService.IsCollapsed ? "Neue Anwesenheitsliste" : "")">
@@ -33,7 +34,7 @@
                 </div>
             }
 
-            @if (SettingsService.IsModuleVisible("ModuleVisibility.Operations"))
+            @if (SettingsService.IsModuleVisible(SettingKeys.VisibilityOperations))
             {
                 <div class="nav-item px-3">
                     <NavLink class="nav-link" href="create-operation" title="@(SidebarService.IsCollapsed ? "Neue Einsatzliste" : "")">
@@ -43,7 +44,7 @@
                 </div>
             }
 
-            @if (SettingsService.IsModuleVisible("ModuleVisibility.FireSafetyWatch"))
+            @if (SettingsService.IsModuleVisible(SettingKeys.VisibilityFireSafetyWatch))
             {
                 <div class="nav-item px-3">
                     <NavLink class="nav-link" href="firesafetywatches" title="@(SidebarService.IsCollapsed ? "Brandsicherheitswachen" : "")">
@@ -197,5 +198,3 @@
         SettingsService.OnSettingsChanged -= OnStateChanged;
     }
 }
-
-@inject NavigationManager Navigation

@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using FeuerwehrListen.Models;
 using FeuerwehrListen.Repositories;
 using FeuerwehrListen.DTOs;
+using FeuerwehrListen.Services;
 
 namespace FeuerwehrListen.Controllers;
 
@@ -12,15 +13,21 @@ public class AttendanceController : ControllerBase
     private readonly AttendanceListRepository _listRepo;
     private readonly AttendanceEntryRepository _entryRepo;
     private readonly MemberRepository _memberRepo;
+    private readonly UnitAssignmentService _unitAssignmentService;
+    private readonly ListNotificationService _listNotificationService;
 
     public AttendanceController(
         AttendanceListRepository listRepo,
         AttendanceEntryRepository entryRepo,
-        MemberRepository memberRepo)
+        MemberRepository memberRepo,
+        UnitAssignmentService unitAssignmentService,
+        ListNotificationService listNotificationService)
     {
         _listRepo = listRepo;
         _entryRepo = entryRepo;
         _memberRepo = memberRepo;
+        _unitAssignmentService = unitAssignmentService;
+        _listNotificationService = listNotificationService;
     }
 
     [HttpGet("lists")]
@@ -58,11 +65,15 @@ public class AttendanceController : ControllerBase
     [HttpPost("lists")]
     public async Task<ActionResult<ApiResponse<ListResponse>>> CreateList([FromBody] CreateAttendanceListRequest request)
     {
+        if (request.UnitNumber.HasValue && (request.UnitNumber < 1 || request.UnitNumber > 9))
+            return BadRequest(new ApiError { Error = "UnitNumber must be between 1 and 9" });
+
         var list = new AttendanceList
         {
             Title = request.Title,
             Unit = request.Unit,
             Description = request.Description,
+            UnitNumber = request.UnitNumber,
             CreatedAt = DateTime.Now,
             Status = ListStatus.Open
         };
@@ -110,20 +121,40 @@ public class AttendanceController : ControllerBase
     [HttpPost("lists/{listId}/entries")]
     public async Task<ActionResult<ApiResponse<EntryResponse>>> AddEntry(int listId, [FromBody] AddAttendanceEntryRequest request)
     {
-        var list = await _listRepo.GetByIdAsync(listId);
-        if (list == null)
+        var sourceList = await _listRepo.GetByIdAsync(listId);
+        if (sourceList == null)
             return NotFound(new ApiError { Error = "List not found" });
 
-        if (list.Status != ListStatus.Open)
+        if (sourceList.Status != ListStatus.Open)
             return BadRequest(new ApiError { Error = "List is closed" });
 
         var member = await _memberRepo.FindByNameOrNumberAsync(request.MemberNumberOrName);
         if (member == null)
             return BadRequest(new ApiError { Error = "Member not found", Details = $"No active member found for: {request.MemberNumberOrName}" });
 
+        var targetListId = listId;
+        if (sourceList.UnitNumber.HasValue)
+        {
+            var resolvedUnit = _unitAssignmentService.ResolveUnitNumber(member.MemberNumber);
+            if (resolvedUnit.HasValue && resolvedUnit.Value != sourceList.UnitNumber.Value)
+            {
+                var unitList = await _listRepo.GetOpenByUnitNumberAsync(resolvedUnit.Value);
+                if (unitList == null)
+                {
+                    return BadRequest(new ApiError
+                    {
+                        Error = "No open attendance list for member unit",
+                        Details = $"No open attendance list for unit {resolvedUnit.Value}."
+                    });
+                }
+
+                targetListId = unitList.Id;
+            }
+        }
+
         var entry = new AttendanceEntry
         {
-            AttendanceListId = listId,
+            AttendanceListId = targetListId,
             NameOrId = $"{member.FirstName} {member.LastName} ({member.MemberNumber})",
             EnteredAt = DateTime.Now,
             IsExcused = request.IsExcused
@@ -138,7 +169,7 @@ public class AttendanceController : ControllerBase
             Data = new EntryResponse
             {
                 Id = id,
-                ListId = listId,
+                ListId = targetListId,
                 NameOrId = entry.NameOrId,
                 EnteredAt = entry.EnteredAt,
                 IsExcused = entry.IsExcused
@@ -159,6 +190,7 @@ public class AttendanceController : ControllerBase
         list.Status = ListStatus.Closed;
         list.ClosedAt = DateTime.Now;
         await _listRepo.UpdateAsync(list);
+        await _listNotificationService.NotifyAttendanceClosedAsync(list);
 
         return Ok(new ApiResponse<string>
         {

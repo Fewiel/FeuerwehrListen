@@ -14,6 +14,7 @@
 @inject GeocodingService Geocoder
 @inject KeywordRepository KeywordRepo
 @inject PersonalRequirementsService RequirementsService
+@inject ListNotificationService ListNotificationService
 @rendermode InteractiveServer
 
 <PageTitle>Einsatzliste - @_list?.OperationNumber</PageTitle>
@@ -594,6 +595,7 @@
         _list.Status = ListStatus.Closed;
         _list.ClosedAt = DateTime.Now;
         await OperationRepo.UpdateAsync(_list);
+        await ListNotificationService.NotifyOperationClosedAsync(_list);
         await LoadData();
     }
 
