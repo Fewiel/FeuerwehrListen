@@ -124,7 +124,7 @@ public class AuthenticationService : AuthenticationStateProvider
         return true;
     }
 
-    public async void Logout()
+    public async Task LogoutAsync()
     {
         _currentUser = null;
 
@@ -137,9 +137,6 @@ public class AuthenticationService : AuthenticationStateProvider
         {
             // LocalStorage not available
         }
-
-        // Safe to notify here — Logout is not called during render
-        NotifyAuthenticationStateChanged(Task.FromResult(BuildAuthState()));
     }
 
     public async Task<bool> ChangePasswordAsync(string oldPassword, string newPassword)

@@ -9,14 +9,18 @@
 <div class="container mt-5">
     <div class="text-center">
         <h3>Sie werden abgemeldet...</h3>
+        <div class="spinner-border text-secondary mt-3" role="status"></div>
     </div>
 </div>
 
 @code {
-    protected override void OnInitialized()
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        AuthService.Logout();
-        Navigation.NavigateTo("/login", true);
+        if (firstRender)
+        {
+            await AuthService.LogoutAsync();
+            Navigation.NavigateTo("/login", true);
+        }
     }
 }
 
