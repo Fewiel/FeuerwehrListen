@@ -55,6 +55,11 @@
                             <input class="form-check-input" type="checkbox" id="visFireSafety" @bind="_visFireSafetyWatch" />
                             <label class="form-check-label" for="visFireSafety">Brandsicherheitswachen</label>
                         </div>
+
+                        <div class="form-check form-switch mb-3">
+                            <input class="form-check-input" type="checkbox" id="visDefects" @bind="_visDefects" />
+                            <label class="form-check-label" for="visDefects">M&auml;ngelliste</label>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -150,6 +155,11 @@
                             <label class="form-label" for="fswRec"><i class="bi bi-fire me-1"></i>Brandsicherheitswachen</label>
                             <input type="text" class="form-control" id="fswRec" placeholder="E-Mail-Adressen..." @bind="_fireSafetyWatchRecipients" />
                         </div>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="defRec"><i class="bi bi-tools me-1"></i>M&auml;ngelliste (neue M&auml;ngel)</label>
+                            <input type="text" class="form-control" id="defRec" placeholder="E-Mail-Adressen..." @bind="_defectRecipients" />
+                        </div>
                     </div>
                 </div>
             </div>
@@ -202,6 +212,7 @@
     private bool _visAttendance = true;
     private bool _visOperations = true;
     private bool _visFireSafetyWatch = true;
+    private bool _visDefects = true;
     private int _acAttendanceMinutes;
     private int _acOperationMinutes;
     private int _acFireSafetyWatchMinutes;
@@ -214,6 +225,7 @@
     private readonly string[] _attendanceRecipientsByUnit = new string[10];
     private string _operationRecipients = string.Empty;
     private string _fireSafetyWatchRecipients = string.Empty;
+    private string _defectRecipients = string.Empty;
     private bool _showUnitRecipients;
     private bool _isSaving;
     private bool _showSuccess;
@@ -226,6 +238,7 @@
         _visAttendance = GetBool(settings, SettingKeys.VisibilityAttendance, true);
         _visOperations = GetBool(settings, SettingKeys.VisibilityOperations, true);
         _visFireSafetyWatch = GetBool(settings, SettingKeys.VisibilityFireSafetyWatch, true);
+        _visDefects = GetBool(settings, SettingKeys.VisibilityDefects, true);
         _acAttendanceMinutes = GetInt(settings, SettingKeys.AutoCloseAttendance, 0);
         _acOperationMinutes = GetInt(settings, SettingKeys.AutoCloseOperations, 0);
         _acFireSafetyWatchMinutes = GetInt(settings, SettingKeys.AutoCloseFireSafetyWatch, 0);
@@ -244,6 +257,7 @@
 
         _operationRecipients = GetString(settings, SettingKeys.NotificationOperationRecipients, string.Empty);
         _fireSafetyWatchRecipients = GetString(settings, SettingKeys.NotificationFireSafetyWatchRecipients, string.Empty);
+        _defectRecipients = GetString(settings, SettingKeys.NotificationDefectRecipients, string.Empty);
     }
 
     private async Task SaveSettings()
@@ -263,6 +277,7 @@
             await SettingsService.UpdateSettingAsync(SettingKeys.VisibilityAttendance, _visAttendance.ToString().ToLower());
             await SettingsService.UpdateSettingAsync(SettingKeys.VisibilityOperations, _visOperations.ToString().ToLower());
             await SettingsService.UpdateSettingAsync(SettingKeys.VisibilityFireSafetyWatch, _visFireSafetyWatch.ToString().ToLower());
+            await SettingsService.UpdateSettingAsync(SettingKeys.VisibilityDefects, _visDefects.ToString().ToLower());
             await SettingsService.UpdateSettingAsync(SettingKeys.AutoCloseAttendance, _acAttendanceMinutes.ToString());
             await SettingsService.UpdateSettingAsync(SettingKeys.AutoCloseOperations, _acOperationMinutes.ToString());
             await SettingsService.UpdateSettingAsync(SettingKeys.AutoCloseFireSafetyWatch, _acFireSafetyWatchMinutes.ToString());
@@ -281,6 +296,7 @@
 
             await SettingsService.UpdateSettingAsync(SettingKeys.NotificationOperationRecipients, _operationRecipients.Trim());
             await SettingsService.UpdateSettingAsync(SettingKeys.NotificationFireSafetyWatchRecipients, _fireSafetyWatchRecipients.Trim());
+            await SettingsService.UpdateSettingAsync(SettingKeys.NotificationDefectRecipients, _defectRecipients.Trim());
 
             _showSuccess = true;
         }

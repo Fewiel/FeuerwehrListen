@@ -36,3 +36,10 @@ public enum UserRole
     Admin = 2
 }
 
+public enum DefectStatus
+{
+    Open = 1,
+    InProgress = 2,
+    Done = 3
+}
+

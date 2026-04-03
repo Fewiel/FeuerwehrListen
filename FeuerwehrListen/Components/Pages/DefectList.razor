@@ -1,0 +1,549 @@
+@page "/defects"
+@using FeuerwehrListen.Models
+@using FeuerwehrListen.Services
+@using FeuerwehrListen.Repositories
+@inject DefectRepository DefectRepo
+@inject VehicleRepository VehicleRepo
+@inject MemberRepository MemberRepo
+@inject SettingsService SettingsService
+@inject EmailSenderService EmailService
+@inject AuthenticationService AuthService
+@rendermode InteractiveServer
+
+<PageTitle>M&auml;ngelliste</PageTitle>
+
+@if (!SettingsService.IsModuleVisible(SettingKeys.VisibilityDefects))
+{
+    <div class="container mt-4">
+        <div class="alert alert-warning">Dieses Modul ist deaktiviert.</div>
+    </div>
+    return;
+}
+
+<div class="container mt-4">
+    <div class="row mb-4">
+        <div class="col">
+            <h1>M&auml;ngelliste</h1>
+        </div>
+        <div class="col-auto">
+            <button class="btn btn-primary" @onclick="ShowCreateModal">
+                <i class="bi bi-plus-circle"></i> Neuer Mangel
+            </button>
+        </div>
+    </div>
+
+    <div class="row mb-3">
+        <div class="col-auto">
+            <div class="btn-group" role="group">
+                <button class="btn @(_statusFilter == null ? "btn-primary" : "btn-outline-primary")" @onclick="() => SetFilter(null)">Alle</button>
+                <button class="btn @(_statusFilter == DefectStatus.Open ? "btn-danger" : "btn-outline-danger")" @onclick="() => SetFilter(DefectStatus.Open)">Offen</button>
+                <button class="btn @(_statusFilter == DefectStatus.InProgress ? "btn-warning" : "btn-outline-warning")" @onclick="() => SetFilter(DefectStatus.InProgress)">In Arbeit</button>
+                <button class="btn @(_statusFilter == DefectStatus.Done ? "btn-success" : "btn-outline-success")" @onclick="() => SetFilter(DefectStatus.Done)">Erledigt</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-body">
+            @if (_defects.Count == 0)
+            {
+                <p class="text-muted">Keine M&auml;ngel vorhanden.</p>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Eingetragen</th>
+                                <th>Durch</th>
+                                <th>Fahrzeug</th>
+                                <th>Beschreibung</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var defect in _defects)
+                            {
+                                <tr style="cursor: pointer;" @onclick="() => ShowDetailModal(defect.Id)">
+                                    <td class="text-nowrap">@defect.ReportedAt.ToString("dd.MM.yyyy HH:mm")</td>
+                                    <td>@defect.ReportedByName</td>
+                                    <td>@GetVehicleDisplay(defect)</td>
+                                    <td>@Truncate(defect.Description, 60)</td>
+                                    <td>@StatusBadge(defect.Status)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+
+                @* Pagination *@
+                @if (_totalPages > 1)
+                {
+                    <nav>
+                        <ul class="pagination justify-content-center mb-0">
+                            <li class="page-item @(_currentPage <= 1 ? "disabled" : "")">
+                                <button class="page-link" @onclick="() => GoToPage(_currentPage - 1)">&laquo;</button>
+                            </li>
+                            @for (var i = 1; i <= _totalPages; i++)
+                            {
+                                var p = i;
+                                <li class="page-item @(p == _currentPage ? "active" : "")">
+                                    <button class="page-link" @onclick="() => GoToPage(p)">@p</button>
+                                </li>
+                            }
+                            <li class="page-item @(_currentPage >= _totalPages ? "disabled" : "")">
+                                <button class="page-link" @onclick="() => GoToPage(_currentPage + 1)">&raquo;</button>
+                            </li>
+                        </ul>
+                    </nav>
+                }
+            }
+        </div>
+    </div>
+</div>
+
+@* ===== CREATE MODAL ===== *@
+<div class="modal fade @(_showCreateModal ? "show" : "")" style="@(_showCreateModal ? "display:block; background: rgba(0,0,0,.5);" : "display:none;")" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content bg-dark text-light border-secondary">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title">Neuen Mangel melden</h5>
+                <button type="button" class="btn-close btn-close-white" @onclick="CloseCreateModal"></button>
+            </div>
+            <div class="modal-body">
+                @if (!string.IsNullOrEmpty(_createError))
+                {
+                    <div class="alert alert-danger">@_createError</div>
+                }
+
+                <div class="mb-3">
+                    <label class="form-label">Mitgliedsnummer</label>
+                    <input type="text" class="form-control" @bind="_createMemberNumber" placeholder="z.B. 1001" />
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Fahrzeug</label>
+                    <select class="form-select" @bind="_createVehicleId">
+                        <option value="0">-- Bitte w&auml;hlen --</option>
+                        @foreach (var v in _vehicles)
+                        {
+                            <option value="@v.Id">@v.Name (@v.CallSign)</option>
+                        }
+                        <option value="-1">Anderes...</option>
+                    </select>
+                </div>
+
+                @if (_createVehicleId == -1)
+                {
+                    <div class="mb-3">
+                        <label class="form-label">Fahrzeug (Freitext)</label>
+                        <input type="text" class="form-control" @bind="_createCustomVehicle" placeholder="z.B. Gerätehaus, Anhänger, etc." />
+                    </div>
+                }
+
+                <div class="mb-3">
+                    <label class="form-label">Beschreibung</label>
+                    <textarea class="form-control" rows="4" @bind="_createDescription" placeholder="Was ist der Mangel?"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer border-secondary">
+                <button type="button" class="btn btn-secondary" @onclick="CloseCreateModal">Abbrechen</button>
+                <button type="button" class="btn btn-primary" @onclick="CreateDefect" disabled="@_isCreating">
+                    @if (_isCreating)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1"></span>
+                    }
+                    Mangel melden
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@* ===== DETAIL MODAL ===== *@
+<div class="modal fade @(_showDetailModal ? "show" : "")" style="@(_showDetailModal ? "display:block; background: rgba(0,0,0,.5);" : "display:none;")" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content bg-dark text-light border-secondary">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title">Mangel #@_detailDefect?.Id</h5>
+                <button type="button" class="btn-close btn-close-white" @onclick="CloseDetailModal"></button>
+            </div>
+            @if (_detailDefect != null)
+            {
+                <div class="modal-body">
+                    <table class="table table-borderless table-dark mb-3">
+                        <tbody>
+                            <tr>
+                                <td class="text-muted" style="width:160px;">Eingetragen am</td>
+                                <td class="fw-bold">@_detailDefect.ReportedAt.ToString("dd.MM.yyyy HH:mm")</td>
+                            </tr>
+                            <tr>
+                                <td class="text-muted">Durch</td>
+                                <td class="fw-bold">@_detailDefect.ReportedByName</td>
+                            </tr>
+                            <tr>
+                                <td class="text-muted">Fahrzeug</td>
+                                <td class="fw-bold">@GetVehicleDisplay(_detailDefect)</td>
+                            </tr>
+                            <tr>
+                                <td class="text-muted">Status</td>
+                                <td>@StatusBadge(_detailDefect.Status)</td>
+                            </tr>
+                            @if (_detailDefect.ResolvedAt.HasValue)
+                            {
+                                <tr>
+                                    <td class="text-muted">Erledigt am</td>
+                                    <td class="fw-bold">@_detailDefect.ResolvedAt.Value.ToString("dd.MM.yyyy HH:mm")</td>
+                                </tr>
+                                <tr>
+                                    <td class="text-muted">Erledigt durch</td>
+                                    <td class="fw-bold">@_detailDefect.ResolvedByName</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+
+                    <div class="card bg-dark border-secondary mb-3">
+                        <div class="card-header border-secondary">
+                            <strong>Beschreibung</strong>
+                        </div>
+                        <div class="card-body">
+                            <p class="mb-0" style="white-space: pre-wrap;">@_detailDefect.Description</p>
+                        </div>
+                    </div>
+
+                    @* Status change *@
+                    @if (_detailDefect.Status != DefectStatus.Done)
+                    {
+                        <div class="card bg-dark border-secondary mb-3">
+                            <div class="card-header border-secondary">
+                                <strong>Status &auml;ndern</strong>
+                            </div>
+                            <div class="card-body">
+                                <div class="row g-2 align-items-end">
+                                    <div class="col-auto">
+                                        <label class="form-label">Mitgliedsnummer</label>
+                                        <input type="text" class="form-control" @bind="_statusChangeMemberNumber" placeholder="z.B. 1001" />
+                                    </div>
+                                    <div class="col-auto">
+                                        <label class="form-label">Neuer Status</label>
+                                        <select class="form-select" @bind="_newStatus">
+                                            @if (_detailDefect.Status == DefectStatus.Open)
+                                            {
+                                                <option value="@DefectStatus.InProgress">In Arbeit</option>
+                                                <option value="@DefectStatus.Done">Erledigt</option>
+                                            }
+                                            else if (_detailDefect.Status == DefectStatus.InProgress)
+                                            {
+                                                <option value="@DefectStatus.Done">Erledigt</option>
+                                            }
+                                        </select>
+                                    </div>
+                                    <div class="col">
+                                        <label class="form-label">Kommentar (optional)</label>
+                                        <input type="text" class="form-control" @bind="_statusChangeComment" />
+                                    </div>
+                                    <div class="col-auto">
+                                        <button class="btn btn-primary" @onclick="ChangeStatus">Speichern</button>
+                                    </div>
+                                </div>
+                                @if (!string.IsNullOrEmpty(_statusChangeError))
+                                {
+                                    <div class="alert alert-danger mt-2 mb-0">@_statusChangeError</div>
+                                }
+                            </div>
+                        </div>
+                    }
+
+                    @* Status history *@
+                    @if (_statusChanges.Count > 0)
+                    {
+                        <div class="card bg-dark border-secondary">
+                            <div class="card-header border-secondary">
+                                <strong>Status-Verlauf</strong>
+                            </div>
+                            <div class="card-body p-0">
+                                <table class="table table-dark table-sm mb-0">
+                                    <thead>
+                                        <tr>
+                                            <th>Datum</th>
+                                            <th>Von</th>
+                                            <th>Nach</th>
+                                            <th>Durch</th>
+                                            <th>Kommentar</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var change in _statusChanges)
+                                        {
+                                            <tr>
+                                                <td class="text-nowrap">@change.ChangedAt.ToString("dd.MM.yyyy HH:mm")</td>
+                                                <td>@StatusBadge(change.OldStatus)</td>
+                                                <td>@StatusBadge(change.NewStatus)</td>
+                                                <td>@change.ChangedByName</td>
+                                                <td>@(change.Comment ?? "-")</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+            <div class="modal-footer border-secondary">
+                <button type="button" class="btn btn-secondary" @onclick="CloseDetailModal">Schlie&szlig;en</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<Defect> _defects = new();
+    private List<Vehicle> _vehicles = new();
+    private int _currentPage = 1;
+    private int _totalPages = 1;
+    private int _pageSize = 15;
+    private DefectStatus? _statusFilter;
+
+    // Create modal
+    private bool _showCreateModal;
+    private string _createMemberNumber = string.Empty;
+    private int _createVehicleId;
+    private string _createCustomVehicle = string.Empty;
+    private string _createDescription = string.Empty;
+    private string _createError = string.Empty;
+    private bool _isCreating;
+
+    // Detail modal
+    private bool _showDetailModal;
+    private Defect? _detailDefect;
+    private List<DefectStatusChange> _statusChanges = new();
+    private string _statusChangeMemberNumber = string.Empty;
+    private DefectStatus _newStatus = DefectStatus.InProgress;
+    private string _statusChangeComment = string.Empty;
+    private string _statusChangeError = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _vehicles = await VehicleRepo.GetActiveAsync();
+        await LoadDefects();
+    }
+
+    private async Task LoadDefects()
+    {
+        var total = await DefectRepo.GetCountAsync(_statusFilter);
+        _totalPages = Math.Max(1, (int)Math.Ceiling(total / (double)_pageSize));
+        if (_currentPage > _totalPages) _currentPage = _totalPages;
+        _defects = await DefectRepo.GetPagedAsync(_currentPage, _pageSize, _statusFilter);
+    }
+
+    private async Task SetFilter(DefectStatus? filter)
+    {
+        _statusFilter = filter;
+        _currentPage = 1;
+        await LoadDefects();
+    }
+
+    private async Task GoToPage(int page)
+    {
+        if (page < 1 || page > _totalPages) return;
+        _currentPage = page;
+        await LoadDefects();
+    }
+
+    // ===== Create =====
+    private void ShowCreateModal()
+    {
+        _createMemberNumber = string.Empty;
+        _createVehicleId = 0;
+        _createCustomVehicle = string.Empty;
+        _createDescription = string.Empty;
+        _createError = string.Empty;
+        _showCreateModal = true;
+    }
+
+    private void CloseCreateModal() => _showCreateModal = false;
+
+    private async Task CreateDefect()
+    {
+        _createError = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(_createMemberNumber))
+        {
+            _createError = "Bitte Mitgliedsnummer eingeben.";
+            return;
+        }
+
+        var member = await MemberRepo.GetByMemberNumberAsync(_createMemberNumber.Trim());
+        if (member == null)
+        {
+            _createError = "Mitglied nicht gefunden.";
+            return;
+        }
+
+        if (_createVehicleId == 0)
+        {
+            _createError = "Bitte ein Fahrzeug ausw\u00e4hlen.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_createDescription))
+        {
+            _createError = "Bitte eine Beschreibung eingeben.";
+            return;
+        }
+
+        _isCreating = true;
+
+        string? vehicleName = null;
+        string? customVehicle = null;
+        int? vehicleId = null;
+
+        if (_createVehicleId == -1)
+        {
+            if (string.IsNullOrWhiteSpace(_createCustomVehicle))
+            {
+                _createError = "Bitte Fahrzeug-Freitext eingeben.";
+                _isCreating = false;
+                return;
+            }
+            customVehicle = _createCustomVehicle.Trim();
+        }
+        else
+        {
+            vehicleId = _createVehicleId;
+            var vehicle = _vehicles.FirstOrDefault(v => v.Id == _createVehicleId);
+            vehicleName = vehicle != null ? vehicle.Name + " (" + vehicle.CallSign + ")" : "Unbekannt";
+        }
+
+        var defect = new Defect
+        {
+            Description = _createDescription.Trim(),
+            VehicleId = vehicleId,
+            VehicleName = vehicleName,
+            CustomVehicle = customVehicle,
+            Status = DefectStatus.Open,
+            ReportedByMemberId = member.Id,
+            ReportedByName = member.FirstName + " " + member.LastName + " (" + member.MemberNumber + ")",
+            ReportedAt = DateTime.Now
+        };
+
+        var id = await DefectRepo.CreateAsync(defect);
+        _showCreateModal = false;
+        _isCreating = false;
+
+        // E-Mail senden
+        await SendDefectNotification(defect);
+
+        await LoadDefects();
+    }
+
+    private async Task SendDefectNotification(Defect defect)
+    {
+        try
+        {
+            var settings = await SettingsService.GetAllSettingsAsync();
+            settings.TryGetValue(SettingKeys.NotificationDefectRecipients, out var recipients);
+            if (string.IsNullOrWhiteSpace(recipients)) return;
+
+            var vehicleDisplay = GetVehicleDisplay(defect);
+            var body = "Neuer Mangel gemeldet\n\n" +
+                "Eingetragen am: " + defect.ReportedAt.ToString("dd.MM.yyyy HH:mm") + "\n" +
+                "Durch: " + defect.ReportedByName + "\n" +
+                "Fahrzeug: " + vehicleDisplay + "\n\n" +
+                "Beschreibung:\n" + defect.Description;
+
+            await EmailService.SendAsync(
+                new[] { recipients },
+                "Neuer Mangel: " + vehicleDisplay + " - Feuerwehr Listen",
+                body);
+        }
+        catch { }
+    }
+
+    // ===== Detail =====
+    private async Task ShowDetailModal(int defectId)
+    {
+        _detailDefect = await DefectRepo.GetByIdAsync(defectId);
+        _statusChanges = await DefectRepo.GetStatusChangesAsync(defectId);
+        _statusChangeMemberNumber = string.Empty;
+        _statusChangeComment = string.Empty;
+        _statusChangeError = string.Empty;
+        _newStatus = _detailDefect?.Status == DefectStatus.Open ? DefectStatus.InProgress : DefectStatus.Done;
+        _showDetailModal = true;
+    }
+
+    private void CloseDetailModal() => _showDetailModal = false;
+
+    private async Task ChangeStatus()
+    {
+        _statusChangeError = string.Empty;
+
+        if (_detailDefect == null) return;
+
+        if (string.IsNullOrWhiteSpace(_statusChangeMemberNumber))
+        {
+            _statusChangeError = "Bitte Mitgliedsnummer eingeben.";
+            return;
+        }
+
+        var member = await MemberRepo.GetByMemberNumberAsync(_statusChangeMemberNumber.Trim());
+        if (member == null)
+        {
+            _statusChangeError = "Mitglied nicht gefunden.";
+            return;
+        }
+
+        var memberDisplay = member.FirstName + " " + member.LastName + " (" + member.MemberNumber + ")";
+
+        var change = new DefectStatusChange
+        {
+            DefectId = _detailDefect.Id,
+            OldStatus = _detailDefect.Status,
+            NewStatus = _newStatus,
+            ChangedByName = memberDisplay,
+            ChangedAt = DateTime.Now,
+            Comment = string.IsNullOrWhiteSpace(_statusChangeComment) ? null : _statusChangeComment.Trim()
+        };
+
+        await DefectRepo.AddStatusChangeAsync(change);
+
+        _detailDefect.Status = _newStatus;
+        if (_newStatus == DefectStatus.Done)
+        {
+            _detailDefect.ResolvedAt = DateTime.Now;
+            _detailDefect.ResolvedByMemberId = member.Id;
+            _detailDefect.ResolvedByName = memberDisplay;
+        }
+        await DefectRepo.UpdateAsync(_detailDefect);
+
+        // Refresh
+        _statusChanges = await DefectRepo.GetStatusChangesAsync(_detailDefect.Id);
+        _statusChangeMemberNumber = string.Empty;
+        _statusChangeComment = string.Empty;
+        await LoadDefects();
+    }
+
+    // ===== Helpers =====
+    private static string GetVehicleDisplay(Defect d)
+    {
+        if (!string.IsNullOrEmpty(d.CustomVehicle)) return d.CustomVehicle;
+        return d.VehicleName ?? "Unbekannt";
+    }
+
+    private static string Truncate(string text, int maxLength)
+    {
+        if (string.IsNullOrEmpty(text)) return "";
+        return text.Length <= maxLength ? text : text.Substring(0, maxLength) + "...";
+    }
+
+    private static RenderFragment StatusBadge(DefectStatus status) => status switch
+    {
+        DefectStatus.Open => builder => { builder.AddMarkupContent(0, "<span class=\"badge bg-danger\">Offen</span>"); },
+        DefectStatus.InProgress => builder => { builder.AddMarkupContent(0, "<span class=\"badge bg-warning text-dark\">In Arbeit</span>"); },
+        DefectStatus.Done => builder => { builder.AddMarkupContent(0, "<span class=\"badge bg-success\">Erledigt</span>"); },
+        _ => builder => { builder.AddMarkupContent(0, "<span class=\"badge bg-secondary\">Unbekannt</span>"); }
+    };
+}

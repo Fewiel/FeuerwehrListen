@@ -28,5 +28,7 @@ public class AppDbConnection : DataConnection
     public ITable<FireSafetyWatchRequirement> FireSafetyWatchRequirements => this.GetTable<FireSafetyWatchRequirement>();
     public ITable<FireSafetyWatchEntry> FireSafetyWatchEntries => this.GetTable<FireSafetyWatchEntry>();
     public ITable<AppSetting> AppSettings => this.GetTable<AppSetting>();
+    public ITable<Defect> Defects => this.GetTable<Defect>();
+    public ITable<DefectStatusChange> DefectStatusChanges => this.GetTable<DefectStatusChange>();
 }
 

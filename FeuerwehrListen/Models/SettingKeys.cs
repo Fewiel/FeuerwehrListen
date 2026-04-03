@@ -14,6 +14,9 @@ public static class SettingKeys
     public const string NotificationOperationRecipients = "Notifications.OperationRecipients";
     public const string NotificationFireSafetyWatchRecipients = "Notifications.FireSafetyWatchRecipients";
 
+    public const string VisibilityDefects = "ModuleVisibility.Defects";
+    public const string NotificationDefectRecipients = "Notifications.DefectRecipients";
+
     public const string SmtpHost = "Smtp.Host";
     public const string SmtpPort = "Smtp.Port";
     public const string SmtpUsername = "Smtp.Username";
