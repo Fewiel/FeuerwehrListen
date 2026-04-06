@@ -16,12 +16,17 @@ flock -n 200 || exit 0
 
 cd "$REPO_DIR"
 
+LOCAL=$(git rev-parse HEAD)
 git fetch origin master --quiet
+REMOTE=$(git rev-parse origin/master)
+
+[ "$LOCAL" = "$REMOTE" ] && exit 0
+
+log "Update gefunden: $(git rev-parse --short HEAD) -> $(git rev-parse --short origin/master)"
 git pull origin master --quiet
 docker compose up --build -d >> "$LOG_FILE" 2>&1
 docker image prune -f > /dev/null 2>&1 || true
-
-log "Update durchgeführt: $(git rev-parse --short HEAD)"
+log "Update abgeschlossen: $(git rev-parse --short HEAD)"
 
 # Log auf 500 Zeilen begrenzen
 tail -n 500 "$LOG_FILE" > "$LOG_FILE.tmp" && mv "$LOG_FILE.tmp" "$LOG_FILE"
