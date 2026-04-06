@@ -81,6 +81,9 @@ public class AttendanceListRepository
 
     public async Task DeleteAsync(int id)
     {
+        await _db.AttendanceEntries
+            .Where(x => x.AttendanceListId == id)
+            .DeleteAsync();
         await _db.AttendanceLists
             .Where(x => x.Id == id)
             .DeleteAsync();

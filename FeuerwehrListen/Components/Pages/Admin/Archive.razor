@@ -11,7 +11,7 @@
 
 <PageTitle>Archiv - Admin</PageTitle>
 
-<UserAuthCheck>
+<AdminAuthCheck>
 
     <div class="container mt-4">
         <div class="row mb-4">
@@ -28,13 +28,18 @@
                                Items="_archivedOperation"
                                EmptyListMessage="Keine archivierten Einsatzlisten">
                     <ItemTemplate>
-                        <a href="/operation/@context.Id" class="text-white text-decoration-none">
-                            <div class="d-flex w-100 justify-content-between">
-                                <h6 class="mb-1">@context.OperationNumber - @context.Keyword</h6>
-                                <small>@context.ClosedAt?.ToString("dd.MM.yyyy HH:mm")</small>
-                            </div>
-                            <p class="mb-1"><strong>@context.Address</strong></p>
-                        </a>
+                        <div class="d-flex w-100 justify-content-between align-items-center">
+                            <a href="/operation/@context.Id" class="text-white text-decoration-none flex-grow-1">
+                                <div class="d-flex w-100 justify-content-between">
+                                    <h6 class="mb-1">@context.OperationNumber - @context.Keyword</h6>
+                                    <small>@context.ClosedAt?.ToString("dd.MM.yyyy HH:mm")</small>
+                                </div>
+                                <p class="mb-1"><strong>@context.Address</strong></p>
+                            </a>
+                            <button class="btn btn-sm btn-outline-danger ms-3" @onclick="() => DeleteOperation(context)" @onclick:stopPropagation="true">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
                     </ItemTemplate>
                 </ListComponent>
 
@@ -44,37 +49,47 @@
                                Items="_archivedAttendance"
                                EmptyListMessage="Keine archivierten Anwesenheitslisten">
                     <ItemTemplate>
-                        <a href="/attendance/@context.Id" class="text-white text-decoration-none">
-                            <div class="d-flex w-100 justify-content-between">
-                                <h6 class="mb-1">@context.Title</h6>
-                                <small>@context.ClosedAt?.ToString("dd.MM.yyyy HH:mm")</small>
-                            </div>
-                            <p class="mb-1"><strong>@context.Unit</strong></p>
-                            <small class="text-muted">@context.Description</small>
-                        </a>
+                        <div class="d-flex w-100 justify-content-between align-items-center">
+                            <a href="/attendance/@context.Id" class="text-white text-decoration-none flex-grow-1">
+                                <div class="d-flex w-100 justify-content-between">
+                                    <h6 class="mb-1">@context.Title</h6>
+                                    <small>@context.ClosedAt?.ToString("dd.MM.yyyy HH:mm")</small>
+                                </div>
+                                <p class="mb-1"><strong>@context.Unit</strong></p>
+                                <small class="text-muted">@context.Description</small>
+                            </a>
+                            <button class="btn btn-sm btn-outline-danger ms-3" @onclick="() => DeleteAttendance(context)" @onclick:stopPropagation="true">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
                     </ItemTemplate>
                 </ListComponent>
-                
+
                 <ListComponent TItem="FireSafetyWatch"
                                Title="Brandsicherheitswachen"
                                IconClass="bi bi-shield-check"
                                Items="_archivedFireSafetyWatches"
                                EmptyListMessage="Keine archivierten Brandsicherheitswachen">
                     <ItemTemplate>
-                        <a href="/firesafetywatches/@context.Id" class="text-white text-decoration-none">
-                            <div class="d-flex w-100 justify-content-between">
-                                <h6 class="mb-1">@context.Name</h6>
-                                <small>@context.ClosedAt?.ToString("dd.MM.yyyy HH:mm")</small>
-                            </div>
-                            <p class="mb-1"><strong>@context.Location</strong></p>
-                        </a>
+                        <div class="d-flex w-100 justify-content-between align-items-center">
+                            <a href="/firesafetywatches/@context.Id" class="text-white text-decoration-none flex-grow-1">
+                                <div class="d-flex w-100 justify-content-between">
+                                    <h6 class="mb-1">@context.Name</h6>
+                                    <small>@context.ClosedAt?.ToString("dd.MM.yyyy HH:mm")</small>
+                                </div>
+                                <p class="mb-1"><strong>@context.Location</strong></p>
+                            </a>
+                            <button class="btn btn-sm btn-outline-danger ms-3" @onclick="() => DeleteFireSafetyWatch(context)" @onclick:stopPropagation="true">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
                     </ItemTemplate>
                 </ListComponent>
             </div>
         </div>
     </div>
 
-</UserAuthCheck>
+</AdminAuthCheck>
 
 @code {
     private List<AttendanceList> _archivedAttendance = new();
@@ -91,6 +106,24 @@
         _archivedAttendance = (await AttendanceRepo.GetArchivedAsync()).OrderByDescending(l => l.ClosedAt).ToList();
         _archivedOperation = (await OperationRepo.GetArchivedAsync()).OrderByDescending(l => l.ClosedAt).ToList();
         _archivedFireSafetyWatches = (await FireSafetyWatchRepo.GetArchivedAsync()).OrderByDescending(l => l.ClosedAt).ToList();
+    }
+
+    private async Task DeleteOperation(OperationList operation)
+    {
+        await OperationRepo.DeleteAsync(operation.Id);
+        await LoadLists();
+    }
+
+    private async Task DeleteAttendance(AttendanceList attendance)
+    {
+        await AttendanceRepo.DeleteAsync(attendance.Id);
+        await LoadLists();
+    }
+
+    private async Task DeleteFireSafetyWatch(FireSafetyWatch watch)
+    {
+        await FireSafetyWatchRepo.DeleteAsync(watch.Id);
+        await LoadLists();
     }
 }
 

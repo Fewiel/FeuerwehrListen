@@ -11,6 +11,7 @@
 @inject DefectRepository DefectRepo
 @inject NavigationManager Navigation
 @inject SettingsService SettingsService
+@inject AuthenticationService AuthService
 @rendermode InteractiveServer
 
 <PageTitle>Übersicht - Feuerwehr Listen</PageTitle>
@@ -134,6 +135,15 @@
     private List<FireSafetyWatch> _fireSafetyWatches = new();
     private int _openDefectsCount;
     private System.Threading.Timer? _refreshTimer;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await AuthService.TryRestoreSessionAsync();
+            StateHasChanged();
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {

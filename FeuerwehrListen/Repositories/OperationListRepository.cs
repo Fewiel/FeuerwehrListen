@@ -57,6 +57,9 @@ public class OperationListRepository
 
     public async Task DeleteAsync(int id)
     {
+        await _db.OperationEntries
+            .Where(x => x.OperationListId == id)
+            .DeleteAsync();
         await _db.OperationLists
             .Where(x => x.Id == id)
             .DeleteAsync();

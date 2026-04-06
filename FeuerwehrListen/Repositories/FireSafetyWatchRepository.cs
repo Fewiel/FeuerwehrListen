@@ -79,6 +79,13 @@ namespace FeuerwehrListen.Repositories
             await _db.InsertAsync(watch);
         }
 
+        public async Task DeleteAsync(int id)
+        {
+            await _db.FireSafetyWatchEntries.Where(e => e.FireSafetyWatchId == id).DeleteAsync();
+            await _db.FireSafetyWatchRequirements.Where(r => r.FireSafetyWatchId == id).DeleteAsync();
+            await _db.FireSafetyWatches.Where(f => f.Id == id).DeleteAsync();
+        }
+
         public async Task InsertFireSafetyWatchWithRequirements(FireSafetyWatch watch, List<FireSafetyWatchRequirement> requirements)
         {
             await _db.BeginTransactionAsync();

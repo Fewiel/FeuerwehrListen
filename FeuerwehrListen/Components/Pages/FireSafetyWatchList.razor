@@ -7,6 +7,7 @@
 @using Microsoft.AspNetCore.Components.Authorization
 @inject FireSafetyWatchRepository WatchRepo
 @inject SettingsService SettingsService
+@inject AuthenticationService AuthService
 @rendermode InteractiveServer
 
 <PageTitle>Brandsicherheitswachen</PageTitle>
@@ -77,6 +78,15 @@
         _watches = (await WatchRepo.GetAllWithStatusAsync())
             .Where(w => !w.IsArchived)
             .OrderBy(w => w.EventDateTime).ToList();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await AuthService.TryRestoreSessionAsync();
+            StateHasChanged();
+        }
     }
 
     private bool IsUrgent(FireSafetyWatchDto watch)
