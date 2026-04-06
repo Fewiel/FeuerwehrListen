@@ -14,6 +14,7 @@ public class OperationController : ControllerBase
     private readonly OperationEntryRepository _entryRepo;
     private readonly MemberRepository _memberRepo;
     private readonly VehicleRepository _vehicleRepo;
+    private readonly KeywordRepository _keywordRepo;
     private readonly ListNotificationService _listNotificationService;
 
     public OperationController(
@@ -21,12 +22,14 @@ public class OperationController : ControllerBase
         OperationEntryRepository entryRepo,
         MemberRepository memberRepo,
         VehicleRepository vehicleRepo,
+        KeywordRepository keywordRepo,
         ListNotificationService listNotificationService)
     {
         _listRepo = listRepo;
         _entryRepo = entryRepo;
         _memberRepo = memberRepo;
         _vehicleRepo = vehicleRepo;
+        _keywordRepo = keywordRepo;
         _listNotificationService = listNotificationService;
     }
 
@@ -65,11 +68,36 @@ public class OperationController : ControllerBase
     [HttpPost("lists")]
     public async Task<ActionResult<ApiResponse<ListResponse>>> CreateList([FromBody] CreateOperationListRequest request)
     {
+        if (string.IsNullOrWhiteSpace(request.Keyword))
+            return BadRequest(new ApiError { Error = "Keyword is required" });
+
+        var keywordName = request.Keyword.Trim();
+        var existingKeyword = await _keywordRepo.GetByNameAsync(keywordName);
+
+        int keywordId;
+        if (existingKeyword != null)
+        {
+            keywordId = existingKeyword.Id;
+            keywordName = existingKeyword.Name;
+        }
+        else
+        {
+            var newKeyword = new Keyword
+            {
+                Name = keywordName,
+                IsActive = true,
+                CreatedAt = DateTime.Now
+            };
+            keywordId = await _keywordRepo.CreateAsync(newKeyword);
+        }
+
         var list = new OperationList
         {
             OperationNumber = request.OperationNumber,
-            Keyword = request.Keyword,
+            Keyword = keywordName,
+            KeywordId = keywordId,
             AlertTime = request.AlertTime,
+            Address = request.Address,
             CreatedAt = DateTime.Now,
             Status = ListStatus.Open
         };

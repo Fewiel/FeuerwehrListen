@@ -1,3 +1,5 @@
+using FeuerwehrListen.Models;
+
 namespace FeuerwehrListen.DTOs;
 
 public class ApiResponse<T>
@@ -34,6 +36,40 @@ public class OperationEntryResponse : EntryResponse
     public string Vehicle { get; set; } = string.Empty;
     public string Function { get; set; } = string.Empty;
     public bool WithBreathingApparatus { get; set; }
+}
+
+public class FireSafetyWatchDetailResponse
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string Location { get; set; } = string.Empty;
+    public DateTime EventDateTime { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public DateTime? ClosedAt { get; set; }
+    public List<FireSafetyWatchRequirementResponse> Requirements { get; set; } = new();
+    public List<FireSafetyWatchEntryResponse> Entries { get; set; } = new();
+}
+
+public class FireSafetyWatchRequirementResponse
+{
+    public int Id { get; set; }
+    public string Function { get; set; } = string.Empty;
+    public int Amount { get; set; }
+    public string? Vehicle { get; set; }
+}
+
+public class FireSafetyWatchEntryResponse
+{
+    public int Id { get; set; }
+    public int RequirementId { get; set; }
+    public int MemberId { get; set; }
+    public string MemberName { get; set; } = string.Empty;
+}
+
+public class DefectDetailResponse
+{
+    public Defect Defect { get; set; } = null!;
+    public List<DefectStatusChange> StatusChanges { get; set; } = new();
 }
 
 public class MemberResponse

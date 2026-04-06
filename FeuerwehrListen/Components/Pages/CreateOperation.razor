@@ -32,13 +32,13 @@
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Stichwort</label>
-                        <select class="form-select" @bind="_selectedKeywordId">
-                            <option value="">-- Stichwort auswählen --</option>
+                        <input type="text" class="form-control" list="keyword-suggestions" @bind="_keywordInput" placeholder="Stichwort eingeben oder auswählen" />
+                        <datalist id="keyword-suggestions">
                             @foreach (var keyword in _availableKeywords)
                             {
-                                <option value="@keyword.Id">@keyword.Name - @keyword.Description</option>
+                                <option value="@keyword.Name">@keyword.Description</option>
                             }
-                        </select>
+                        </datalist>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Alarmierungszeit</label>
@@ -60,35 +60,46 @@
 
 @code {
     private string _operationNumber = string.Empty;
-    private int? _selectedKeywordId;
+    private string _keywordInput = string.Empty;
     private DateTime _alertTime = DateTime.Now;
     private string _address = string.Empty;
     private List<Keyword> _availableKeywords = new();
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadKeywords();
-    }
-
-    private async Task LoadKeywords()
-    {
         _availableKeywords = await KeywordRepo.GetAllAsync();
     }
 
     private async Task CreateList()
     {
-        if (string.IsNullOrWhiteSpace(_operationNumber) || !_selectedKeywordId.HasValue)
+        if (string.IsNullOrWhiteSpace(_operationNumber) || string.IsNullOrWhiteSpace(_keywordInput))
             return;
 
-        var selectedKeyword = _availableKeywords.FirstOrDefault(k => k.Id == _selectedKeywordId.Value);
-        if (selectedKeyword == null)
-            return;
+        var keywordName = _keywordInput.Trim();
+        var existingKeyword = _availableKeywords.FirstOrDefault(k => k.Name.Equals(keywordName, StringComparison.OrdinalIgnoreCase));
+
+        int keywordId;
+        if (existingKeyword != null)
+        {
+            keywordId = existingKeyword.Id;
+            keywordName = existingKeyword.Name;
+        }
+        else
+        {
+            var newKeyword = new Keyword
+            {
+                Name = keywordName,
+                IsActive = true,
+                CreatedAt = DateTime.Now
+            };
+            keywordId = await KeywordRepo.CreateAsync(newKeyword);
+        }
 
         var newList = new OperationList
         {
             OperationNumber = _operationNumber,
-            Keyword = selectedKeyword.Name,
-            KeywordId = selectedKeyword.Id,
+            Keyword = keywordName,
+            KeywordId = keywordId,
             AlertTime = _alertTime,
             CreatedAt = DateTime.Now,
             Status = ListStatus.Open,
