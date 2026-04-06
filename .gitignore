@@ -13,3 +13,6 @@ publish/
 
 # Rider/IDE-spezifisch
 .idea/
+
+# Auto-Update Logs
+auto-update.log

@@ -53,16 +53,42 @@ sudo apt-get install docker-ce docker-ce-cli containerd.io docker-buildx-plugin 
 - **Logs ansehen:** `sudo docker compose logs -f`
 - **Stoppen:** `sudo docker compose down`
 
-### 4. Updates
+### 4. Auto-Update einrichten
 
-Um die Anwendung zu aktualisieren, holen Sie sich den neuesten Code und bauen Sie das Image neu. Die Datenbank bleibt dabei dank des Docker-Volumes erhalten.
+Die Anwendung kann sich automatisch aktualisieren. Alle 5 Minuten prüft ein Cron-Job ob neue Commits auf dem Master-Branch vorliegen und baut den Container automatisch neu.
+
+Das Setup-Script erledigt alles automatisch (Docker, Anwendung, Cron):
 
 ```sh
-# Neuesten Code herunterladen
-git pull
+sudo bash setup.sh
+```
 
-# Anwendung mit dem neuen Code neu bauen und starten
+#### Manuelles Update
+
+Falls nötig, kann ein Update auch manuell ausgelöst werden:
+
+```sh
+sudo bash auto-update.sh
+```
+
+Oder klassisch ohne Auto-Update:
+
+```sh
+git pull
 sudo docker compose up --build -d
+```
+
+#### Update-Log einsehen
+
+```sh
+tail -f auto-update.log
+```
+
+#### Auto-Update deaktivieren
+
+```sh
+sudo crontab -e
+# Zeile mit "feuerwehrlisten-auto-update" entfernen
 ```
 
 ### Datenpersistenz
