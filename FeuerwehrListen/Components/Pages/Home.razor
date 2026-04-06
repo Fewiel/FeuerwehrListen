@@ -39,13 +39,11 @@
                     <i class="bi bi-plus-circle"></i> Neue Einsatzliste
                 </button>
             }
-            @if (SettingsService.IsModuleVisible(SettingKeys.VisibilityFireSafetyWatch))
+            @if (SettingsService.IsModuleVisible(SettingKeys.VisibilityFireSafetyWatch) && AuthService.IsAdmin)
             {
-                <AuthorizeView Roles="Admin">
-                     <button class="btn btn-info" @onclick='() => Navigation.NavigateTo("/firesafetywatches/create")'>
-                         <i class="bi bi-plus-circle"></i> Neue Brandsicherheitswache
-                     </button>
-                </AuthorizeView>
+                <button class="btn btn-info" @onclick='() => Navigation.NavigateTo("/firesafetywatches/create")'>
+                    <i class="bi bi-plus-circle"></i> Neue Brandsicherheitswache
+                </button>
             }
         </div>
     </div>

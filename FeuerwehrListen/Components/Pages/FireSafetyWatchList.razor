@@ -26,9 +26,10 @@
             <h1>Brandsicherheitswachen</h1>
         </div>
         <div class="col-auto">
-            <AuthorizeView Roles="Admin">
+            @if (AuthService.IsAdmin)
+            {
                 <a href="/firesafetywatches/create" class="btn btn-primary">Neue Wache anlegen</a>
-            </AuthorizeView>
+            }
         </div>
     </div>
 
