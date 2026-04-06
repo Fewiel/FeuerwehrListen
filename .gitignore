@@ -16,3 +16,6 @@ publish/
 
 # Auto-Update Logs
 auto-update.log
+
+# Lokale Docker-Konfiguration (wird nicht überschrieben beim Update)
+docker-compose.override.yml
