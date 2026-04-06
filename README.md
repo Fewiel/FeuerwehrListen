@@ -35,29 +35,54 @@ sudo apt-get install docker-ce docker-ce-cli containerd.io docker-buildx-plugin 
 
 1.  **Repository klonen:**
     ```sh
-    git clone <repository-url>
+    cd /home/docker
+    git clone https://github.com/Fewiel/FeuerwehrListen.git
     cd FeuerwehrListen
     ```
 
-2.  **Anwendung starten:**
-    Führen Sie den folgenden Befehl im Hauptverzeichnis des Projekts aus. Der `sudo` wird benötigt, da Docker Root-Berechtigungen erfordert.
+2.  **Lokale Konfiguration anlegen (optional):**
+
+    Port und Datenbankname können per `docker-compose.override.yml` angepasst werden. Diese Datei ist gitignored und wird beim Update nicht überschrieben.
+
     ```sh
-    sudo docker compose up --build -d
+    cat > docker-compose.override.yml <<EOF
+    services:
+      feuerwehr-listen:
+        ports:
+          - "8090:8080"
+        environment:
+          - DATABASE_CONNECTION_STRING=Data Source=/app/data/feuerwehr-2026.db
+    EOF
     ```
-    - `--build`: Erstellt das Image beim ersten Start und bei Code-Änderungen.
-    - `-d`: Startet den Container im "detached" Modus (im Hintergrund).
+
+3.  **Anwendung starten:**
+    ```sh
+    docker compose up --build -d
+    ```
 
 ### 3. Zugriff & Verwaltung
 
-- **Zugriff:** Die Anwendung ist jetzt unter `http://IHRE_SERVER_IP:8080` erreichbar.
-- **Logs ansehen:** `sudo docker compose logs -f`
-- **Stoppen:** `sudo docker compose down`
+- **Zugriff:** `http://IHRE_SERVER_IP:8080` (oder `8090` mit Override)
+- **Logs ansehen:** `docker compose logs -f`
+- **Stoppen:** `docker compose down`
 
 ### 4. Auto-Update einrichten
 
-Die Anwendung kann sich automatisch aktualisieren. Alle 5 Minuten prüft ein Cron-Job ob neue Commits auf dem Master-Branch vorliegen und baut den Container automatisch neu.
+Alle 5 Minuten prüft ein Cron-Job ob neue Commits auf dem Master-Branch vorliegen und baut den Container automatisch neu.
 
-Das Setup-Script erledigt alles automatisch (Docker, Anwendung, Cron):
+**Cronjob einrichten (als User `docker`):**
+
+```sh
+crontab -e -u docker
+```
+
+Folgende Zeile einfügen:
+
+```
+*/5 * * * * /bin/bash /home/docker/FeuerwehrListen/auto-update.sh
+```
+
+**Oder** das Setup-Script nutzen (installiert Docker + Cron automatisch):
 
 ```sh
 sudo bash setup.sh
@@ -65,17 +90,8 @@ sudo bash setup.sh
 
 #### Manuelles Update
 
-Falls nötig, kann ein Update auch manuell ausgelöst werden:
-
 ```sh
-sudo bash auto-update.sh
-```
-
-Oder klassisch ohne Auto-Update:
-
-```sh
-git pull
-sudo docker compose up --build -d
+bash auto-update.sh
 ```
 
 #### Update-Log einsehen
@@ -87,10 +103,10 @@ tail -f auto-update.log
 #### Auto-Update deaktivieren
 
 ```sh
-sudo crontab -e
-# Zeile mit "feuerwehrlisten-auto-update" entfernen
+crontab -e -u docker
+# Zeile mit auto-update.sh entfernen
 ```
 
 ### Datenpersistenz
 
-Die SQLite-Datenbank wird in einem Docker-Volume gespeichert. Ihre Daten bleiben auch nach einem Neustart des Containers (`sudo docker compose up`) oder des Servers erhalten.
+Die SQLite-Datenbank wird in einem Docker-Volume gespeichert. Ihre Daten bleiben auch nach einem Neustart des Containers oder des Servers erhalten. Die `docker-compose.override.yml` ist gitignored und wird beim Auto-Update nicht überschrieben.
