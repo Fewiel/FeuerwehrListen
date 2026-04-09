@@ -53,6 +53,17 @@
                                 </div>
                             </div>
                             <div class="mb-3">
+                                <label class="form-label">Einheit (optional)</label>
+                                <select class="form-select" @bind="_editingMember!.UnitNumber">
+                                    <option value="">Keine Zuordnung</option>
+                                    @for (int u = 1; u <= 9; u++)
+                                    {
+                                        <option value="@u">Einheit @u</option>
+                                    }
+                                </select>
+                                <small class="text-muted">Wenn leer, wird die Einheit aus der Mitgliedsnummer abgeleitet.</small>
+                            </div>
+                            <div class="mb-3">
                                 <div class="form-check">
                                     <input class="form-check-input" type="checkbox" @bind="_editingMember!.IsActive" id="activeCheck" />
                                     <label class="form-check-label" for="activeCheck">
@@ -85,11 +96,12 @@
                             <div class="alert alert-info">
                                 <strong>CSV-Format:</strong> Die CSV-Datei muss folgende Spalten enthalten (mit Semikolon als Trennzeichen):
                                 <br/>
-                                <code>Mitgliedsnummer;Vorname;Nachname;Aktiv</code>
+                                <code>Mitgliedsnummer;Vorname;Nachname;Aktiv;Einheit</code>
                                 <br/>
                                 <small class="text-muted">
                                     Die erste Zeile wird als Header erkannt und übersprungen.
                                     "Aktiv" akzeptiert: ja/nein, true/false, 1/0.
+                                    "Einheit" ist optional (1-9).
                                     Existierende Mitgliedsnummern werden übersprungen.
                                 </small>
                             </div>
@@ -147,6 +159,7 @@
                                         <tr>
                                             <th>Mitgliedsnummer</th>
                                             <th>Name</th>
+                                            <th>Einheit</th>
                                             <th>Status</th>
                                             <th>Erstellt</th>
                                             <th>Aktionen</th>
@@ -158,6 +171,16 @@
                                             <tr>
                                                 <td><strong>@member.MemberNumber</strong></td>
                                                 <td>@member.FirstName @member.LastName</td>
+                                                <td>
+                                                    @if (member.UnitNumber.HasValue)
+                                                    {
+                                                        <span class="badge bg-primary">Einheit @member.UnitNumber</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="text-muted">—</span>
+                                                    }
+                                                </td>
                                                 <td>
                                                     @if (member.IsActive)
                                                     {
@@ -230,6 +253,7 @@
             FirstName = member.FirstName,
             LastName = member.LastName,
             IsActive = member.IsActive,
+            UnitNumber = member.UnitNumber,
             CreatedAt = member.CreatedAt
         };
         _showForm = true;
@@ -342,12 +366,19 @@
                     isActive = activeValue is "ja" or "true" or "1";
                 }
 
+                int? unitNumber = null;
+                if (parts.Length >= 5 && int.TryParse(parts[4].Trim(), out var parsedUnit) && parsedUnit >= 1 && parsedUnit <= 9)
+                {
+                    unitNumber = parsedUnit;
+                }
+
                 var member = new Member
                 {
                     MemberNumber = memberNumber,
                     FirstName = firstName,
                     LastName = lastName,
                     IsActive = isActive,
+                    UnitNumber = unitNumber,
                     CreatedAt = DateTime.Now
                 };
 

@@ -20,7 +20,10 @@ public class Member
     
     [Column("IsActive")]
     public bool IsActive { get; set; }
-    
+
+    [Column("UnitNumber")]
+    public int? UnitNumber { get; set; }
+
     [Column("CreatedAt")]
     public DateTime CreatedAt { get; set; }
 }

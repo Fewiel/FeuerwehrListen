@@ -1,0 +1,143 @@
+@using Microsoft.JSInterop
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+@if (IsActive)
+{
+    <div class="qr-scanner-inline mb-3">
+        <div class="qr-video-wrapper position-relative">
+            <video id="@_videoElementId" autoplay muted playsinline></video>
+            @if (_flashVisible)
+            {
+                <div class="qr-success-overlay">
+                    <i class="bi bi-check-circle-fill"></i>
+                </div>
+            }
+            @if (!_isScanning && !_noCameraAccess)
+            {
+                <div class="qr-scanner-paused">
+                    <i class="bi bi-pause-circle" style="font-size: 2rem;"></i>
+                    <div class="mt-1"><small>Pausiert</small></div>
+                </div>
+            }
+            @if (_noCameraAccess)
+            {
+                <div class="qr-scanner-paused">
+                    <i class="bi bi-camera-video-off" style="font-size: 1.5rem;"></i>
+                    <div class="mt-1"><small>Kein Kamerazugriff</small></div>
+                </div>
+            }
+            @if (_scanCount > 0)
+            {
+                <div class="qr-scan-badge">
+                    <span class="badge bg-success">@_scanCount gescannt</span>
+                </div>
+            }
+            <button class="btn btn-sm qr-pause-btn" @onclick="ToggleScanner" title="@(_isScanning ? "Pausieren" : "Starten")">
+                <i class="bi @(_isScanning ? "bi-pause-fill" : "bi-play-fill")"></i>
+            </button>
+        </div>
+        @if (OnManualEntryRequested.HasDelegate)
+        {
+            <button class="btn btn-success w-100 mt-2" @onclick="OnManualEntryRequested">
+                <i class="bi bi-keyboard me-2"></i>Ohne QR-Code eintragen
+            </button>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public EventCallback<string> OnCodeScanned { get; set; }
+    [Parameter] public EventCallback OnManualEntryRequested { get; set; }
+    [Parameter] public bool IsActive { get; set; }
+
+    private string _videoElementId = $"qr-video-{Guid.NewGuid():N}";
+    private DotNetObjectReference<QrScanner>? _dotNetRef;
+    private bool _isScanning;
+    private bool _flashVisible;
+    private bool _noCameraAccess;
+    private int _scanCount;
+    private string _lastScannedValue = string.Empty;
+    private DateTime _lastScannedAt = DateTime.MinValue;
+    private bool _initialized;
+
+    public override async Task SetParametersAsync(ParameterView parameters)
+    {
+        var previousActive = IsActive;
+        await base.SetParametersAsync(parameters);
+
+        if (_initialized)
+        {
+            if (previousActive && !IsActive && _isScanning)
+                await StopScanner();
+            else if (!previousActive && IsActive && !_isScanning)
+                await StartScanner();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && IsActive)
+        {
+            _initialized = true;
+            await StartScanner();
+        }
+    }
+
+    private async Task StartScanner()
+    {
+        try
+        {
+            _dotNetRef ??= DotNetObjectReference.Create(this);
+            var savedDeviceId = await JS.InvokeAsync<string?>("qrScanner.loadDeviceId");
+            await JS.InvokeVoidAsync("qrScanner.start", _videoElementId, _dotNetRef, savedDeviceId);
+            _isScanning = true;
+            _noCameraAccess = false;
+        }
+        catch
+        {
+            _noCameraAccess = true;
+            _isScanning = false;
+        }
+        StateHasChanged();
+    }
+
+    private async Task StopScanner()
+    {
+        try { await JS.InvokeVoidAsync("qrScanner.stop"); } catch { }
+        _isScanning = false;
+        StateHasChanged();
+    }
+
+    private async Task ToggleScanner()
+    {
+        if (_isScanning) await StopScanner();
+        else await StartScanner();
+    }
+
+    [JSInvokable]
+    public async Task OnQrCodeDetected(string value)
+    {
+        var now = DateTime.Now;
+        if (value == _lastScannedValue && (now - _lastScannedAt).TotalSeconds < 3)
+            return;
+
+        _lastScannedValue = value;
+        _lastScannedAt = now;
+        _scanCount++;
+        _flashVisible = true;
+        StateHasChanged();
+
+        await OnCodeScanned.InvokeAsync(value);
+
+        await Task.Delay(2000);
+        _flashVisible = false;
+        StateHasChanged();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("qrScanner.stop"); } catch { }
+        _dotNetRef?.Dispose();
+    }
+}

@@ -2,8 +2,10 @@
 @using FeuerwehrListen.Services
 @using FeuerwehrListen.Models
 @using FeuerwehrListen.Components.Layout
+@using Microsoft.AspNetCore.Components.Forms
 @inject SettingsService SettingsService
 @inject NavigationManager Navigation
+@inject IWebHostEnvironment Environment
 @rendermode InteractiveServer
 
 <PageTitle>Einstellungen</PageTitle>
@@ -195,6 +197,87 @@
 
         <div class="row mb-4">
             <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-palette me-2"></i>Branding</h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted mb-3">Logo und App-Name f&uuml;r die PWA-Installation und den Seitentitel anpassen.</p>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="brandName">App-Name</label>
+                            <input type="text" class="form-control" id="brandName" @bind="_brandingAppName" placeholder="Feuerwehr Listen" />
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Logo hochladen</label>
+                            <InputFile class="form-control" OnChange="OnLogoFileSelected" accept=".png,.jpg,.jpeg,.svg" />
+                            <small class="text-muted">PNG, JPG oder SVG. Wird als App-Icon und Logo verwendet.</small>
+                            @if (!string.IsNullOrWhiteSpace(_brandingLogoUrl))
+                            {
+                                <div class="mt-2 d-flex align-items-center gap-3">
+                                    <img src="@_brandingLogoUrl" alt="Logo" style="max-height: 64px; max-width: 200px; border-radius: 4px; background: #1a1a2e;" />
+                                    <button type="button" class="btn btn-sm btn-outline-danger" @onclick="RemoveLogo">
+                                        <i class="bi bi-trash"></i> Entfernen
+                                    </button>
+                                </div>
+                            }
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Icon hochladen (PWA)</label>
+                            <InputFile class="form-control" OnChange="OnIconFileSelected" accept=".png" />
+                            <small class="text-muted">PNG, mindestens 512x512px f&uuml;r PWA-Installation.</small>
+                            @if (_iconUploaded)
+                            {
+                                <div class="mt-2">
+                                    <span class="badge bg-success"><i class="bi bi-check"></i> Icon hochgeladen</span>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mb-4">
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-volume-up me-2"></i>Sound &amp; Feedback</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="form-check form-switch mb-3">
+                            <input class="form-check-input" type="checkbox" id="soundEnabled" @bind="_soundEnabled" />
+                            <label class="form-check-label" for="soundEnabled">Sound-Feedback bei QR-Scan</label>
+                        </div>
+                        <small class="text-muted">Best&auml;tigungs- und Fehlert&ouml;ne beim Eintragen per QR-Code oder Numpad.</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mb-4">
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-qr-code me-2"></i>QR-Code Nachbestellung</h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted mb-3">E-Mail-Adresse f&uuml;r Nachbestellungen neuer QR-Code Ausweise.</p>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="qrReorder">Empf&auml;nger f&uuml;r Nachbestellungen</label>
+                            <input type="text" class="form-control" id="qrReorder" @bind="_qrReorderRecipients" placeholder="verwaltung@feuerwehr.de" />
+                            <small class="text-muted">Wenn ein Mitglied &quot;QR-Code nachbestellen&quot; dr&uuml;ckt, wird eine E-Mail an diese Adresse gesendet.</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mb-4">
+            <div class="col-md-8">
                 <button class="btn btn-primary" @onclick="SaveSettings" disabled="@_isSaving">
                     @if (_isSaving)
                     {
@@ -227,6 +310,11 @@
     private string _fireSafetyWatchRecipients = string.Empty;
     private string _defectRecipients = string.Empty;
     private bool _showUnitRecipients;
+    private bool _soundEnabled = true;
+    private string _brandingLogoUrl = string.Empty;
+    private string _brandingAppName = string.Empty;
+    private string _qrReorderRecipients = string.Empty;
+    private bool _iconUploaded;
     private bool _isSaving;
     private bool _showSuccess;
     private bool _showError;
@@ -258,6 +346,11 @@
         _operationRecipients = GetString(settings, SettingKeys.NotificationOperationRecipients, string.Empty);
         _fireSafetyWatchRecipients = GetString(settings, SettingKeys.NotificationFireSafetyWatchRecipients, string.Empty);
         _defectRecipients = GetString(settings, SettingKeys.NotificationDefectRecipients, string.Empty);
+
+        _soundEnabled = GetBool(settings, SettingKeys.SoundEnabled, true);
+        _brandingLogoUrl = GetString(settings, SettingKeys.BrandingLogoUrl, string.Empty);
+        _brandingAppName = GetString(settings, SettingKeys.BrandingAppName, string.Empty);
+        _qrReorderRecipients = GetString(settings, SettingKeys.QrReorderRecipients, string.Empty);
     }
 
     private async Task SaveSettings()
@@ -298,6 +391,14 @@
             await SettingsService.UpdateSettingAsync(SettingKeys.NotificationFireSafetyWatchRecipients, _fireSafetyWatchRecipients.Trim());
             await SettingsService.UpdateSettingAsync(SettingKeys.NotificationDefectRecipients, _defectRecipients.Trim());
 
+            await SettingsService.UpdateSettingAsync(SettingKeys.SoundEnabled, _soundEnabled.ToString().ToLower());
+            await SettingsService.UpdateSettingAsync(SettingKeys.BrandingLogoUrl, _brandingLogoUrl.Trim());
+            await SettingsService.UpdateSettingAsync(SettingKeys.BrandingAppName, _brandingAppName.Trim());
+
+            // Update manifest.json with new app name
+            await UpdateManifestName(_brandingAppName.Trim());
+            await SettingsService.UpdateSettingAsync(SettingKeys.QrReorderRecipients, _qrReorderRecipients.Trim());
+
             _showSuccess = true;
         }
         catch (Exception)
@@ -308,6 +409,92 @@
         {
             _isSaving = false;
         }
+    }
+
+    private async Task UpdateManifestName(string appName)
+    {
+        try
+        {
+            var manifestPath = Path.Combine(Environment.WebRootPath, "manifest.json");
+            if (!File.Exists(manifestPath)) return;
+            var json = await File.ReadAllTextAsync(manifestPath);
+            // Simple replace of the name field
+            json = System.Text.RegularExpressions.Regex.Replace(json, "\"name\":\\s*\"[^\"]*\"",
+                $"\"name\": \"{(string.IsNullOrWhiteSpace(appName) ? "Feuerwehr Listen" : appName)}\"");
+            await File.WriteAllTextAsync(manifestPath, json);
+        }
+        catch { }
+    }
+
+    private async Task OnLogoFileSelected(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file == null || file.Size > 5 * 1024 * 1024) return;
+
+        var ext = Path.GetExtension(file.Name).ToLower();
+        if (ext is not ".png" and not ".jpg" and not ".jpeg" and not ".svg") return;
+
+        var fileName = $"custom-logo{ext}";
+        var filePath = Path.Combine(Environment.WebRootPath, fileName);
+
+        await using var stream = file.OpenReadStream(maxAllowedSize: 5 * 1024 * 1024);
+        await using var fs = new FileStream(filePath, FileMode.Create);
+        await stream.CopyToAsync(fs);
+
+        _brandingLogoUrl = $"/{fileName}";
+        StateHasChanged();
+    }
+
+    private void RemoveLogo()
+    {
+        if (!string.IsNullOrWhiteSpace(_brandingLogoUrl) && _brandingLogoUrl.StartsWith("/custom-logo"))
+        {
+            var filePath = Path.Combine(Environment.WebRootPath, _brandingLogoUrl.TrimStart('/'));
+            if (File.Exists(filePath))
+                File.Delete(filePath);
+        }
+        _brandingLogoUrl = string.Empty;
+        StateHasChanged();
+    }
+
+    private async Task OnIconFileSelected(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file == null || file.Size > 5 * 1024 * 1024) return;
+        if (!file.Name.EndsWith(".png", StringComparison.OrdinalIgnoreCase)) return;
+
+        await using var ms = new MemoryStream();
+        await using var stream = file.OpenReadStream(maxAllowedSize: 5 * 1024 * 1024);
+        await stream.CopyToAsync(ms);
+        var bytes = ms.ToArray();
+
+        // Save as both icon files
+        var path192 = Path.Combine(Environment.WebRootPath, "icon-192.png");
+        var path512 = Path.Combine(Environment.WebRootPath, "icon-512.png");
+        await File.WriteAllBytesAsync(path192, bytes);
+        await File.WriteAllBytesAsync(path512, bytes);
+
+        // Update manifest with correct sizes (Chrome requires exactly 192x192 and 512x512)
+        var manifestPath = Path.Combine(Environment.WebRootPath, "manifest.json");
+        var appName = string.IsNullOrWhiteSpace(_brandingAppName) ? "Feuerwehr Listen" : _brandingAppName;
+        var manifest = "{\n" +
+            "  \"name\": \"" + appName + "\",\n" +
+            "  \"short_name\": \"FW Listen\",\n" +
+            "  \"description\": \"Feuerwehr Anwesenheits- und Einsatzlisten\",\n" +
+            "  \"start_url\": \"/\",\n" +
+            "  \"id\": \"/\",\n" +
+            "  \"display\": \"standalone\",\n" +
+            "  \"background_color\": \"#0d1117\",\n" +
+            "  \"theme_color\": \"#0d1117\",\n" +
+            "  \"orientation\": \"portrait\",\n" +
+            "  \"icons\": [\n" +
+            "    { \"src\": \"icon-192.png\", \"sizes\": \"192x192\", \"type\": \"image/png\", \"purpose\": \"any\" },\n" +
+            "    { \"src\": \"icon-512.png\", \"sizes\": \"512x512\", \"type\": \"image/png\", \"purpose\": \"any\" }\n" +
+            "  ]\n}";
+        await File.WriteAllTextAsync(manifestPath, manifest);
+
+        _iconUploaded = true;
+        StateHasChanged();
     }
 
     private static bool GetBool(Dictionary<string, string> settings, string key, bool defaultValue)

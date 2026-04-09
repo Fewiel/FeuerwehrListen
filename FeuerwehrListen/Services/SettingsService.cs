@@ -52,6 +52,11 @@ public class SettingsService
         return _cache.TryGetValue(moduleKey, out var value) && value.Equals("true", StringComparison.OrdinalIgnoreCase);
     }
 
+    public string? GetSetting(string key)
+    {
+        return _cache.TryGetValue(key, out var value) ? value : null;
+    }
+
     public int GetAutoCloseMinutes(string key)
     {
         // Cache is pre-warmed at startup, so no async needed

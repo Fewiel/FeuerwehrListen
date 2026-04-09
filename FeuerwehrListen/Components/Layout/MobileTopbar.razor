@@ -1,0 +1,114 @@
+@inject SidebarService SidebarService
+@inject SettingsService SettingsService
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+@implements IDisposable
+
+<div class="mobile-topbar">
+    <button class="btn btn-link text-white p-2" @onclick="ToggleSidebar">
+        <i class="bi bi-list" style="font-size: 1.5rem;"></i>
+    </button>
+    <span class="mobile-topbar-title">
+        @{
+            var logo = SettingsService.GetSetting(FeuerwehrListen.Models.SettingKeys.BrandingLogoUrl);
+            var appName = SettingsService.GetSetting(FeuerwehrListen.Models.SettingKeys.BrandingAppName);
+        }
+        @if (!string.IsNullOrWhiteSpace(logo))
+        {
+            <img src="@logo" alt="" style="height: 24px; margin-right: 6px; vertical-align: middle;" />
+        }
+        else
+        {
+            <i class="bi bi-fire me-1"></i>
+        }
+        @(string.IsNullOrWhiteSpace(appName) ? "Feuerwehr Listen" : appName)
+    </span>
+</div>
+
+@if (_sidebarOpen)
+{
+    <div class="mobile-sidebar-backdrop" @onclick="CloseSidebar"></div>
+}
+
+@code {
+    private bool _sidebarOpen = false;
+
+    protected override void OnInitialized()
+    {
+        SidebarService.OnStateChanged += OnStateChanged;
+        Navigation.LocationChanged += OnLocationChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // Sauberer Zustand bei jedem Seitenaufruf
+            await RemovePageClass();
+        }
+    }
+
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        // Bei Navigation Sidebar schließen
+        _sidebarOpen = false;
+        _ = InvokeAsync(async () =>
+        {
+            await RemovePageClass();
+            StateHasChanged();
+        });
+    }
+
+    private async Task ToggleSidebar()
+    {
+        _sidebarOpen = !_sidebarOpen;
+        await UpdatePageClass();
+    }
+
+    private async Task CloseSidebar()
+    {
+        _sidebarOpen = false;
+        await RemovePageClass();
+    }
+
+    private async Task UpdatePageClass()
+    {
+        try
+        {
+            if (_sidebarOpen)
+                await JS.InvokeVoidAsync("eval", "document.querySelector('.page')?.classList.add('mobile-sidebar-open')");
+            else
+                await RemovePageClass();
+        }
+        catch { }
+    }
+
+    private async Task RemovePageClass()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("eval", "document.querySelector('.page')?.classList.remove('mobile-sidebar-open')");
+        }
+        catch { }
+    }
+
+    private async void OnStateChanged()
+    {
+        if (SidebarService.IsCollapsed && _sidebarOpen)
+        {
+            _sidebarOpen = false;
+            await InvokeAsync(async () =>
+            {
+                await RemovePageClass();
+                StateHasChanged();
+            });
+        }
+    }
+
+    public void Dispose()
+    {
+        SidebarService.OnStateChanged -= OnStateChanged;
+        Navigation.LocationChanged -= OnLocationChanged;
+    }
+}

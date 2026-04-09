@@ -22,6 +22,12 @@
                         <button type="button" class="numpad-btn numpad-btn-submit" @onclick="SubmitInput"><i class="bi bi-check-lg"></i></button>
                     </div>
                     <div class="d-grid gap-2 mt-3">
+                        @if (OnReorderQrTag.HasDelegate)
+                        {
+                            <button type="button" class="btn btn-outline-warning" @onclick="SubmitAndReorder">
+                                <i class="bi bi-qr-code me-2"></i>Eintragen &amp; QR-Tag nachbestellen
+                            </button>
+                        }
                         <button type="button" class="btn btn-outline-info" @onclick="SearchByName">Nach Name suchen</button>
                         <button type="button" class="btn btn-outline-secondary" @onclick="Close">Abbrechen</button>
                     </div>
@@ -70,7 +76,7 @@
     .numpad-btn-clear {
         color: #ffc107;
     }
-    
+
     .numpad-btn-submit {
         color: #198754;
     }
@@ -79,6 +85,7 @@
 @code {
     [Parameter] public EventCallback<string> OnInput { get; set; }
     [Parameter] public EventCallback OnSearchByName { get; set; }
+    [Parameter] public EventCallback<string> OnReorderQrTag { get; set; }
 
     private bool _show;
     private string _input = "";
@@ -91,6 +98,14 @@
     private void SubmitInput()
     {
         OnInput.InvokeAsync(_input);
+        Close();
+    }
+
+    private async Task SubmitAndReorder()
+    {
+        var input = _input;
+        await OnInput.InvokeAsync(input);
+        await OnReorderQrTag.InvokeAsync(input);
         Close();
     }
 

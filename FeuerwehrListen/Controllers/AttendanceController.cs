@@ -135,7 +135,7 @@ public class AttendanceController : ControllerBase
         var targetListId = listId;
         if (sourceList.UnitNumber.HasValue)
         {
-            var resolvedUnit = _unitAssignmentService.ResolveUnitNumber(member.MemberNumber);
+            var resolvedUnit = _unitAssignmentService.ResolveUnitNumber(member);
             if (resolvedUnit.HasValue && resolvedUnit.Value != sourceList.UnitNumber.Value)
             {
                 var unitList = await _listRepo.GetOpenByUnitNumberAsync(resolvedUnit.Value);

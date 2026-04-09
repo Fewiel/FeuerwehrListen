@@ -15,6 +15,8 @@
 @inject KeywordRepository KeywordRepo
 @inject PersonalRequirementsService RequirementsService
 @inject ListNotificationService ListNotificationService
+@inject EmailSenderService EmailSender
+@inject SettingsService SettingsService
 @rendermode InteractiveServer
 
 <PageTitle>Einsatzliste - @_list?.OperationNumber</PageTitle>
@@ -22,29 +24,13 @@
 @if (_list != null)
 {
     <div class="container mt-4">
-        <div class="row mb-3">
-            <div class="col text-end">
-                @if (_list.Status == ListStatus.Open)
-                {
-                    <button class="btn btn-warning me-2" @onclick="CloseList">Liste abschließen</button>
-                }
-                else
-                {
-                    <span class="badge bg-secondary fs-5 me-2">Abgeschlossen</span>
-                }
-                <button class="btn btn-outline-primary me-2" @onclick="() => _editOpen = true">
-                    <i class="bi bi-pencil-square"></i> Einsatz bearbeiten
-                </button>
-                <button class="btn btn-primary" @onclick="ExportPdf">
-                    <i class="bi bi-file-earmark-pdf"></i> PDF Export
-                </button>
-            </div>
-        </div>
-        
-        <div class="row mb-4">
-            <div class="col">
-                <h1>Einsatz @_list.OperationNumber</h1>
-                <p class="lead">Stichwort: @_list.Keyword</p>
+        <div class="mb-4">
+            <h1>Einsatz @_list.OperationNumber</h1>
+            <p class="lead">Stichwort: @_list.Keyword</p>
+            @if (_list.Status != ListStatus.Open)
+            {
+                <div class="mt-2"><span class="badge bg-secondary fs-5">Abgeschlossen</span></div>
+            }
                 
                 @if (_requirementsValidation != null && _list.Status != ListStatus.Open)
                 {
@@ -85,23 +71,22 @@
                     </div>
                 }
                 
-                <p>Alarmierung: @_list.AlertTime.ToString("dd.MM.yyyy HH:mm")</p>
-                <small class="text-muted">Erstellt: @_list.CreatedAt.ToString("dd.MM.yyyy HH:mm")</small>
-            </div>
+            <p>Alarmierung: @_list.AlertTime.ToString("dd.MM.yyyy HH:mm")</p>
+            <small class="text-muted">Erstellt: @_list.CreatedAt.ToString("dd.MM.yyyy HH:mm")</small>
         </div>
 
-        @if (_list.Status == ListStatus.Open)
+        <QrScanner IsActive="@(_list?.Status == ListStatus.Open)" OnCodeScanned="HandleQrCodeScanned" OnManualEntryRequested="ShowNumpad" />
+
+        @if (_confirmationVisible)
         {
-            <div class="row mb-4">
-                <div class="col">
-                    <button class="btn btn-primary btn-lg" @onclick="ShowNumpad">
-                        <i class="bi bi-plus-circle"></i> Einsatzkraft eintragen
-                    </button>
-                </div>
+            <div class="entry-confirmation-overlay">
+                <i class="bi bi-check-circle-fill"></i>
+                <div class="entry-confirmation-name">@_confirmationName</div>
+                <small class="text-muted">eingetragen</small>
             </div>
         }
 
-        <Numpad @ref="_numpad" OnInput="HandleNumpadInput" OnSearchByName="ShowMemberSelectionModal" />
+        <Numpad @ref="_numpad" OnInput="HandleNumpadInput" OnSearchByName="ShowMemberSelectionModal" OnReorderQrTag="HandleReorderQrTag" />
         <MemberSelectionModal @ref="_memberSelectionModal" OnMemberSelected="HandleMemberSelection" />
 
         <VehicleSelectionModal Vehicles="_vehicles" 
@@ -264,10 +249,31 @@
             </div>
         </div>
 
-        <div class="row mt-3">
-            <div class="col">
-                <button class="btn btn-secondary" @onclick='() => Navigation.NavigateTo("/")'>Zurück zur Übersicht</button>
+        @if (_list.Status == ListStatus.Open)
+        {
+            <div class="d-grid gap-2 mt-4" style="max-width: 500px;">
+                <button class="btn btn-outline-primary btn-lg" @onclick="() => _editOpen = true">
+                    <i class="bi bi-pencil-square me-2"></i>Einsatz bearbeiten
+                </button>
+                <button class="btn btn-warning btn-lg" @onclick="CloseList">
+                    <i class="bi bi-lock me-2"></i>Liste abschließen
+                </button>
+                <button class="btn btn-primary btn-lg" @onclick="ExportPdf">
+                    <i class="bi bi-file-earmark-pdf me-2"></i>PDF Export
+                </button>
             </div>
+        }
+        else
+        {
+            <div class="d-grid gap-2 mt-4" style="max-width: 500px;">
+                <button class="btn btn-primary btn-lg" @onclick="ExportPdf">
+                    <i class="bi bi-file-earmark-pdf me-2"></i>PDF Export
+                </button>
+            </div>
+        }
+
+        <div class="mt-3 mb-4">
+            <button class="btn btn-secondary" @onclick='() => Navigation.NavigateTo("/")'>Zurück zur Übersicht</button>
         </div>
     </div>
 }
@@ -309,6 +315,8 @@
     private EntryOverviewModal? _overviewModal;
     private Numpad? _numpad;
     private MemberSelectionModal? _memberSelectionModal;
+    private bool _confirmationVisible;
+    private string _confirmationName = "";
     
     private bool CanSubmit => _list?.Status == ListStatus.Open
         && _selectedMember != null
@@ -364,6 +372,15 @@
         if (_list?.Status != ListStatus.Open || _selectedMember == null)
             return;
 
+        // Duplikat-Check
+        if (_entries.Any(e => e.NameOrId.Contains($"({_selectedMember.MemberNumber})")))
+        {
+            _errorMessage = $"{_selectedMember.FirstName} {_selectedMember.LastName} ist bereits eingetragen!";
+            try { await JS.InvokeVoidAsync("playSound", "error"); } catch { }
+            _selectedMember = null;
+            return;
+        }
+
         try
         {
             var displayName = $"{_selectedMember.FirstName} {_selectedMember.LastName} ({_selectedMember.MemberNumber})";
@@ -385,6 +402,17 @@
             {
                 await EntryFunctionRepo.SetFunctionsForEntryAsync(newId, _selectedFunctionIds);
             }
+
+            // Sound + Bestätigung
+            try { await JS.InvokeVoidAsync("playSound", "success"); } catch { }
+            _confirmationName = $"{_selectedMember.FirstName} {_selectedMember.LastName}";
+            _confirmationVisible = true;
+            StateHasChanged();
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(2000);
+                await InvokeAsync(() => { _confirmationVisible = false; StateHasChanged(); });
+            });
 
             _selectedMember = null;
             _selectedVehicle = null;
@@ -719,6 +747,21 @@
         return GetOsmEmbedUrl(address);
     }
 
+    private async Task HandleReorderQrTag(string memberNumber)
+    {
+        var settings = await SettingsService.GetAllSettingsAsync();
+        settings.TryGetValue(SettingKeys.QrReorderRecipients, out var recipients);
+        if (string.IsNullOrWhiteSpace(recipients)) return;
+        var member = await MemberRepo.GetByMemberNumberAsync(memberNumber);
+        var name = member != null ? $"{member.FirstName} {member.LastName} ({member.MemberNumber})" : memberNumber;
+        try
+        {
+            await EmailSender.SendAsync(new[] { recipients }, "QR-Tag Nachbestellung",
+                $"Nachbestellung eines QR-Tags für:\n\n{name}\n\nBitte neuen QR-Code Ausweis erstellen.");
+        }
+        catch { }
+    }
+
     private void ShowNumpad()
     {
         _numpad?.Show();
@@ -727,6 +770,11 @@
     private void ShowMemberSelectionModal()
     {
         _memberSelectionModal?.Show();
+    }
+
+    private async Task HandleQrCodeScanned(string value)
+    {
+        await HandleNumpadInput(value.Trim());
     }
 
     private async Task HandleNumpadInput(string input)
@@ -740,7 +788,7 @@
                 return;
             }
         }
-        
+
         var members = await MemberRepo.SearchAsync(input);
         if (members.Count == 1)
         {

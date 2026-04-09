@@ -22,8 +22,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends libgdiplus libc
 WORKDIR /app
 COPY --from=build /app/publish .
 
-# Expose the port the app runs on
+# Expose HTTPS port
 EXPOSE 8080
+
+# Configure Kestrel for HTTPS on port 8080
+ENV ASPNETCORE_URLS=https://+:8080
+ENV ASPNETCORE_HTTPS_PORTS=8080
 
 # Define the entry point for the container
 ENTRYPOINT ["dotnet", "FeuerwehrListen.dll"]

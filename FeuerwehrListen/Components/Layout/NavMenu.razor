@@ -7,7 +7,19 @@
 <div class="sidebar @(SidebarService.IsCollapsed ? "collapsed" : "")">
     <div class="sidebar-header d-flex align-items-center justify-content-between">
         <h4 class="px-3 py-3 mb-0 @(SidebarService.IsCollapsed ? "d-none" : "")">
-            <i class="bi bi-fire me-2"></i>Feuerwehr Listen
+            @{
+                var navLogo = SettingsService.GetSetting(SettingKeys.BrandingLogoUrl);
+                var navAppName = SettingsService.GetSetting(SettingKeys.BrandingAppName);
+            }
+            @if (!string.IsNullOrWhiteSpace(navLogo))
+            {
+                <img src="@navLogo" alt="" style="height: 22px; margin-right: 8px; vertical-align: middle;" />
+            }
+            else
+            {
+                <i class="bi bi-fire me-2"></i>
+            }
+            @(string.IsNullOrWhiteSpace(navAppName) ? "Feuerwehr Listen" : navAppName)
         </h4>
         <button class="btn btn-link text-white p-2" @onclick="ToggleCollapse">
             <i class="bi @(SidebarService.IsCollapsed ? "bi-chevron-right" : "bi-chevron-left")"></i>
@@ -195,6 +207,13 @@
                 }
 
                 <hr class="my-3 mx-3"/>
+
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="camera-settings" title="@(SidebarService.IsCollapsed ? "Kamera" : "")">
+                        <i class="bi bi-camera-video @(SidebarService.IsCollapsed ? "" : "me-2")"></i>
+                        <span class="@(SidebarService.IsCollapsed ? "d-none" : "")">Kamera-Einstellungen</span>
+                    </NavLink>
+                </div>
 
                 <div class="nav-item px-3">
                     <NavLink class="nav-link" href="change-password" title="@(SidebarService.IsCollapsed ? "Passwort ändern" : "")">

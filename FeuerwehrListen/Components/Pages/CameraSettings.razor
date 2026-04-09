@@ -1,0 +1,133 @@
+@page "/camera-settings"
+@using Microsoft.JSInterop
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<div class="container">
+    <div class="content">
+        <h1><i class="bi bi-camera-video me-2"></i>Kamera-Einstellungen</h1>
+        <p class="text-muted">Wähle die Kamera für den QR-Code Scanner aus. Die Auswahl wird in diesem Browser gespeichert.</p>
+
+        <div class="row">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>Kamera auswählen</h5>
+                    </div>
+                    <div class="card-body">
+                        @if (_cameras == null)
+                        {
+                            <p class="text-muted">Kameras werden geladen...</p>
+                        }
+                        else if (_cameras.Count == 0)
+                        {
+                            <div class="alert alert-warning">
+                                <i class="bi bi-exclamation-triangle me-2"></i>
+                                Keine Kameras gefunden. Bitte erlaube den Kamerazugriff im Browser.
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="mb-3">
+                                <label class="form-label">Kamera</label>
+                                <select class="form-select" value="@_selectedDeviceId" @onchange="OnCameraChanged">
+                                    <option value="">Standard-Kamera</option>
+                                    @foreach (var cam in _cameras)
+                                    {
+                                        <option value="@cam.DeviceId">@cam.Label</option>
+                                    }
+                                </select>
+                            </div>
+
+                            <button class="btn btn-primary" @onclick="SaveSettings">
+                                <i class="bi bi-check-lg me-2"></i>Speichern
+                            </button>
+
+                            @if (_saved)
+                            {
+                                <span class="badge bg-success ms-2">Gespeichert!</span>
+                            }
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>Vorschau</h5>
+                    </div>
+                    <div class="card-body p-0">
+                        <video id="@_previewVideoId" style="width: 100%; display: block; border-radius: 0 0 4px 4px;" autoplay muted playsinline></video>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@implements IAsyncDisposable
+
+@code {
+    private List<CameraDevice>? _cameras;
+    private string _selectedDeviceId = "";
+    private string _previewVideoId = $"camera-preview-{Guid.NewGuid():N}";
+    private bool _saved;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                _cameras = await JS.InvokeAsync<List<CameraDevice>>("qrScanner.listCameras");
+                var savedId = await JS.InvokeAsync<string?>("qrScanner.loadDeviceId");
+                _selectedDeviceId = savedId ?? "";
+                StateHasChanged();
+
+                await Task.Delay(100);
+                await StartPreview();
+            }
+            catch
+            {
+                _cameras = new List<CameraDevice>();
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task OnCameraChanged(ChangeEventArgs e)
+    {
+        _selectedDeviceId = e.Value?.ToString() ?? "";
+        _saved = false;
+        await StartPreview();
+    }
+
+    private async Task StartPreview()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("qrScanner.stopPreview", _previewVideoId);
+            await JS.InvokeVoidAsync("qrScanner.startPreview", _previewVideoId, string.IsNullOrEmpty(_selectedDeviceId) ? null : _selectedDeviceId);
+        }
+        catch { }
+    }
+
+    private async Task SaveSettings()
+    {
+        await JS.InvokeVoidAsync("qrScanner.saveDeviceId", _selectedDeviceId);
+        _saved = true;
+        StateHasChanged();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("qrScanner.stopPreview", _previewVideoId);
+        }
+        catch { }
+    }
+
+    private record CameraDevice(string DeviceId, string Label);
+}

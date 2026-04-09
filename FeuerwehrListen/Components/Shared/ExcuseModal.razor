@@ -106,7 +106,7 @@
         if (UnitNumber.HasValue)
         {
             _members = allMembers.Where(m =>
-                UnitAssignmentService.ResolveUnitNumber(m.MemberNumber) == UnitNumber.Value).ToList();
+                UnitAssignmentService.ResolveUnitNumber(m) == UnitNumber.Value).ToList();
         }
         else
         {

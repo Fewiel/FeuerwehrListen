@@ -1,10 +1,13 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="de">
 
 <head>
     <meta charset="utf-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <meta name="theme-color" content="#0d1117"/>
     <link rel="icon" type="image/png" href="favicon.png"/>
+    <link rel="manifest" href="manifest.json"/>
+    <link rel="apple-touch-icon" href="favicon.png"/>
     <base href="/"/>
     <link rel="stylesheet" href="bootstrap/bootstrap.min.css"/>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css"/>
@@ -15,7 +18,67 @@
 
 <body>
     <Routes />
-    <script src="_framework/blazor.web.js"></script>
+    <script src="https://fastly.jsdelivr.net/npm/barcode-detector@@3/dist/iife/polyfill.min.js"></script>
+    <script src="qr-scanner.js"></script>
+    <script src="_framework/blazor.web.js" autostart="false"></script>
+    <script>
+        // Sound feedback helper
+        window.playSound = function(type) {
+            try {
+                var audio = new Audio('/sounds/' + type + '.wav');
+                audio.volume = 0.5;
+                audio.play().catch(function() {});
+            } catch(e) {}
+        };
+
+        // Custom Blazor start with reconnect handling
+        Blazor.start({
+            circuit: {
+                reconnectionOptions: {
+                    maxRetries: 30,
+                    retryIntervalMilliseconds: function(retryNumber) {
+                        var delays = [500, 1000, 2000, 5000, 10000];
+                        return delays[Math.min(retryNumber, delays.length - 1)];
+                    }
+                },
+                reconnectionHandler: {
+                    onConnectionDown: function() {
+                        var banner = document.getElementById('reconnect-banner');
+                        if (banner) {
+                            banner.className = 'reconnect-banner reconnect-down';
+                            banner.innerHTML = '<i class="bi bi-wifi-off"></i> Verbindung unterbrochen — Reconnect...';
+                        }
+                    },
+                    onConnectionUp: function() {
+                        var banner = document.getElementById('reconnect-banner');
+                        if (banner) {
+                            banner.className = 'reconnect-banner reconnect-up';
+                            banner.innerHTML = '<i class="bi bi-wifi"></i> Wieder verbunden';
+                            setTimeout(function() {
+                                banner.className = 'reconnect-banner reconnect-hidden';
+                            }, 3000);
+                        }
+                    }
+                }
+            }
+        });
+
+        // PWA Service Worker registration
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/service-worker.js', { updateViaCache: 'none' })
+                .then(function(reg) {
+                    reg.update();
+                    console.log('SW registered, scope:', reg.scope);
+                })
+                .catch(function(e) { console.error('SW registration failed:', e); });
+        }
+
+        // PWA install prompt capture
+        window.addEventListener('beforeinstallprompt', function(e) {
+            console.log('PWA: beforeinstallprompt fired');
+            window._pwaInstallPrompt = e;
+        });
+    </script>
 </body>
 
 </html>

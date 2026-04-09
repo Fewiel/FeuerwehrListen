@@ -24,6 +24,11 @@ public static class SettingKeys
     public const string SmtpFromAddress = "Smtp.FromAddress";
     public const string SmtpUseSsl = "Smtp.UseSsl";
 
+    public const string SoundEnabled = "Sound.Enabled";
+    public const string BrandingLogoUrl = "Branding.LogoUrl";
+    public const string BrandingAppName = "Branding.AppName";
+    public const string QrReorderRecipients = "Notifications.QrReorderRecipients";
+
     public static string GetAttendanceRecipientsKey(int unitNumber) =>
         $"{NotificationAttendanceRecipientsPrefix}{unitNumber}";
 }

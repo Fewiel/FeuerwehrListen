@@ -1,0 +1,70 @@
+@using FeuerwehrListen.Models
+
+@if (_visible)
+{
+    <div class="modal fade show" style="display: block; background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content bg-dark text-light border-secondary">
+                <div class="modal-header border-secondary">
+                    <h5 class="modal-title">Position auswählen</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="Hide"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted mb-3">QR-Code erkannt. In welche Position soll das Mitglied eingetragen werden?</p>
+                    @if (_openSlots.Count == 0)
+                    {
+                        <div class="alert alert-warning">Alle Positionen sind bereits besetzt.</div>
+                    }
+                    else
+                    {
+                        <div class="list-group">
+                            @foreach (var req in _openSlots)
+                            {
+                                <button class="list-group-item list-group-item-action bg-dark text-light border-secondary d-flex justify-content-between align-items-center"
+                                        @onclick="() => SelectRequirement(req.Id)">
+                                    <strong>@(req.FunctionDef?.Name ?? "Trupp")</strong>
+                                    @if (req.Vehicle != null)
+                                    {
+                                        <span class="badge bg-primary">@req.Vehicle.Name</span>
+                                    }
+                                </button>
+                            }
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer border-secondary">
+                    <button class="btn btn-secondary" @onclick="Hide">Abbrechen</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public List<FireSafetyWatchRequirement> Requirements { get; set; } = new();
+    [Parameter] public EventCallback<int> OnRequirementSelected { get; set; }
+
+    private bool _visible;
+    private List<FireSafetyWatchRequirement> _openSlots = new();
+
+    public void Show(List<FireSafetyWatchEntry> existingEntries)
+    {
+        _openSlots = Requirements
+            .Where(r => existingEntries.Count(e => e.RequirementId == r.Id) < r.Amount)
+            .ToList();
+        _visible = true;
+        StateHasChanged();
+    }
+
+    public void Hide()
+    {
+        _visible = false;
+        StateHasChanged();
+    }
+
+    private async Task SelectRequirement(int id)
+    {
+        Hide();
+        await OnRequirementSelected.InvokeAsync(id);
+    }
+}
