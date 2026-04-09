@@ -14,6 +14,7 @@
 @inject IJSRuntime JS
 @inject EmailSenderService EmailSender
 @inject SettingsService SettingsService
+@inject AuthenticationService AuthService
 @rendermode InteractiveServer
 
 <PageTitle>Details Brandsicherheitswache</PageTitle>
@@ -29,12 +30,10 @@
             <h1>@_watch.Name</h1>
             <p class="lead text-muted">@_watch.Location | @_watch.EventDateTime.ToString("dd.MM.yyyy HH:mm 'Uhr'")</p>
             <div class="d-flex flex-wrap gap-2">
-                <AuthorizeView Roles="Admin">
-                    @if (_watch.Status == ListStatus.Open)
-                    {
-                        <button class="btn btn-warning" @onclick="CloseWatch">Wache abschließen</button>
-                    }
-                </AuthorizeView>
+                @if (AuthService.IsAuthenticated && _watch.Status == ListStatus.Open)
+                {
+                    <button class="btn btn-warning" @onclick="CloseWatch">Wache abschließen</button>
+                }
                 <a href="/firesafetywatches" class="btn btn-secondary">Zurück zur Übersicht</a>
             </div>
         </div>
@@ -107,6 +106,7 @@
 <Numpad @ref="_numpad" OnInput="HandleNumpadInput" OnSearchByName="ShowMemberSelectionModal" OnReorderQrTag="HandleReorderQrTag" />
 <MemberSelectionModal @ref="_memberSelectionModal" OnMemberSelected="HandleMemberSelected" />
 <QrRequirementSelectionModal @ref="_qrReqModal" Requirements="_requirements" OnRequirementSelected="HandleQrRequirementSelected" />
+<QuickActionsModal @ref="_quickActionsModal" ListType="QuickActionsModal.QuickActionListType.FireSafetyWatch" OnActionSelected="HandleQuickAction" />
 
 @code {
     [Parameter]
@@ -120,6 +120,7 @@
     private Numpad _numpad = null!;
     private int _selectedRequirementId;
     private QrRequirementSelectionModal? _qrReqModal;
+    private QuickActionsModal? _quickActionsModal;
     private Member? _pendingQrMember;
     private bool _confirmationVisible;
     private string _confirmationName = "";
@@ -145,6 +146,15 @@
     private async Task HandleQrCodeScanned(string value)
     {
         var input = value.Trim();
+
+        // Erst prüfen: Ist das ein User-Auth-Code?
+        var user = await AuthService.FindByQrCodeAsync(input);
+        if (user != null)
+        {
+            _quickActionsModal?.Show($"{user.FirstName} {user.LastName}");
+            return;
+        }
+
         Member? member = null;
         if (int.TryParse(input, out _))
             member = await MemberRepo.GetByMemberNumberAsync(input);
@@ -202,6 +212,14 @@
         else
         {
             _memberSelectionModal.Show(members);
+        }
+    }
+
+    private async Task HandleQuickAction(QuickActionsModal.QuickAction action)
+    {
+        if (action == QuickActionsModal.QuickAction.CloseList)
+        {
+            await CloseWatch();
         }
     }
 

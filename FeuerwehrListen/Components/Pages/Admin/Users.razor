@@ -2,6 +2,7 @@
 @using FeuerwehrListen.Models
 @using FeuerwehrListen.Repositories
 @using FeuerwehrListen.Components.Layout
+@using FeuerwehrListen.Components.Shared
 @using FeuerwehrListen.Services
 @inject UserRepository UserRepo
 @inject EmailSenderService EmailService
@@ -38,6 +39,74 @@
                     <hr>
                     <p class="mb-0"><small>⚠️ Bitte teilen Sie dem Benutzer dieses Passwort mit. Es wird nicht erneut angezeigt!</small></p>
                     <button type="button" class="btn-close" @onclick="() => _showGeneratedPassword = false"></button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (_showEditForm && _editingUser != null)
+    {
+        <div class="row mb-4">
+            <div class="col-md-8 offset-md-2">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">Benutzer bearbeiten: @_editingUser.Username</h5>
+
+                        <div class="mb-3">
+                            <label class="form-label">QR-Auth-Code</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" @bind="_editingUser.QrAuthCode" placeholder="QR-Code scannen oder manuell eintragen" />
+                                <button class="btn btn-outline-info" type="button" @onclick="() => _showQrScannerModal = true">
+                                    <i class="bi bi-qr-code-scan"></i> Scannen
+                                </button>
+                                @if (!string.IsNullOrWhiteSpace(_editingUser.QrAuthCode))
+                                {
+                                    <button class="btn btn-outline-danger" type="button" @onclick="() => _editingUser.QrAuthCode = null">
+                                        <i class="bi bi-trash"></i> Entfernen
+                                    </button>
+                                }
+                            </div>
+                            <small class="text-muted">Der QR-Code ersetzt Username/Passwort beim Login und ermöglicht Quick Actions in Listen.</small>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Rolle</label>
+                            <select class="form-select" @bind="_editingUser.Role">
+                                <option value="@UserRole.User">Benutzer</option>
+                                <option value="@UserRole.Admin">Administrator</option>
+                            </select>
+                        </div>
+
+                        @if (_editingUser.Role == UserRole.Admin)
+                        {
+                            <div class="mb-3">
+                                <label class="form-label">Admin-PIN (2. Faktor bei QR-Login)</label>
+                                <input type="text" class="form-control" @bind="_editingUser.AdminPin" placeholder="z.B. 1234" maxlength="10" />
+                                <small class="text-muted">Wird bei QR-Login als zus&auml;tzliche Sicherheit abgefragt. Leer lassen um 2FA zu deaktivieren.</small>
+                            </div>
+                        }
+
+                        <button class="btn btn-primary me-2" @onclick="SaveEdit">Speichern</button>
+                        <button class="btn btn-secondary" @onclick="CancelEdit">Abbrechen</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (_showQrScannerModal)
+    {
+        <div class="modal fade show" style="display: block; background-color: rgba(0,0,0,0.5);">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content bg-dark text-light border-secondary">
+                    <div class="modal-header border-secondary">
+                        <h5 class="modal-title">QR-Code scannen</h5>
+                        <button type="button" class="btn-close btn-close-white" @onclick="() => _showQrScannerModal = false"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p class="text-muted">Halte den QR-Code in die Kamera. Der Code wird automatisch übernommen.</p>
+                        <QrScanner IsActive="true" OnCodeScanned="HandleQrCodeScanned" />
+                    </div>
                 </div>
             </div>
         </div>
@@ -131,6 +200,11 @@
                                             </td>
                                             <td>@user.CreatedAt.ToString("dd.MM.yyyy")</td>
                                             <td>
+                                                @if (!string.IsNullOrWhiteSpace(user.QrAuthCode))
+                                                {
+                                                    <span class="badge bg-info me-1" title="QR-Auth-Code gesetzt"><i class="bi bi-qr-code"></i></span>
+                                                }
+                                                <button class="btn btn-sm btn-outline-primary me-1" @onclick="() => StartEdit(user)">Bearbeiten</button>
                                                 <button class="btn btn-sm btn-danger" @onclick="() => DeleteUser(user.Id)">Löschen</button>
                                             </td>
                                         </tr>
@@ -150,7 +224,10 @@
 @code {
     private List<User> _users = new();
     private bool _showAddForm = false;
+    private bool _showEditForm = false;
+    private bool _showQrScannerModal = false;
     private bool _showGeneratedPassword = false;
+    private User? _editingUser;
     private string _username = string.Empty;
     private string _firstName = string.Empty;
     private string _lastName = string.Empty;
@@ -246,6 +323,54 @@
     {
         await UserRepo.DeleteAsync(id);
         await LoadUsers();
+    }
+
+    private void StartEdit(User user)
+    {
+        _editingUser = new User
+        {
+            Id = user.Id,
+            Username = user.Username,
+            PasswordHash = user.PasswordHash,
+            FirstName = user.FirstName,
+            LastName = user.LastName,
+            Email = user.Email,
+            Role = user.Role,
+            QrAuthCode = user.QrAuthCode,
+            AdminPin = user.AdminPin,
+            CreatedAt = user.CreatedAt
+        };
+        _showEditForm = true;
+        _showAddForm = false;
+    }
+
+    private async Task SaveEdit()
+    {
+        if (_editingUser == null) return;
+        if (string.IsNullOrWhiteSpace(_editingUser.QrAuthCode))
+            _editingUser.QrAuthCode = null;
+        if (string.IsNullOrWhiteSpace(_editingUser.AdminPin) || _editingUser.Role != UserRole.Admin)
+            _editingUser.AdminPin = null;
+        await UserRepo.UpdateAsync(_editingUser);
+        _showEditForm = false;
+        _editingUser = null;
+        await LoadUsers();
+    }
+
+    private void CancelEdit()
+    {
+        _showEditForm = false;
+        _editingUser = null;
+    }
+
+    private void HandleQrCodeScanned(string code)
+    {
+        if (_editingUser != null)
+        {
+            _editingUser.QrAuthCode = code.Trim();
+            _showQrScannerModal = false;
+            StateHasChanged();
+        }
     }
 }
 

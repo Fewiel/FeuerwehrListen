@@ -1,0 +1,82 @@
+@using FeuerwehrListen.Models
+
+@if (_visible)
+{
+    <div class="modal fade show" style="display: block; background-color: rgba(0,0,0,0.5);" @onclick="Hide">
+        <div class="modal-dialog modal-dialog-centered" @onclick:stopPropagation="true">
+            <div class="modal-content bg-dark text-light border-secondary">
+                <div class="modal-header border-secondary">
+                    <h5 class="modal-title">
+                        <i class="bi bi-shield-check me-2"></i>Admin-Aktionen
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="Hide"></button>
+                </div>
+                <div class="modal-body">
+                    @if (!string.IsNullOrWhiteSpace(_userName))
+                    {
+                        <p class="text-muted mb-3">Angemeldet als: <strong>@_userName</strong></p>
+                    }
+                    <div class="d-grid gap-2">
+                        @if (ListType == QuickActionListType.Attendance)
+                        {
+                            <button class="btn btn-outline-warning btn-lg" @onclick="() => TriggerAction(QuickAction.AddExcused)">
+                                <i class="bi bi-person-exclamation me-2"></i>Als Entschuldigt eintragen
+                            </button>
+                            <button class="btn btn-warning btn-lg" @onclick="() => TriggerAction(QuickAction.CloseList)">
+                                <i class="bi bi-lock me-2"></i>Liste abschließen
+                            </button>
+                        }
+                        else if (ListType == QuickActionListType.Operation)
+                        {
+                            <button class="btn btn-outline-primary btn-lg" @onclick="() => TriggerAction(QuickAction.EditEntries)">
+                                <i class="bi bi-pencil-square me-2"></i>Einträge bearbeiten
+                            </button>
+                            <button class="btn btn-warning btn-lg" @onclick="() => TriggerAction(QuickAction.CloseList)">
+                                <i class="bi bi-lock me-2"></i>Liste abschließen
+                            </button>
+                        }
+                        else if (ListType == QuickActionListType.FireSafetyWatch)
+                        {
+                            <button class="btn btn-warning btn-lg" @onclick="() => TriggerAction(QuickAction.CloseList)">
+                                <i class="bi bi-lock me-2"></i>Wache abschließen
+                            </button>
+                        }
+                    </div>
+                </div>
+                <div class="modal-footer border-secondary">
+                    <button class="btn btn-secondary" @onclick="Hide">Abbrechen</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    public enum QuickActionListType { Attendance, Operation, FireSafetyWatch }
+    public enum QuickAction { AddExcused, CloseList, EditEntries }
+
+    [Parameter] public QuickActionListType ListType { get; set; }
+    [Parameter] public EventCallback<QuickAction> OnActionSelected { get; set; }
+
+    private bool _visible;
+    private string _userName = string.Empty;
+
+    public void Show(string userName)
+    {
+        _userName = userName;
+        _visible = true;
+        StateHasChanged();
+    }
+
+    public void Hide()
+    {
+        _visible = false;
+        StateHasChanged();
+    }
+
+    private async Task TriggerAction(QuickAction action)
+    {
+        Hide();
+        await OnActionSelected.InvokeAsync(action);
+    }
+}

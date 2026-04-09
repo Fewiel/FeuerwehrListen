@@ -28,6 +28,12 @@ public class UserRepository
         return await _db.Users.FirstOrDefaultAsync(x => x.Username == username);
     }
 
+    public async Task<User?> GetByQrAuthCodeAsync(string code)
+    {
+        if (string.IsNullOrWhiteSpace(code)) return null;
+        return await _db.Users.FirstOrDefaultAsync(x => x.QrAuthCode == code);
+    }
+
     public async Task<int> CreateAsync(User user)
     {
         return await _db.InsertWithInt32IdentityAsync(user);

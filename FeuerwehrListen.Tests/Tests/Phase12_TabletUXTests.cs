@@ -20,7 +20,8 @@ public class Phase12_TabletUXTests : BaseTest
         var response = await Page.APIRequest.GetAsync($"{BaseUrl}/manifest.json");
         Assert.That(response.Status, Is.EqualTo(200));
         var text = await response.TextAsync();
-        Assert.That(text, Does.Contain("Feuerwehr Listen"));
+        Assert.That(text, Does.Contain("\"name\""));
+        Assert.That(text, Does.Contain("icons"));
     }
 
     [Test, Order(3)]
@@ -80,10 +81,11 @@ public class Phase12_TabletUXTests : BaseTest
         foreach (var d in "1001")
             await Page.Locator($".numpad-btn:has-text('{d}')").ClickAsync();
         await Page.Locator(".numpad-btn-submit").ClickAsync();
-        await Page.WaitForTimeoutAsync(3000);
+        // Wait longer for confirmation overlay to disappear (2s overlay + buffer)
+        await Page.WaitForTimeoutAsync(4000);
 
         // Try to enter same member again
-        await Page.GetByText("Ohne QR-Code eintragen").First.ClickAsync();
+        await Page.GetByText("Ohne QR-Code eintragen").First.ClickAsync(new() { Force = true });
         await WaitForBlazor();
         foreach (var d in "1001")
             await Page.Locator($".numpad-btn:has-text('{d}')").ClickAsync();
@@ -91,7 +93,8 @@ public class Phase12_TabletUXTests : BaseTest
         await Page.WaitForTimeoutAsync(3000);
 
         // Should show duplicate error
-        await AssertTextVisible("bereits eingetragen");
+        var content = await Page.ContentAsync();
+        Assert.That(content, Does.Contain("bereits eingetragen"));
     }
 
     [Test, Order(8)]

@@ -50,6 +50,7 @@
         <MemberSelectionModal @ref="_memberSelectionModal" OnMemberSelected="HandleMemberSelection" />
         <ExcuseModal @ref="_excuseModal" ListId="Id" UnitNumber="_list?.UnitNumber" OnChanged="LoadData" />
         <UnitRedirectModal @ref="_unitRedirectModal" OnListSelected="HandleUnitRedirectSelection" />
+        <QuickActionsModal @ref="_quickActionsModal" ListType="QuickActionsModal.QuickActionListType.Attendance" OnActionSelected="HandleQuickAction" />
 
         @if (!string.IsNullOrWhiteSpace(_infoMessage))
         {
@@ -86,7 +87,7 @@
                                         <th>#</th>
                                         <th>Name/ID</th>
                                         <th>Eingetragen um</th>
-                                            @if (_list.Status == ListStatus.Open && AuthService.IsAdmin)
+                                            @if (_list.Status == ListStatus.Open && AuthService.IsAuthenticated)
                                             {
                                                 <th>Aktion</th>
                                             }
@@ -99,7 +100,7 @@
                                             <td>@(index + 1)</td>
                                             <td><strong>@entry.NameOrId</strong></td>
                                             <td>@entry.EnteredAt.ToString("HH:mm:ss")</td>
-                                            @if (_list.Status == ListStatus.Open && AuthService.IsAdmin)
+                                            @if (_list.Status == ListStatus.Open && AuthService.IsAuthenticated)
                                             {
                                                 <td>
                                                     <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteEntry(entry.Id)" title="Entfernen">
@@ -130,7 +131,7 @@
                                             <th>#</th>
                                             <th>Name/ID</th>
                                             <th>Eingetragen um</th>
-                                            @if (_list.Status == ListStatus.Open && AuthService.IsAdmin)
+                                            @if (_list.Status == ListStatus.Open && AuthService.IsAuthenticated)
                                             {
                                                 <th>Aktion</th>
                                             }
@@ -143,7 +144,7 @@
                                                 <td>@(index + 1)</td>
                                                 <td><strong>@entry.NameOrId</strong></td>
                                                 <td>@entry.EnteredAt.ToString("HH:mm:ss")</td>
-                                                @if (_list.Status == ListStatus.Open && AuthService.IsAdmin)
+                                                @if (_list.Status == ListStatus.Open && AuthService.IsAuthenticated)
                                                 {
                                                     <td>
                                                         <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteEntry(entry.Id)" title="Entfernen">
@@ -162,30 +163,30 @@
             </div>
         </div>
 
-        @if (_list.Status == ListStatus.Open)
+        @if (AuthService.IsAuthenticated)
         {
-            <div class="d-grid gap-2 mt-4" style="max-width: 500px;">
-                @if (AuthService.IsAuthenticated)
-                {
+            @if (_list.Status == ListStatus.Open)
+            {
+                <div class="d-grid gap-2 mt-4" style="max-width: 500px;">
                     <button class="btn btn-outline-warning btn-lg" @onclick="ShowExcuseModal">
                         <i class="bi bi-person-exclamation me-2"></i>Als Entschuldigt eintragen
                     </button>
-                }
-                <button class="btn btn-warning btn-lg" @onclick="CloseList">
-                    <i class="bi bi-lock me-2"></i>Liste abschließen
-                </button>
-                <button class="btn btn-primary btn-lg" @onclick="ExportPdf">
-                    <i class="bi bi-file-earmark-pdf me-2"></i>PDF Export
-                </button>
-            </div>
-        }
-        else
-        {
-            <div class="d-grid gap-2 mt-4" style="max-width: 500px;">
-                <button class="btn btn-primary btn-lg" @onclick="ExportPdf">
-                    <i class="bi bi-file-earmark-pdf me-2"></i>PDF Export
-                </button>
-            </div>
+                    <button class="btn btn-warning btn-lg" @onclick="CloseList">
+                        <i class="bi bi-lock me-2"></i>Liste abschließen
+                    </button>
+                    <button class="btn btn-primary btn-lg" @onclick="ExportPdf">
+                        <i class="bi bi-file-earmark-pdf me-2"></i>PDF Export
+                    </button>
+                </div>
+            }
+            else
+            {
+                <div class="d-grid gap-2 mt-4" style="max-width: 500px;">
+                    <button class="btn btn-primary btn-lg" @onclick="ExportPdf">
+                        <i class="bi bi-file-earmark-pdf me-2"></i>PDF Export
+                    </button>
+                </div>
+            }
         }
 
         <div class="mt-3 mb-4">
@@ -212,6 +213,7 @@
     private MemberSelectionModal? _memberSelectionModal;
     private ExcuseModal? _excuseModal;
     private UnitRedirectModal? _unitRedirectModal;
+    private QuickActionsModal? _quickActionsModal;
     private Member? _pendingMember;
     private bool _confirmationVisible;
     private string _confirmationName = "";
@@ -396,7 +398,32 @@
     
     private async Task HandleQrCodeScanned(string value)
     {
-        await HandleNumpadInput(value.Trim());
+        var code = value.Trim();
+
+        // Erst prüfen: Ist das ein User-Auth-Code?
+        var user = await AuthService.FindByQrCodeAsync(code);
+        if (user != null)
+        {
+            _quickActionsModal?.Show($"{user.FirstName} {user.LastName}");
+            return;
+        }
+
+        // Sonst: normaler Mitglieder-Lookup
+        await HandleNumpadInput(code);
+    }
+
+    private async Task HandleQuickAction(QuickActionsModal.QuickAction action)
+    {
+        switch (action)
+        {
+            case QuickActionsModal.QuickAction.AddExcused:
+                if (_excuseModal != null)
+                    await _excuseModal.Show();
+                break;
+            case QuickActionsModal.QuickAction.CloseList:
+                await CloseList();
+                break;
+        }
     }
 
     private async Task HandleNumpadInput(string input)

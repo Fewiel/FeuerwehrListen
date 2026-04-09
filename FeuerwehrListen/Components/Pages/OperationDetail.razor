@@ -17,6 +17,7 @@
 @inject ListNotificationService ListNotificationService
 @inject EmailSenderService EmailSender
 @inject SettingsService SettingsService
+@inject AuthenticationService AuthService
 @rendermode InteractiveServer
 
 <PageTitle>Einsatzliste - @_list?.OperationNumber</PageTitle>
@@ -88,6 +89,7 @@
 
         <Numpad @ref="_numpad" OnInput="HandleNumpadInput" OnSearchByName="ShowMemberSelectionModal" OnReorderQrTag="HandleReorderQrTag" />
         <MemberSelectionModal @ref="_memberSelectionModal" OnMemberSelected="HandleMemberSelection" />
+        <QuickActionsModal @ref="_quickActionsModal" ListType="QuickActionsModal.QuickActionListType.Operation" OnActionSelected="HandleQuickAction" />
 
         <VehicleSelectionModal Vehicles="_vehicles" 
                                OnVehicleSelected="OnVehicleSelected" 
@@ -249,27 +251,30 @@
             </div>
         </div>
 
-        @if (_list.Status == ListStatus.Open)
+        @if (AuthService.IsAuthenticated)
         {
-            <div class="d-grid gap-2 mt-4" style="max-width: 500px;">
-                <button class="btn btn-outline-primary btn-lg" @onclick="() => _editOpen = true">
-                    <i class="bi bi-pencil-square me-2"></i>Einsatz bearbeiten
-                </button>
-                <button class="btn btn-warning btn-lg" @onclick="CloseList">
-                    <i class="bi bi-lock me-2"></i>Liste abschließen
-                </button>
-                <button class="btn btn-primary btn-lg" @onclick="ExportPdf">
-                    <i class="bi bi-file-earmark-pdf me-2"></i>PDF Export
-                </button>
-            </div>
-        }
-        else
-        {
-            <div class="d-grid gap-2 mt-4" style="max-width: 500px;">
-                <button class="btn btn-primary btn-lg" @onclick="ExportPdf">
-                    <i class="bi bi-file-earmark-pdf me-2"></i>PDF Export
-                </button>
-            </div>
+            @if (_list.Status == ListStatus.Open)
+            {
+                <div class="d-grid gap-2 mt-4" style="max-width: 500px;">
+                    <button class="btn btn-outline-primary btn-lg" @onclick="() => _editOpen = true">
+                        <i class="bi bi-pencil-square me-2"></i>Einsatz bearbeiten
+                    </button>
+                    <button class="btn btn-warning btn-lg" @onclick="CloseList">
+                        <i class="bi bi-lock me-2"></i>Liste abschließen
+                    </button>
+                    <button class="btn btn-primary btn-lg" @onclick="ExportPdf">
+                        <i class="bi bi-file-earmark-pdf me-2"></i>PDF Export
+                    </button>
+                </div>
+            }
+            else
+            {
+                <div class="d-grid gap-2 mt-4" style="max-width: 500px;">
+                    <button class="btn btn-primary btn-lg" @onclick="ExportPdf">
+                        <i class="bi bi-file-earmark-pdf me-2"></i>PDF Export
+                    </button>
+                </div>
+            }
         }
 
         <div class="mt-3 mb-4">
@@ -315,6 +320,7 @@
     private EntryOverviewModal? _overviewModal;
     private Numpad? _numpad;
     private MemberSelectionModal? _memberSelectionModal;
+    private QuickActionsModal? _quickActionsModal;
     private bool _confirmationVisible;
     private string _confirmationName = "";
     
@@ -774,7 +780,31 @@
 
     private async Task HandleQrCodeScanned(string value)
     {
-        await HandleNumpadInput(value.Trim());
+        var code = value.Trim();
+
+        // Erst prüfen: Ist das ein User-Auth-Code?
+        var user = await AuthService.FindByQrCodeAsync(code);
+        if (user != null)
+        {
+            _quickActionsModal?.Show($"{user.FirstName} {user.LastName}");
+            return;
+        }
+
+        // Sonst: normaler Mitglieder-Lookup
+        await HandleNumpadInput(code);
+    }
+
+    private async Task HandleQuickAction(QuickActionsModal.QuickAction action)
+    {
+        switch (action)
+        {
+            case QuickActionsModal.QuickAction.EditEntries:
+                Navigation.NavigateTo($"/operation/{Id}/edit-entries");
+                break;
+            case QuickActionsModal.QuickAction.CloseList:
+                await CloseList();
+                break;
+        }
     }
 
     private async Task HandleNumpadInput(string input)

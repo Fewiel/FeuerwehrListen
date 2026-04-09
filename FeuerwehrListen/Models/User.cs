@@ -26,7 +26,13 @@ public class User
     
     [Column("Role")]
     public UserRole Role { get; set; }
-    
+
+    [Column("QrAuthCode")]
+    public string? QrAuthCode { get; set; }
+
+    [Column("AdminPin")]
+    public string? AdminPin { get; set; }
+
     [Column("CreatedAt")]
     public DateTime CreatedAt { get; set; }
 }

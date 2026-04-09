@@ -9,6 +9,14 @@ using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage;
 
 namespace FeuerwehrListen.Services;
 
+public enum QrLoginResult
+{
+    Success,
+    InvalidCode,
+    PinRequired,
+    InvalidPin
+}
+
 public class AuthenticationService : AuthenticationStateProvider
 {
     private User? _currentUser;
@@ -122,6 +130,40 @@ public class AuthenticationService : AuthenticationStateProvider
         // Don't call NotifyAuthenticationStateChanged — Login.razor navigates
         // after this, so the new page will get fresh auth state.
         return true;
+    }
+
+    public async Task<User?> FindByQrCodeAsync(string code)
+    {
+        if (string.IsNullOrWhiteSpace(code)) return null;
+        using var scope = _serviceProvider.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbConnection>();
+        return await db.Users.FirstOrDefaultAsync(x => x.QrAuthCode == code);
+    }
+
+    public async Task<QrLoginResult> LoginWithQrAsync(string code, string? pin = null)
+    {
+        var user = await FindByQrCodeAsync(code);
+        if (user == null) return QrLoginResult.InvalidCode;
+
+        // Admin-User need a PIN as 2FA
+        if (user.Role == UserRole.Admin && !string.IsNullOrWhiteSpace(user.AdminPin))
+        {
+            if (string.IsNullOrWhiteSpace(pin))
+                return QrLoginResult.PinRequired;
+            if (user.AdminPin != pin.Trim())
+                return QrLoginResult.InvalidPin;
+        }
+
+        _currentUser = user;
+
+        try
+        {
+            await _localStorage.SetAsync("auth_user", user.Username);
+            await _localStorage.SetAsync("auth_hash", user.PasswordHash);
+        }
+        catch { }
+
+        return QrLoginResult.Success;
     }
 
     public async Task LogoutAsync()
