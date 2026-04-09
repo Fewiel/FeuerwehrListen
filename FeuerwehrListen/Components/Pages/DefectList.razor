@@ -494,11 +494,16 @@
         var id = await DefectRepo.CreateAsync(defect);
         _showCreateModal = false;
         _isCreating = false;
+        _createDescription = string.Empty;
+        _createMemberNumber = string.Empty;
+        _createVehicleId = 0;
+        _createCustomVehicle = string.Empty;
 
         // E-Mail senden
         await SendDefectNotification(defect);
 
         await LoadDefects();
+        StateHasChanged();
     }
 
     private async Task SendDefectNotification(Defect defect)

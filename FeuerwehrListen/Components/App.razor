@@ -32,36 +32,51 @@
         };
 
         // Custom Blazor start with reconnect handling
-        Blazor.start({
-            circuit: {
-                reconnectionOptions: {
-                    maxRetries: 30,
-                    retryIntervalMilliseconds: function(retryNumber) {
-                        var delays = [500, 1000, 2000, 5000, 10000];
-                        return delays[Math.min(retryNumber, delays.length - 1)];
+        (function() {
+            var maxRetries = 30;
+            var delays = [500, 1000, 2000, 5000, 10000];
+            var currentProcess = null;
+
+            function showBanner(text, cls) {
+                var b = document.getElementById('reconnect-banner');
+                if (b) { b.className = 'reconnect-banner ' + cls; b.innerHTML = text; }
+            }
+
+            function startReconnect() {
+                var isCanceled = false;
+                showBanner('<i class="bi bi-wifi-off"></i> Verbindung unterbrochen — Reconnect...', 'reconnect-down');
+
+                (async function() {
+                    for (var i = 0; i < maxRetries; i++) {
+                        await new Promise(function(r) { setTimeout(r, delays[Math.min(i, delays.length - 1)]); });
+                        if (isCanceled) return;
+                        try {
+                            var result = await Blazor.reconnect();
+                            if (!result) { location.reload(); return; }
+                            return;
+                        } catch(e) { /* server not reached, retry */ }
                     }
-                },
-                reconnectionHandler: {
-                    onConnectionDown: function() {
-                        var banner = document.getElementById('reconnect-banner');
-                        if (banner) {
-                            banner.className = 'reconnect-banner reconnect-down';
-                            banner.innerHTML = '<i class="bi bi-wifi-off"></i> Verbindung unterbrochen — Reconnect...';
-                        }
-                    },
-                    onConnectionUp: function() {
-                        var banner = document.getElementById('reconnect-banner');
-                        if (banner) {
-                            banner.className = 'reconnect-banner reconnect-up';
-                            banner.innerHTML = '<i class="bi bi-wifi"></i> Wieder verbunden';
-                            setTimeout(function() {
-                                banner.className = 'reconnect-banner reconnect-hidden';
-                            }, 3000);
+                    showBanner('<i class="bi bi-wifi-off"></i> Verbindung verloren — <a href="" style="color:#fff;text-decoration:underline">Seite neu laden</a>', 'reconnect-down');
+                })();
+
+                return { cancel: function() { isCanceled = true; } };
+            }
+
+            Blazor.start({
+                circuit: {
+                    reconnectionHandler: {
+                        onConnectionDown: function() {
+                            currentProcess = currentProcess || startReconnect();
+                        },
+                        onConnectionUp: function() {
+                            if (currentProcess) { currentProcess.cancel(); currentProcess = null; }
+                            showBanner('<i class="bi bi-wifi"></i> Wieder verbunden', 'reconnect-up');
+                            setTimeout(function() { showBanner('', 'reconnect-hidden'); }, 3000);
                         }
                     }
                 }
-            }
-        });
+            });
+        })();
 
         // PWA Service Worker registration
         if ('serviceWorker' in navigator) {
