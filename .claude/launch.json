@@ -1,0 +1,15 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "feuerwehr-listen",
+      "runtimeExecutable": "/usr/bin/bash.exe",
+      "runtimeArgs": ["run-dev.sh"],
+      "env": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "ASPNETCORE_URLS": "http://localhost:5000"
+      },
+      "port": 5000
+    }
+  ]
+}

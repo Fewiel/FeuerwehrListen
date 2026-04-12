@@ -3,8 +3,10 @@
 @using FeuerwehrListen.Repositories
 @using FeuerwehrListen.Components.Layout
 @using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.JSInterop
 @inject MemberRepository MemberRepo
 @inject NavigationManager Navigation
+@inject IJSRuntime JS
 @rendermode InteractiveServer
 
 <PageTitle>Mitgliederverwaltung</PageTitle>
@@ -21,6 +23,9 @@
                 </button>
                 <button class="btn btn-outline-primary" @onclick="() => _showCsvImport = !_showCsvImport">
                     <i class="bi bi-upload me-1"></i> CSV Import
+                </button>
+                <button class="btn btn-outline-secondary" @onclick="ExportPdf">
+                    <i class="bi bi-file-earmark-pdf me-1"></i> PDF Export
                 </button>
             </div>
         </div>
@@ -289,6 +294,15 @@
     {
         await MemberRepo.DeleteAsync(id);
         await LoadMembers();
+    }
+
+    private async Task ExportPdf()
+    {
+        var path = "/api/export/members/pdf";
+        var baseUri = Navigation.BaseUri.TrimEnd('/');
+        var token = await new HttpClient().GetStringAsync($"{baseUri}/token?path={Uri.EscapeDataString(path)}");
+        var url = $"{baseUri}/api/export/members/pdf?token={Uri.EscapeDataString(token)}";
+        await JS.InvokeVoidAsync("window.open", url, "_blank");
     }
 
     private async Task OnCsvFileSelected(InputFileChangeEventArgs e)

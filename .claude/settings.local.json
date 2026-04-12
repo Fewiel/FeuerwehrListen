@@ -3,7 +3,20 @@
     "allow": [
       "Bash(git pull:*)",
       "Bash(git checkout:*)",
-      "Bash(dotnet build:*)"
+      "Bash(dotnet build:*)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(cmd.exe /c \"where dotnet\")",
+      "Read(//c//**)",
+      "Read(//c/Users/Phillip/.dotnet/**)",
+      "Read(//d//**)",
+      "Bash(reg.exe query:*)",
+      "Bash(cmd.exe /c \"dir /s /b C:\\\\dotnet.exe\")",
+      "Bash(cmd.exe /c \"echo %PATH%\")",
+      "Bash(tr ';' '\\\\n')",
+      "Bash(cmd.exe /c \"dotnet --version\")",
+      "Bash(cmd.exe /c \"dotnet --list-sdks\")",
+      "Read(//bin/**)",
+      "Read(//usr/bin/**)"
     ]
   }
 }

@@ -23,6 +23,7 @@ public class PdfExportService
     private readonly FireSafetyWatchRepository _fireSafetyWatchRepo;
     private readonly FireSafetyWatchRequirementRepository _fireSafetyWatchRequirementRepo;
     private readonly FireSafetyWatchEntryRepository _fireSafetyWatchEntryRepo;
+    private readonly MemberRepository _memberRepo;
 
     public PdfExportService(
         AttendanceListRepository attendanceRepo,
@@ -35,7 +36,8 @@ public class PdfExportService
         PersonalRequirementsService requirementsService,
         FireSafetyWatchRepository fireSafetyWatchRepo,
         FireSafetyWatchRequirementRepository fireSafetyWatchRequirementRepo,
-        FireSafetyWatchEntryRepository fireSafetyWatchEntryRepo)
+        FireSafetyWatchEntryRepository fireSafetyWatchEntryRepo,
+        MemberRepository memberRepo)
     {
         _attendanceRepo = attendanceRepo;
         _operationRepo = operationRepo;
@@ -48,6 +50,7 @@ public class PdfExportService
         _fireSafetyWatchRepo = fireSafetyWatchRepo;
         _fireSafetyWatchRequirementRepo = fireSafetyWatchRequirementRepo;
         _fireSafetyWatchEntryRepo = fireSafetyWatchEntryRepo;
+        _memberRepo = memberRepo;
     }
 
     private XFont CreateFont(string fontFamily, double size, bool isBold = false)
@@ -1074,5 +1077,58 @@ public class PdfExportService
             DrawHeader(gfx, "STATISTIK-BERICHT", titleFont, left, 50, contentWidth);
             y = 86;
         }
+    }
+
+    public async Task<byte[]> ExportMemberListAsync()
+    {
+        var members = (await _memberRepo.GetAllAsync()).OrderBy(m => m.LastName).ThenBy(m => m.FirstName).ToList();
+
+        var font = CreateFont("CreatoDisplay", 11);
+        var titleFont = CreateFont("CreatoDisplay", 16, true);
+        var bold = CreateFont("CreatoDisplay", 11, true);
+
+        var document = new PdfDocument();
+        var page = document.AddPage();
+        var gfx = XGraphics.FromPdfPage(page);
+
+        double left = 40, bottom = 40, top = 50;
+        double contentWidth = page.Width - left * 2;
+        int pageNumber = 1;
+
+        DrawHeader(gfx, "MITGLIEDERLISTE", titleFont, left, top, contentWidth);
+        double y = top + 36;
+
+        gfx.DrawString($"Erstellt am: {DateTime.Now:dd.MM.yyyy HH:mm}", font, XBrushes.Gray,
+            new XRect(left, y, contentWidth, 14), XStringFormats.TopLeft);
+        y += 20;
+
+        var widths = new[] { 80d, 150d, 150d };
+        DrawTableHeader(gfx, font, bold, left, y, widths, new[] { "Nr.", "Vorname", "Nachname" });
+        y += 16;
+
+        foreach (var member in members)
+        {
+            if (y > page.Height - bottom - 24)
+            {
+                DrawFooter(document, page, gfx, font, left, page.Height, contentWidth, pageNumber);
+                page = document.AddPage();
+                pageNumber++;
+                gfx.Dispose();
+                gfx = XGraphics.FromPdfPage(page);
+                DrawHeader(gfx, "MITGLIEDERLISTE", titleFont, left, top, contentWidth);
+                y = top + 36;
+                DrawTableHeader(gfx, font, bold, left, y, widths, new[] { "Nr.", "Vorname", "Nachname" });
+                y += 16;
+            }
+
+            DrawTableRow(gfx, font, left, y, widths, new[] { member.MemberNumber, member.FirstName, member.LastName });
+            y += 16;
+        }
+
+        DrawFooter(document, page, gfx, font, left, page.Height, contentWidth, pageNumber);
+
+        using var ms = new MemoryStream();
+        document.Save(ms, false);
+        return ms.ToArray();
     }
 }

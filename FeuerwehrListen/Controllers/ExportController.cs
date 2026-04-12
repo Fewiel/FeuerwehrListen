@@ -72,6 +72,26 @@ public class ExportController : ControllerBase
     }
 
     [AllowAnonymous]
+    [HttpGet("members/pdf")]
+    public async Task<IActionResult> ExportMemberListPdf([FromQuery] string? token)
+    {
+        try
+        {
+            var expectedPath = "/api/export/members/pdf";
+            if (string.IsNullOrEmpty(token) || !_tokenService.ValidateAndConsume(token, expectedPath))
+                return Unauthorized("Ungültiges oder fehlendes Download-Token");
+
+            var pdfBytes = await _pdfService.ExportMemberListAsync();
+            var fileName = $"Mitgliederliste_{DateTime.Now:yyyyMMdd}.pdf";
+            return File(pdfBytes, "application/pdf", fileName);
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new ApiError { Error = "Export failed", Details = ex.Message });
+        }
+    }
+
+    [AllowAnonymous]
     [HttpGet("statistics/pdf")]
     public async Task<IActionResult> ExportStatisticsPdf([FromQuery] string? token)
     {
