@@ -4,9 +4,11 @@
 @using FeuerwehrListen.Components.Layout
 @using Microsoft.AspNetCore.Components.Forms
 @using Microsoft.JSInterop
+@using FeuerwehrListen.Services
 @inject MemberRepository MemberRepo
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
+@inject DownloadTokenService TokenService
 @rendermode InteractiveServer
 
 <PageTitle>Mitgliederverwaltung</PageTitle>
@@ -299,10 +301,10 @@
     private async Task ExportPdf()
     {
         var path = "/api/export/members/pdf";
+        var token = TokenService.CreateToken(path);
         var baseUri = Navigation.BaseUri.TrimEnd('/');
-        var token = await new HttpClient().GetStringAsync($"{baseUri}/token?path={Uri.EscapeDataString(path)}");
         var url = $"{baseUri}/api/export/members/pdf?token={Uri.EscapeDataString(token)}";
-        await JS.InvokeVoidAsync("window.open", url, "_blank");
+        await JS.InvokeVoidAsync("open", url, "_blank");
     }
 
     private async Task OnCsvFileSelected(InputFileChangeEventArgs e)
