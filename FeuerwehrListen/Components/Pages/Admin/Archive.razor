@@ -7,11 +7,12 @@
 @inject OperationListRepository OperationRepo
 @inject FireSafetyWatchRepository FireSafetyWatchRepo
 @inject NavigationManager Navigation
+@inject AuthenticationService AuthService
 @rendermode InteractiveServer
 
-<PageTitle>Archiv - Admin</PageTitle>
+<PageTitle>Archiv</PageTitle>
 
-<AdminAuthCheck>
+<UserAuthCheck>
 
     <div class="container mt-4">
         <div class="row mb-4">
@@ -36,9 +37,12 @@
                                 </div>
                                 <p class="mb-1"><strong>@context.Address</strong></p>
                             </a>
-                            <button class="btn btn-sm btn-outline-danger ms-3" @onclick="() => DeleteOperation(context)" @onclick:stopPropagation="true">
-                                <i class="bi bi-trash"></i>
-                            </button>
+                            @if (AuthService.IsAdmin)
+                            {
+                                <button class="btn btn-sm btn-outline-danger ms-3" @onclick="() => DeleteOperation(context)" @onclick:stopPropagation="true">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            }
                         </div>
                     </ItemTemplate>
                 </ListComponent>
@@ -58,9 +62,12 @@
                                 <p class="mb-1"><strong>@context.Unit</strong></p>
                                 <small class="text-muted">@context.Description</small>
                             </a>
-                            <button class="btn btn-sm btn-outline-danger ms-3" @onclick="() => DeleteAttendance(context)" @onclick:stopPropagation="true">
-                                <i class="bi bi-trash"></i>
-                            </button>
+                            @if (AuthService.IsAdmin)
+                            {
+                                <button class="btn btn-sm btn-outline-danger ms-3" @onclick="() => DeleteAttendance(context)" @onclick:stopPropagation="true">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            }
                         </div>
                     </ItemTemplate>
                 </ListComponent>
@@ -79,9 +86,12 @@
                                 </div>
                                 <p class="mb-1"><strong>@context.Location</strong></p>
                             </a>
-                            <button class="btn btn-sm btn-outline-danger ms-3" @onclick="() => DeleteFireSafetyWatch(context)" @onclick:stopPropagation="true">
-                                <i class="bi bi-trash"></i>
-                            </button>
+                            @if (AuthService.IsAdmin)
+                            {
+                                <button class="btn btn-sm btn-outline-danger ms-3" @onclick="() => DeleteFireSafetyWatch(context)" @onclick:stopPropagation="true">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            }
                         </div>
                     </ItemTemplate>
                 </ListComponent>
