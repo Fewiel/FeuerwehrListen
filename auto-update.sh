@@ -2,12 +2,16 @@
 # FeuerwehrListen Auto-Update (Cron alle 5 Min)
 # Cronjob: */5 * * * * /bin/bash /home/docker/FeuerwehrListen/auto-update.sh
 
-set -euo pipefail
+set -uo pipefail
 
 REPO_DIR="/home/docker/FeuerwehrListen"
 LOG_FILE="$REPO_DIR/auto-update.log"
 
+# Docker ist in Cron oft nicht im PATH
+export PATH="/usr/local/bin:/usr/bin:/bin:$PATH"
+
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE"; }
+trap 'log "FEHLER in Zeile $LINENO (Exit $?)"' ERR
 
 # Lock gegen parallele Ausführung
 LOCK_FILE="/tmp/feuerwehrlisten-update.lock"
@@ -20,7 +24,9 @@ LOCAL=$(git rev-parse HEAD)
 git fetch origin master --quiet
 REMOTE=$(git rev-parse origin/master)
 
-[ "$LOCAL" = "$REMOTE" ] && exit 0
+if [ "$LOCAL" = "$REMOTE" ]; then
+    exit 0
+fi
 
 log "Update gefunden: $(git rev-parse --short HEAD) -> $(git rev-parse --short origin/master)"
 git pull origin master --quiet
