@@ -2,12 +2,11 @@
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
 
-# Copy solution and project files first to leverage Docker layer caching
-COPY ["FeuerwehrListen.sln", "."]
+# Copy project file first to leverage Docker layer caching
 COPY ["FeuerwehrListen/FeuerwehrListen.csproj", "FeuerwehrListen/"]
 
-# Restore dependencies for the entire solution
-RUN dotnet restore "FeuerwehrListen.sln"
+# Restore dependencies for the app project only (excludes test projects)
+RUN dotnet restore "FeuerwehrListen/FeuerwehrListen.csproj"
 
 # Copy the rest of the application source code
 COPY . .
