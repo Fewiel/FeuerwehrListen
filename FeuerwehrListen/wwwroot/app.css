@@ -607,6 +607,30 @@ code {
     font-size: 0.9em;
 }
 
+/* Scrollbar — schlank & dunkel */
+::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #30363d;
+    border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #484f58;
+}
+
+* {
+    scrollbar-width: thin;
+    scrollbar-color: #30363d transparent;
+}
+
 #blazor-error-ui {
     background: #4c1f1e;
     bottom: 0;
