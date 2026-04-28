@@ -31,10 +31,14 @@ public class ScheduledListRepository
     public async Task<List<ScheduledList>> GetDueAsync()
     {
         var now = DateTime.Now;
-        return await _db.ScheduledLists
+        // AddMinutes mit Spaltenwert kann nicht nach SQL übersetzt werden → erst alle
+        // unverarbeiteten laden, dann im Speicher filtern.
+        var pending = await _db.ScheduledLists
             .Where(x => !x.IsProcessed)
-            .Where(x => x.ScheduledEventTime.AddMinutes(-x.MinutesBeforeEvent) <= now)
             .ToListAsync();
+        return pending
+            .Where(x => x.ScheduledEventTime.AddMinutes(-x.MinutesBeforeEvent) <= now)
+            .ToList();
     }
 
     public async Task<ScheduledList?> GetByIdAsync(int id)

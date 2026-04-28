@@ -13,6 +13,7 @@ services:
     environment:
       - ASPNETCORE_URLS=http://+:8080
       - DATABASE_CONNECTION_STRING=Data Source=/app/data/feuerwehr.db
+      - TZ=Europe/Berlin
 
 volumes:
   db-data:
