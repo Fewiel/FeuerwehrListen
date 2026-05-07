@@ -135,16 +135,26 @@ public class AttendanceController : ControllerBase
         var targetListId = listId;
         if (sourceList.UnitNumber.HasValue)
         {
-            var resolvedUnit = _unitAssignmentService.ResolveUnitNumber(member);
-            if (resolvedUnit.HasValue && resolvedUnit.Value != sourceList.UnitNumber.Value)
+            // Multi-Unit: alle Einheiten des Mitglieds laden.
+            var memberUnits = await _unitAssignmentService.ResolveAllUnitNumbersAsync(member);
+
+            // Wenn das Mitglied der Einheit dieser Liste angehört → direkt eintragen.
+            if (!memberUnits.Contains(sourceList.UnitNumber.Value) && memberUnits.Count > 0)
             {
-                var unitList = await _listRepo.GetOpenByUnitNumberAsync(resolvedUnit.Value);
+                AttendanceList? unitList = null;
+                foreach (var u in memberUnits)
+                {
+                    unitList = await _listRepo.GetOpenByUnitNumberAsync(u);
+                    if (unitList != null) break;
+                }
+
                 if (unitList == null)
                 {
+                    var unitsText = string.Join(", ", memberUnits);
                     return BadRequest(new ApiError
                     {
                         Error = "No open attendance list for member unit",
-                        Details = $"No open attendance list for unit {resolvedUnit.Value}."
+                        Details = $"No open attendance list for member units {unitsText}."
                     });
                 }
 

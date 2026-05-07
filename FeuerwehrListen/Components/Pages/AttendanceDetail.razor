@@ -284,34 +284,57 @@
         var targetListId = Id;
         if (_list.UnitNumber.HasValue)
         {
-            var resolvedUnit = UnitAssignmentService.ResolveUnitNumber(member);
-            if (resolvedUnit.HasValue && resolvedUnit.Value != _list.UnitNumber.Value)
+            // Multi-Unit: alle Einheiten des Mitglieds prüfen.
+            var memberUnits = await UnitAssignmentService.ResolveAllUnitNumbersAsync(member);
+
+            // Wenn das Mitglied der Einheit dieser Liste angehört → direkt eintragen.
+            if (memberUnits.Contains(_list.UnitNumber.Value))
             {
-                // Member belongs to a different unit
-                var unitLists = await AttendanceRepo.GetAllOpenByUnitNumberAsync(resolvedUnit.Value);
+                await SaveEntry(member, targetListId);
+                return;
+            }
+
+            if (memberUnits.Count > 0)
+            {
+                // Mitglied gehört zu anderen Einheiten als dieser Liste — passende offene Listen suchen.
+                var availableLists = new List<AttendanceList>();
+                foreach (var u in memberUnits)
+                {
+                    var lists = await AttendanceRepo.GetAllOpenByUnitNumberAsync(u);
+                    foreach (var l in lists)
+                    {
+                        if (!availableLists.Any(a => a.Id == l.Id))
+                            availableLists.Add(l);
+                    }
+                }
                 var noUnitLists = await AttendanceRepo.GetOpenWithoutUnitAsync();
-                var availableLists = unitLists.Concat(noUnitLists).ToList();
+                foreach (var l in noUnitLists)
+                {
+                    if (!availableLists.Any(a => a.Id == l.Id))
+                        availableLists.Add(l);
+                }
 
                 if (availableLists.Count == 0)
                 {
-                    _errorMessage = $"Keine offene Anwesenheitsliste für Einheit {resolvedUnit.Value} gefunden.";
+                    var unitsText = string.Join(", ", memberUnits.Select(u => $"Einheit {u}"));
+                    _errorMessage = $"Keine offene Anwesenheitsliste für {unitsText} gefunden.";
                     return;
                 }
 
                 if (availableLists.Count == 1)
                 {
-                    // Nur eine Alternative — eintragen, Bestätigung abwarten, dann navigieren
+                    // Nur eine Alternative — eintragen, Bestätigung abwarten, dann navigieren.
                     await SaveEntry(member, availableLists[0].Id);
                     await Task.Delay(2500);
                     try { Navigation.NavigateTo($"/attendance/{availableLists[0].Id}"); } catch { }
                     return;
                 }
 
-                // Mehrere Alternativen — Auswahl zeigen
+                // Mehrere passende Listen — Auswahl zeigen.
                 _pendingMember = member;
                 _unitRedirectModal?.Show(
                     $"{member.FirstName} {member.LastName}",
-                    resolvedUnit.Value,
+                    memberUnits.First(),
                     _list.UnitNumber.Value,
                     availableLists);
                 return;

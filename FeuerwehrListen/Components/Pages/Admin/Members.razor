@@ -60,7 +60,7 @@
                                 </div>
                             </div>
                             <div class="mb-3">
-                                <label class="form-label">Einheit (optional)</label>
+                                <label class="form-label">Primäre Einheit (optional)</label>
                                 <select class="form-select" @bind="_editingMember!.UnitNumber">
                                     <option value="">Keine Zuordnung</option>
                                     @for (int u = 1; u <= 9; u++)
@@ -69,6 +69,24 @@
                                     }
                                 </select>
                                 <small class="text-muted">Wenn leer, wird die Einheit aus der Mitgliedsnummer abgeleitet.</small>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Weitere Einheiten</label>
+                                <div class="border rounded p-2 d-flex flex-wrap gap-3">
+                                    @for (int u = 1; u <= 9; u++)
+                                    {
+                                        var unit = u;
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="@($"unit-{unit}")"
+                                                   checked="@_editingUnits.Contains(unit)"
+                                                   @onchange="@((ChangeEventArgs e) => ToggleEditingUnit(unit, (bool)(e.Value ?? false)))" />
+                                            <label class="form-check-label" for="@($"unit-{unit}")">Einheit @unit</label>
+                                        </div>
+                                    }
+                                </div>
+                                <small class="text-muted">
+                                    Mehrfachzuordnung möglich. Die Primäreinheit wird automatisch mit aufgenommen.
+                                </small>
                             </div>
                             <div class="mb-3">
                                 <div class="form-check">
@@ -103,12 +121,13 @@
                             <div class="alert alert-info">
                                 <strong>CSV-Format:</strong> Die CSV-Datei muss folgende Spalten enthalten (mit Semikolon als Trennzeichen):
                                 <br/>
-                                <code>Mitgliedsnummer;Vorname;Nachname;Aktiv;Einheit</code>
+                                <code>Mitgliedsnummer;Vorname;Nachname;Aktiv;Einheit(en)</code>
                                 <br/>
                                 <small class="text-muted">
                                     Die erste Zeile wird als Header erkannt und übersprungen.
                                     "Aktiv" akzeptiert: ja/nein, true/false, 1/0.
-                                    "Einheit" ist optional (1-9).
+                                    "Einheit(en)" ist optional (1-9). <strong>Mehrere Einheiten</strong> per Komma trennen, z.&nbsp;B. <code>1,3</code>.
+                                    Die erste angegebene Einheit wird als Primäreinheit übernommen.
                                     Existierende Mitgliedsnummern werden übersprungen.
                                 </small>
                             </div>
@@ -179,13 +198,24 @@
                                                 <td><strong>@member.MemberNumber</strong></td>
                                                 <td>@member.FirstName @member.LastName</td>
                                                 <td>
-                                                    @if (member.UnitNumber.HasValue)
+                                                    @{
+                                                        var units = _memberUnits.TryGetValue(member.Id, out var ul) ? ul : new List<int>();
+                                                        if (units.Count == 0 && member.UnitNumber.HasValue)
+                                                            units = new List<int> { member.UnitNumber.Value };
+                                                    }
+                                                    @if (units.Count == 0)
                                                     {
-                                                        <span class="badge bg-primary">Einheit @member.UnitNumber</span>
+                                                        <span class="text-muted">—</span>
                                                     }
                                                     else
                                                     {
-                                                        <span class="text-muted">—</span>
+                                                        @foreach (var u in units)
+                                                        {
+                                                            var isPrimary = member.UnitNumber == u;
+                                                            <span class="badge @(isPrimary ? "bg-primary" : "bg-secondary") me-1" title="@(isPrimary ? "Primäreinheit" : "Zusätzliche Einheit")">
+                                                                Einheit @u
+                                                            </span>
+                                                        }
                                                     }
                                                 </td>
                                                 <td>
@@ -224,7 +254,9 @@
 
 @code {
     private List<Member> _members = new();
+    private Dictionary<int, List<int>> _memberUnits = new();
     private Member? _editingMember;
+    private HashSet<int> _editingUnits = new();
     private bool _showForm = false;
     private bool _showCsvImport = false;
     private bool _csvImporting = false;
@@ -239,6 +271,7 @@
     private async Task LoadMembers()
     {
         _members = await MemberRepo.GetAllAsync();
+        _memberUnits = await MemberRepo.GetUnitsForMembersAsync(_members.Select(m => m.Id));
     }
 
     private void ShowCreateForm()
@@ -248,6 +281,7 @@
             IsActive = true,
             CreatedAt = DateTime.Now
         };
+        _editingUnits = new HashSet<int>();
         _showForm = true;
     }
 
@@ -263,7 +297,20 @@
             UnitNumber = member.UnitNumber,
             CreatedAt = member.CreatedAt
         };
+        _editingUnits = _memberUnits.TryGetValue(member.Id, out var units)
+            ? new HashSet<int>(units)
+            : new HashSet<int>();
+        if (member.UnitNumber.HasValue)
+            _editingUnits.Add(member.UnitNumber.Value);
         _showForm = true;
+    }
+
+    private void ToggleEditingUnit(int unit, bool isChecked)
+    {
+        if (isChecked)
+            _editingUnits.Add(unit);
+        else
+            _editingUnits.Remove(unit);
     }
 
     private async Task SaveMember()
@@ -272,17 +319,27 @@
             string.IsNullOrWhiteSpace(_editingMember.FirstName) || string.IsNullOrWhiteSpace(_editingMember.LastName))
             return;
 
+        // Primäreinheit muss in der Liste der zugeordneten Einheiten enthalten sein.
+        var unitSet = new HashSet<int>(_editingUnits.Where(u => u >= 1 && u <= 9));
+        if (_editingMember.UnitNumber.HasValue)
+            unitSet.Add(_editingMember.UnitNumber.Value);
+
+        int memberId;
         if (_editingMember.Id == 0)
         {
-            await MemberRepo.CreateAsync(_editingMember);
+            memberId = await MemberRepo.CreateAsync(_editingMember);
         }
         else
         {
             await MemberRepo.UpdateAsync(_editingMember);
+            memberId = _editingMember.Id;
         }
+
+        await MemberRepo.SetUnitsForMemberAsync(memberId, unitSet, _editingMember.UnitNumber);
 
         _showForm = false;
         _editingMember = null;
+        _editingUnits = new HashSet<int>();
         await LoadMembers();
     }
 
@@ -290,6 +347,7 @@
     {
         _showForm = false;
         _editingMember = null;
+        _editingUnits = new HashSet<int>();
     }
 
     private async Task DeleteMember(int id)
@@ -383,9 +441,25 @@
                 }
 
                 int? unitNumber = null;
-                if (parts.Length >= 5 && int.TryParse(parts[4].Trim(), out var parsedUnit) && parsedUnit >= 1 && parsedUnit <= 9)
+                var allUnits = new List<int>();
+                if (parts.Length >= 5)
                 {
-                    unitNumber = parsedUnit;
+                    var raw = parts[4].Trim();
+                    if (!string.IsNullOrWhiteSpace(raw))
+                    {
+                        // Mehrere Einheiten können per Komma (oder Leerzeichen / Pipe) getrennt werden.
+                        var tokens = raw.Split(new[] { ',', ' ', '|', '/' }, StringSplitOptions.RemoveEmptyEntries);
+                        foreach (var t in tokens)
+                        {
+                            if (int.TryParse(t.Trim(), out var parsedUnit) && parsedUnit >= 1 && parsedUnit <= 9
+                                && !allUnits.Contains(parsedUnit))
+                            {
+                                allUnits.Add(parsedUnit);
+                            }
+                        }
+                        if (allUnits.Count > 0)
+                            unitNumber = allUnits.First();
+                    }
                 }
 
                 var member = new Member
@@ -398,7 +472,11 @@
                     CreatedAt = DateTime.Now
                 };
 
-                await MemberRepo.CreateAsync(member);
+                var newId = await MemberRepo.CreateAsync(member);
+                if (allUnits.Count > 0)
+                {
+                    await MemberRepo.SetUnitsForMemberAsync(newId, allUnits, unitNumber);
+                }
                 existingNumbers.Add(memberNumber);
                 imported++;
             }

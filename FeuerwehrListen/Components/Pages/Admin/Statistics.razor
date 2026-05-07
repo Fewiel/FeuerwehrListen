@@ -3,11 +3,14 @@
 @using FeuerwehrListen.Services
 @using FeuerwehrListen.Components.Layout
 @using FeuerwehrListen.Components.Shared
+@using FeuerwehrListen.Repositories
 @inject StatisticsService StatsService
 @inject PdfExportService PdfService
 @inject NavigationManager Navigation
 @inject IJSRuntime JSRuntime
 @inject DownloadTokenService TokenService
+@inject MemberRepository MemberRepo
+@inject UnitAssignmentService UnitAssignmentService
 @rendermode InteractiveServer
 
 <PageTitle>Statistiken - Admin</PageTitle>
@@ -20,12 +23,31 @@
             <h1>📊 Statistiken & Auswertungen</h1>
             <p class="text-muted">Übersicht über Teilnahmequoten, Trends und Leistungsindikatoren</p>
         </div>
-        <div class="col-auto">
+        <div class="col-auto d-flex align-items-center gap-2">
+            <label class="form-label mb-0 me-2"><i class="bi bi-funnel"></i> Einheit:</label>
+            <select class="form-select form-select-sm" style="width: auto;"
+                    @bind="_selectedUnit" @bind:after="OnUnitFilterChanged">
+                <option value="0">Alle Einheiten</option>
+                @for (int u = 1; u <= 9; u++)
+                {
+                    <option value="@u">Einheit @u</option>
+                }
+            </select>
             <button class="btn btn-primary" @onclick="ExportStatisticsPdf">
                 <i class="bi bi-file-earmark-pdf"></i> PDF-Export
             </button>
         </div>
     </div>
+
+    @if (_selectedUnit > 0)
+    {
+        <div class="alert alert-info py-2 mb-3">
+            <i class="bi bi-info-circle me-1"></i>
+            <strong>Filter aktiv:</strong> Mitglieder-bezogene Statistiken (Top Teilnehmer, Mitglieder-Statistiken)
+            sind auf <strong>Einheit @_selectedUnit</strong> beschränkt.
+            Globale Auswertungen (Fahrzeuge, Funktionen, Stichwörter, Einsätze) werden weiterhin gesamthaft angezeigt.
+        </div>
+    }
 
     @if (_loading)
     {
@@ -573,6 +595,12 @@
     private int _pageSize = 10;
     private int _totalPages => _opCompositionData.Any() ? (int)Math.Ceiling(_opCompositionData.Count / (double)_pageSize) : 1;
 
+    // Unit-Filter (0 = alle Einheiten)
+    private int _selectedUnit = 0;
+    private List<TopParticipant> _allTopParticipants = new();
+    private List<MemberStatistics> _allMemberStats = new();
+    private HashSet<string>? _allowedMemberNumbers;
+
     protected override async Task OnInitializedAsync()
     {
         await LoadStatistics();
@@ -586,20 +614,61 @@
         try
         {
             _listStats = await StatsService.GetListStatisticsAsync();
-            _topParticipants = await StatsService.GetTopParticipantsAsync(10);
-            _memberStats = await StatsService.GetMemberStatisticsAsync();
+            _allTopParticipants = await StatsService.GetTopParticipantsAsync(50);
+            _allMemberStats = await StatsService.GetMemberStatisticsAsync();
             _vehicleStats = await StatsService.GetVehicleStatisticsAsync();
             _functionStats = await StatsService.GetFunctionStatisticsAsync();
             _breathingStats = await StatsService.GetBreathingApparatusStatisticsAsync();
             _opCompositionData = await StatsService.GetOperationCompositionAsync(100);
             _keywordStats = await StatsService.GetKeywordStatisticsAsync();
             _requirementsStats = await StatsService.GetPersonalRequirementsStatisticsAsync();
+
+            await ApplyUnitFilter();
         }
         finally
         {
             _loading = false;
             StateHasChanged();
         }
+    }
+
+    private async Task OnUnitFilterChanged()
+    {
+        await ApplyUnitFilter();
+        StateHasChanged();
+    }
+
+    private async Task ApplyUnitFilter()
+    {
+        if (_selectedUnit <= 0)
+        {
+            _allowedMemberNumbers = null;
+            _topParticipants = _allTopParticipants.Take(10).ToList();
+            _memberStats = _allMemberStats;
+            return;
+        }
+
+        // Mitgliedsnummern ermitteln, die der gewählten Einheit angehören (Multi-Unit-fähig).
+        var members = await MemberRepo.GetAllAsync();
+        var unitsByMember = await MemberRepo.GetUnitsForMembersAsync(members.Select(m => m.Id));
+
+        var allowed = new HashSet<string>();
+        foreach (var m in members)
+        {
+            unitsByMember.TryGetValue(m.Id, out var fromTable);
+            var combined = UnitAssignmentService.CombineUnitNumbers(m, fromTable);
+            if (combined.Contains(_selectedUnit))
+                allowed.Add(m.MemberNumber);
+        }
+        _allowedMemberNumbers = allowed;
+
+        _topParticipants = _allTopParticipants
+            .Where(t => allowed.Contains(t.MemberNumber))
+            .Take(10)
+            .ToList();
+        _memberStats = _allMemberStats
+            .Where(m => allowed.Contains(m.MemberNumber))
+            .ToList();
     }
 
     private void ToggleOperation(string operationNumber)

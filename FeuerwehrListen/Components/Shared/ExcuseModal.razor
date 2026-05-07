@@ -105,8 +105,14 @@
 
         if (UnitNumber.HasValue)
         {
+            // Multi-Unit: Mitglied aufnehmen, wenn _eine seiner_ Einheiten zum Listen-Unit passt.
+            var unitsByMember = await MemberRepo.GetUnitsForMembersAsync(allMembers.Select(m => m.Id));
             _members = allMembers.Where(m =>
-                UnitAssignmentService.ResolveUnitNumber(m) == UnitNumber.Value).ToList();
+            {
+                unitsByMember.TryGetValue(m.Id, out var fromTable);
+                var combined = UnitAssignmentService.CombineUnitNumbers(m, fromTable);
+                return combined.Contains(UnitNumber.Value);
+            }).ToList();
         }
         else
         {
