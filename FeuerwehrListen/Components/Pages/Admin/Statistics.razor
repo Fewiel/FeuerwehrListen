@@ -7,6 +7,7 @@
 @inject PdfExportService PdfService
 @inject NavigationManager Navigation
 @inject IJSRuntime JSRuntime
+@inject DownloadTokenService TokenService
 @rendermode InteractiveServer
 
 <PageTitle>Statistiken - Admin</PageTitle>
@@ -634,33 +635,14 @@
         try
         {
             var path = "/api/export/statistics/pdf";
-            var token = await CreateDownloadToken(path);
-            var url = $"api/export/statistics/pdf?token={Uri.EscapeDataString(token)}";
-            await OpenInNewTab(url);
+            var token = TokenService.CreateToken(path);
+            var baseUri = Navigation.BaseUri.TrimEnd('/');
+            var url = $"{baseUri}/api/export/statistics/pdf?token={Uri.EscapeDataString(token)}";
+            await JSRuntime.InvokeVoidAsync("open", url, "_blank");
         }
         catch (Exception)
         {
         }
-    }
-
-    private Task<string> CreateDownloadToken(string path)
-    {
-        var baseUri = Navigation.BaseUri.TrimEnd('/');
-        var tokenEndpoint = $"{baseUri}/token?path={Uri.EscapeDataString(path)}";
-        return FetchToken(tokenEndpoint);
-    }
-
-    private static async Task<string> FetchToken(string url)
-    {
-        using var http = new HttpClient();
-        return await http.GetStringAsync(url);
-    }
-
-    private async Task OpenInNewTab(string relativeUrl)
-    {
-        var baseUri = Navigation.BaseUri.TrimEnd('/');
-        var full = $"{baseUri}/{relativeUrl}";
-        await JSRuntime.InvokeVoidAsync("window.open", full, "_blank");
     }
 
     private string GetProgressBarClass(double rate)

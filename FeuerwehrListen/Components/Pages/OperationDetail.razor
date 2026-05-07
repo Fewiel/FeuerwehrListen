@@ -18,6 +18,7 @@
 @inject EmailSenderService EmailSender
 @inject SettingsService SettingsService
 @inject AuthenticationService AuthService
+@inject DownloadTokenService TokenService
 @rendermode InteractiveServer
 
 <PageTitle>Einsatzliste - @_list?.OperationNumber</PageTitle>
@@ -691,35 +692,17 @@
         try
         {
             var path = $"/api/export/operation/{_list.Id}/pdf";
-            var token = await CreateDownloadToken(path);
-            var url = $"api/export/operation/{_list.Id}/pdf?token={Uri.EscapeDataString(token)}";
-            await OpenInNewTab(url);
+            var token = TokenService.CreateToken(path);
+            var baseUri = Navigation.BaseUri.TrimEnd('/');
+            var url = $"{baseUri}/api/export/operation/{_list.Id}/pdf?token={Uri.EscapeDataString(token)}";
+            await JS.InvokeVoidAsync("open", url, "_blank");
         }
-        catch (Exception ex)
+        catch (Exception)
         {
         }
     }
 
-    private Task<string> CreateDownloadToken(string path)
-    {
-        var baseUri = Navigation.BaseUri.TrimEnd('/');
-        var tokenEndpoint = $"{baseUri}/token?path={Uri.EscapeDataString(path)}";
-        return FetchToken(tokenEndpoint);
-    }
-
-    private static async Task<string> FetchToken(string url)
-    {
-        using var http = new HttpClient();
-        return await http.GetStringAsync(url);
-    }
-
     [Inject] private IJSRuntime JS { get; set; } = default!;
-    private async Task OpenInNewTab(string relativeUrl)
-    {
-        var baseUri = Navigation.BaseUri.TrimEnd('/');
-        var full = $"{baseUri}/{relativeUrl}";
-        await JS.InvokeVoidAsync("window.open", full, "_blank");
-    }
 
     private string GetFunctionName(OperationFunction function) => function switch
     {
