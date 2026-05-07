@@ -60,24 +60,13 @@
                                 </div>
                             </div>
                             <div class="mb-3">
-                                <label class="form-label">Primäre Einheit (optional)</label>
-                                <select class="form-select" @bind="_editingMember!.UnitNumber">
-                                    <option value="">Keine Zuordnung</option>
-                                    @for (int u = 1; u <= 9; u++)
-                                    {
-                                        <option value="@u">Einheit @u</option>
-                                    }
-                                </select>
-                                <small class="text-muted">Wenn leer, wird die Einheit aus der Mitgliedsnummer abgeleitet.</small>
-                            </div>
-                            <div class="mb-3">
-                                <label class="form-label">Weitere Einheiten</label>
-                                <div class="border rounded p-2 d-flex flex-wrap gap-3">
+                                <label class="form-label">Einheiten</label>
+                                <div class="border rounded p-3 d-flex flex-wrap gap-3">
                                     @for (int u = 1; u <= 9; u++)
                                     {
                                         var unit = u;
-                                        <div class="form-check">
-                                            <input class="form-check-input" type="checkbox" id="@($"unit-{unit}")"
+                                        <div class="form-check form-switch">
+                                            <input class="form-check-input" type="checkbox" role="switch" id="@($"unit-{unit}")"
                                                    checked="@_editingUnits.Contains(unit)"
                                                    @onchange="@((ChangeEventArgs e) => ToggleEditingUnit(unit, (bool)(e.Value ?? false)))" />
                                             <label class="form-check-label" for="@($"unit-{unit}")">Einheit @unit</label>
@@ -85,7 +74,7 @@
                                     }
                                 </div>
                                 <small class="text-muted">
-                                    Mehrfachzuordnung möglich. Die Primäreinheit wird automatisch mit aufgenommen.
+                                    Mehrfachzuordnung möglich. Wenn keine Einheit aktiviert ist, wird sie aus der Mitgliedsnummer abgeleitet.
                                 </small>
                             </div>
                             <div class="mb-3">
@@ -211,10 +200,7 @@
                                                     {
                                                         @foreach (var u in units)
                                                         {
-                                                            var isPrimary = member.UnitNumber == u;
-                                                            <span class="badge @(isPrimary ? "bg-primary" : "bg-secondary") me-1" title="@(isPrimary ? "Primäreinheit" : "Zusätzliche Einheit")">
-                                                                Einheit @u
-                                                            </span>
+                                                            <span class="badge bg-primary me-1">Einheit @u</span>
                                                         }
                                                     }
                                                 </td>
@@ -300,6 +286,7 @@
         _editingUnits = _memberUnits.TryGetValue(member.Id, out var units)
             ? new HashSet<int>(units)
             : new HashSet<int>();
+        // Bestehende Member.UnitNumber-Zuordnung mit aufnehmen, falls noch nicht in der Join-Tabelle.
         if (member.UnitNumber.HasValue)
             _editingUnits.Add(member.UnitNumber.Value);
         _showForm = true;
@@ -319,10 +306,13 @@
             string.IsNullOrWhiteSpace(_editingMember.FirstName) || string.IsNullOrWhiteSpace(_editingMember.LastName))
             return;
 
-        // Primäreinheit muss in der Liste der zugeordneten Einheiten enthalten sein.
-        var unitSet = new HashSet<int>(_editingUnits.Where(u => u >= 1 && u <= 9));
-        if (_editingMember.UnitNumber.HasValue)
-            unitSet.Add(_editingMember.UnitNumber.Value);
+        var unitSet = _editingUnits
+            .Where(u => u >= 1 && u <= 9)
+            .OrderBy(u => u)
+            .ToList();
+
+        // Für Abwärtskompatibilität: Member.UnitNumber = erste aktivierte Einheit (oder null).
+        _editingMember.UnitNumber = unitSet.Count > 0 ? unitSet.First() : (int?)null;
 
         int memberId;
         if (_editingMember.Id == 0)
