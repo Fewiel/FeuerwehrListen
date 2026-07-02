@@ -16,14 +16,26 @@ public class EmailSenderService
     }
 
     public Task<bool> SendAsync(IEnumerable<string> recipients, string subject, string body)
-        => SendWithAttachmentAsync(recipients, subject, body, null, null);
+        => SendWithAttachmentsAsync(recipients, subject, body, Array.Empty<EmailAttachment>());
 
-    public async Task<bool> SendWithAttachmentAsync(
+    public Task<bool> SendWithAttachmentAsync(
         IEnumerable<string> recipients,
         string subject,
         string body,
         byte[]? attachmentBytes,
         string? attachmentFileName)
+    {
+        var attachments = attachmentBytes != null && !string.IsNullOrEmpty(attachmentFileName)
+            ? new[] { new EmailAttachment(attachmentBytes, attachmentFileName!) }
+            : Array.Empty<EmailAttachment>();
+        return SendWithAttachmentsAsync(recipients, subject, body, attachments);
+    }
+
+    public async Task<bool> SendWithAttachmentsAsync(
+        IEnumerable<string> recipients,
+        string subject,
+        string body,
+        IEnumerable<EmailAttachment> attachments)
     {
         var settings = await _settingsService.GetAllSettingsAsync();
 
@@ -68,10 +80,12 @@ public class EmailSenderService
                 message.To.Add(new MailAddress(recipient));
             }
 
-            if (attachmentBytes != null && !string.IsNullOrEmpty(attachmentFileName))
+            foreach (var att in attachments)
             {
-                var stream = new MemoryStream(attachmentBytes);
-                message.Attachments.Add(new Attachment(stream, attachmentFileName, "application/pdf"));
+                if (att.Bytes == null || att.Bytes.Length == 0 || string.IsNullOrEmpty(att.FileName))
+                    continue;
+                var stream = new MemoryStream(att.Bytes);
+                message.Attachments.Add(new Attachment(stream, att.FileName, "application/pdf"));
             }
 
             using var client = new SmtpClient(host, port)
@@ -120,3 +134,5 @@ public class EmailSenderService
             : fallback;
     }
 }
+
+public record EmailAttachment(byte[] Bytes, string FileName);

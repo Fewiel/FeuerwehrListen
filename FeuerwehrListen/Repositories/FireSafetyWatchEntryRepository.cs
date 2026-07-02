@@ -24,6 +24,13 @@ namespace FeuerwehrListen.Repositories
                 .ToListAsync();
         }
 
+        public async Task<int> CountByWatchIdAsync(int watchId)
+        {
+            return await _db.FireSafetyWatchEntries
+                .Where(e => e.FireSafetyWatchId == watchId)
+                .CountAsync();
+        }
+
         public async Task InsertAsync(FireSafetyWatchEntry entry)
         {
             await _db.InsertAsync(entry);

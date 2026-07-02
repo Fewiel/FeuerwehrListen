@@ -113,6 +113,7 @@ builder.Services.AddScoped<FireSafetyWatchRequirementRepository>();
 builder.Services.AddScoped<FireSafetyWatchEntryRepository>();
 builder.Services.AddScoped<SettingsRepository>();
 builder.Services.AddScoped<DefectRepository>();
+builder.Services.AddScoped<OperationReportRepository>();
 builder.Services.AddScoped<StatisticsService>();
 builder.Services.AddScoped<PdfExportService>();
 builder.Services.AddScoped<GeocodingService>();

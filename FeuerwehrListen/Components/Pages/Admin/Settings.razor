@@ -6,7 +6,6 @@
 @inject SettingsService SettingsService
 @inject NavigationManager Navigation
 @inject IWebHostEnvironment Environment
-@rendermode InteractiveServer
 
 <PageTitle>Einstellungen</PageTitle>
 
@@ -162,6 +161,14 @@
                             <label class="form-label" for="defRec"><i class="bi bi-tools me-1"></i>M&auml;ngelliste (neue M&auml;ngel)</label>
                             <input type="text" class="form-control" id="defRec" placeholder="E-Mail-Adressen..." @bind="_defectRecipients" />
                         </div>
+
+                        <hr class="my-3" />
+
+                        <div class="form-check form-switch mb-1">
+                            <input class="form-check-input" type="checkbox" id="skipEmptyLists" @bind="_skipEmptyLists" />
+                            <label class="form-check-label" for="skipEmptyLists">Leere Listen nicht per E-Mail versenden</label>
+                        </div>
+                        <small class="text-muted">Abgeschlossene Anwesenheits-, Einsatzlisten und Brandsicherheitswachen ohne Eintr&auml;ge werden dann nicht verschickt.</small>
                     </div>
                 </div>
             </div>
@@ -309,6 +316,7 @@
     private string _operationRecipients = string.Empty;
     private string _fireSafetyWatchRecipients = string.Empty;
     private string _defectRecipients = string.Empty;
+    private bool _skipEmptyLists = true;
     private bool _showUnitRecipients;
     private bool _soundEnabled = true;
     private string _brandingLogoUrl = string.Empty;
@@ -346,6 +354,7 @@
         _operationRecipients = GetString(settings, SettingKeys.NotificationOperationRecipients, string.Empty);
         _fireSafetyWatchRecipients = GetString(settings, SettingKeys.NotificationFireSafetyWatchRecipients, string.Empty);
         _defectRecipients = GetString(settings, SettingKeys.NotificationDefectRecipients, string.Empty);
+        _skipEmptyLists = GetBool(settings, SettingKeys.NotificationSkipEmptyLists, true);
 
         _soundEnabled = GetBool(settings, SettingKeys.SoundEnabled, true);
         _brandingLogoUrl = GetString(settings, SettingKeys.BrandingLogoUrl, string.Empty);
@@ -390,6 +399,7 @@
             await SettingsService.UpdateSettingAsync(SettingKeys.NotificationOperationRecipients, _operationRecipients.Trim());
             await SettingsService.UpdateSettingAsync(SettingKeys.NotificationFireSafetyWatchRecipients, _fireSafetyWatchRecipients.Trim());
             await SettingsService.UpdateSettingAsync(SettingKeys.NotificationDefectRecipients, _defectRecipients.Trim());
+            await SettingsService.UpdateSettingAsync(SettingKeys.NotificationSkipEmptyLists, _skipEmptyLists.ToString().ToLower());
 
             await SettingsService.UpdateSettingAsync(SettingKeys.SoundEnabled, _soundEnabled.ToString().ToLower());
             await SettingsService.UpdateSettingAsync(SettingKeys.BrandingLogoUrl, _brandingLogoUrl.Trim());

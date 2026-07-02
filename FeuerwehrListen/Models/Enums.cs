@@ -43,3 +43,10 @@ public enum DefectStatus
     Done = 3
 }
 
+public enum KostenpflichtStatus
+{
+    Unbekannt = 0,
+    Ja = 1,
+    Nein = 2
+}
+

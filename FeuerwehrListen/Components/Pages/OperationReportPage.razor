@@ -1,0 +1,433 @@
+@page "/operation/{OperationListId:int}/bericht"
+@using FeuerwehrListen.Models
+@using FeuerwehrListen.Services
+@using FeuerwehrListen.Repositories
+@using FeuerwehrListen.Components.Layout
+@inject OperationListRepository OperationRepo
+@inject OperationReportRepository ReportRepo
+@inject OperationEntryRepository EntryRepo
+@inject OperationEntryFunctionRepository EntryFunctionRepo
+@inject NavigationManager Navigation
+@inject DownloadTokenService TokenService
+@inject IJSRuntime JS
+
+<PageTitle>Einsatzbericht - @(_list?.OperationNumber)</PageTitle>
+
+<style>
+    .rb-check { display: flex; align-items: center; gap: .5rem; padding: .35rem .25rem; margin: 0; cursor: pointer; }
+    .rb-check input[type=checkbox] { width: 1.15rem; height: 1.15rem; margin: 0; flex: 0 0 auto; }
+    .rb-check span { line-height: 1.25; }
+    .report-savebar { position: sticky; bottom: 0; z-index: 20; background: rgba(13,17,23,.94); backdrop-filter: blur(6px); border-top: 1px solid rgba(255,255,255,.12); padding: .75rem 1rem; margin-top: 1.5rem; border-radius: .5rem .5rem 0 0; }
+</style>
+
+<UserAuthCheck>
+    <div class="container mt-4">
+        @if (_list == null)
+        {
+            <div class="alert alert-danger">Einsatz nicht gefunden.</div>
+        }
+        else if (_report != null)
+        {
+            <div class="d-flex justify-content-between align-items-start mb-2 flex-wrap gap-2">
+                <div>
+                    <h1 class="mb-1">Einsatzbericht</h1>
+                    <p class="lead mb-0">Einsatz @_list.OperationNumber &middot; @_list.Keyword</p>
+                </div>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-outline-secondary" @onclick="GoBack">
+                        <i class="bi bi-arrow-left"></i> Zur&uuml;ck zum Einsatz
+                    </button>
+                    <button class="btn btn-outline-danger" @onclick="ExportPdf">
+                        <i class="bi bi-file-earmark-pdf"></i> PDF
+                    </button>
+                </div>
+            </div>
+            <p class="text-muted mb-4">
+                <i class="bi bi-info-circle me-1"></i>
+                Nur ausf&uuml;llen, was zutrifft &ndash; leere Felder sind kein Problem. Du kannst jederzeit unten speichern.
+            </p>
+
+            @* ---------- Kopfdaten ---------- *@
+            <div class="card mb-4">
+                <div class="card-header"><h5 class="mb-0"><i class="bi bi-info-circle me-2"></i>Einsatzdaten</h5></div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label">Nr.</label>
+                            <input type="text" class="form-control" value="@_list.OperationNumber" disabled />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Alarmstichwort</label>
+                            <input type="text" class="form-control" value="@_list.Keyword" disabled />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Alarmierungszeit</label>
+                            <input type="text" class="form-control" value="@_list.AlertTime.ToString("dd.MM.yyyy HH:mm")" disabled />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Ort, Ortsteil</label>
+                            <input type="text" class="form-control" @bind="_report.OrtOrtsteil" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Stra&szlig;e</label>
+                            <input type="text" class="form-control" @bind="_report.Strasse" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Einsatzleiter</label>
+                            <input type="text" class="form-control" @bind="_report.Einsatzleiter" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            @* ---------- Einsatzart (genau eine Kategorie) ---------- *@
+            <div class="card mb-4">
+                <div class="card-header"><h5 class="mb-0"><i class="bi bi-diagram-3 me-2"></i>Einsatzart</h5></div>
+                <div class="card-body">
+                    <p class="text-muted mb-2">Bitte genau eine Einsatzart w&auml;hlen.</p>
+                    <div class="btn-group flex-wrap" role="group">
+                        <input type="radio" class="btn-check" name="einsatzart" id="katBrand" autocomplete="off"
+                               checked="@(SelectedKategorie == Kategorie.Brand)"
+                               @onchange="@(() => SelectedKategorie = Kategorie.Brand)" />
+                        <label class="btn btn-outline-danger" for="katBrand"><i class="bi bi-fire me-1"></i>Brandeinsatz</label>
+
+                        <input type="radio" class="btn-check" name="einsatzart" id="katTh" autocomplete="off"
+                               checked="@(SelectedKategorie == Kategorie.ThAbcOel)"
+                               @onchange="@(() => SelectedKategorie = Kategorie.ThAbcOel)" />
+                        <label class="btn btn-outline-danger" for="katTh"><i class="bi bi-tools me-1"></i>TH- / ABC- und &Ouml;leins&auml;tze</label>
+
+                        <input type="radio" class="btn-check" name="einsatzart" id="katFehl" autocomplete="off"
+                               checked="@(SelectedKategorie == Kategorie.Fehlalarm)"
+                               @onchange="@(() => SelectedKategorie = Kategorie.Fehlalarm)" />
+                        <label class="btn btn-outline-danger" for="katFehl"><i class="bi bi-exclamation-circle me-1"></i>Fehlalarm</label>
+                    </div>
+
+                    @if (SelectedKategorie == Kategorie.Brand)
+                    {
+                        <div class="mt-4">
+                            <div class="row g-1 mb-3">
+                                <div class="col-6 col-md-3"><label class="rb-check"><input class="form-check-input" type="checkbox" @bind="_report.BrandKleinbrandA" /><span>Kleinbrand A</span></label></div>
+                                <div class="col-6 col-md-3"><label class="rb-check"><input class="form-check-input" type="checkbox" @bind="_report.BrandKleinbrandB" /><span>Kleinbrand B</span></label></div>
+                                <div class="col-6 col-md-3"><label class="rb-check"><input class="form-check-input" type="checkbox" @bind="_report.BrandMittelbrand" /><span>Mittelbrand</span></label></div>
+                                <div class="col-6 col-md-3"><label class="rb-check"><input class="form-check-input" type="checkbox" @bind="_report.BrandGrossbrand" /><span>Gro&szlig;brand</span></label></div>
+                            </div>
+                            <div class="row g-3">
+                                <div class="col-md-4"><label class="form-label">Art des Brandobjektes</label><input type="text" class="form-control" @bind="_report.BrandArtObjekt" /></div>
+                                <div class="col-md-4"><label class="form-label">Ausbruchstelle</label><input type="text" class="form-control" @bind="_report.BrandAusbruchstelle" /></div>
+                                <div class="col-md-4"><label class="form-label">Brandursache</label><input type="text" class="form-control" @bind="_report.BrandUrsache" /></div>
+                            </div>
+                        </div>
+                    }
+                    else if (SelectedKategorie == Kategorie.ThAbcOel)
+                    {
+                        <div class="mt-4 row g-1">
+                            <div class="col-12 col-md-6"><label class="rb-check"><input class="form-check-input" type="checkbox" @bind="_report.ThVuMitEingekl" /><span>VU mit eingekl. Person</span></label></div>
+                            <div class="col-12 col-md-6"><label class="rb-check"><input class="form-check-input" type="checkbox" @bind="_report.ThVuOhneEingekl" /><span>VU ohne eingekl. Person</span></label></div>
+                            <div class="col-12 col-md-6"><label class="rb-check"><input class="form-check-input" type="checkbox" @bind="_report.ThZugunfall" /><span>Zugunfall</span></label></div>
+                            <div class="col-12 col-md-6"><label class="rb-check"><input class="form-check-input" type="checkbox" @bind="_report.ThFlugzeugunfall" /><span>Flugzeugunfall</span></label></div>
+                            <div class="col-12 col-md-6"><label class="rb-check"><input class="form-check-input" type="checkbox" @bind="_report.ThExplosion" /><span>Explosion</span></label></div>
+                            <div class="col-12 col-md-6"><label class="rb-check"><input class="form-check-input" type="checkbox" @bind="_report.ThGasgeruch" /><span>Gasgeruch</span></label></div>
+                            <div class="col-12 col-md-6"><label class="rb-check"><input class="form-check-input" type="checkbox" @bind="_report.ThSonstigerAbc" /><span>Sonstiger ABC-Einsatz</span></label></div>
+                            <div class="col-12 col-md-6"><label class="rb-check"><input class="form-check-input" type="checkbox" @bind="_report.ThWasserEisrettung" /><span>Wasser-/Eisrettung</span></label></div>
+                            <div class="col-12 col-md-6"><label class="rb-check"><input class="form-check-input" type="checkbox" @bind="_report.ThMenschenNotlage" /><span>Menschen in Notlage</span></label></div>
+                            <div class="col-12 col-md-6"><label class="rb-check"><input class="form-check-input" type="checkbox" @bind="_report.ThTiereNotlage" /><span>Tiere in Notlage</span></label></div>
+                            <div class="col-12 col-md-6"><label class="rb-check"><input class="form-check-input" type="checkbox" @bind="_report.ThVerkehrshindernis" /><span>Verkehrshindernis/-st&ouml;rung</span></label></div>
+                            <div class="col-12 col-md-6"><label class="rb-check"><input class="form-check-input" type="checkbox" @bind="_report.ThWasserSturmschaden" /><span>Wasser-/Sturmschaden</span></label></div>
+                            <div class="col-12 col-md-6"><label class="rb-check"><input class="form-check-input" type="checkbox" @bind="_report.ThGefahrFallenderGegenstand" /><span>Gefahr durch fallenden Gegenstand</span></label></div>
+                            <div class="col-12 col-md-6"><label class="rb-check"><input class="form-check-input" type="checkbox" @bind="_report.ThAuslaufendeGuelle" /><span>Auslaufende G&uuml;lle</span></label></div>
+                            <div class="col-12 col-md-6"><label class="rb-check"><input class="form-check-input" type="checkbox" @bind="_report.ThOeleinsatz" /><span>&Ouml;leinsatz</span></label></div>
+                            <div class="col-12 col-md-6"><label class="rb-check"><input class="form-check-input" type="checkbox" @bind="_report.ThSonstigeHilfeleistung" /><span>Sonstige Hilfeleistung</span></label></div>
+                        </div>
+                    }
+                    else if (SelectedKategorie == Kategorie.Fehlalarm)
+                    {
+                        <div class="mt-4 row g-1">
+                            <div class="col-12 col-md-6"><label class="rb-check"><input class="form-check-input" type="checkbox" @bind="_report.FehlGutenGlauben" /><span>Alarmierung im guten Glauben (blinder Alarm)</span></label></div>
+                            <div class="col-12 col-md-6"><label class="rb-check"><input class="form-check-input" type="checkbox" @bind="_report.FehlBoeswillig" /><span>B&ouml;swillige Alarmierung</span></label></div>
+                            <div class="col-12 col-md-6"><label class="rb-check"><input class="form-check-input" type="checkbox" @bind="_report.FehlBrandmeldeanlage" /><span>Fehlalarm durch Brandmeldeanlage</span></label></div>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            @* ---------- Lagebericht ---------- *@
+            <div class="card mb-4">
+                <div class="card-header"><h5 class="mb-0"><i class="bi bi-card-text me-2"></i>Lagebericht / eingesetzte Mittel</h5></div>
+                <div class="card-body">
+                    <textarea class="form-control" rows="5" @bind="_report.Lagebericht"></textarea>
+                </div>
+            </div>
+
+            @* ---------- Kostenpflichtiger Einsatz ---------- *@
+            <div class="card mb-4">
+                <div class="card-header"><h5 class="mb-0"><i class="bi bi-currency-euro me-2"></i>Kostenpflichtiger Einsatz</h5></div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label d-block">Ist der Einsatz kostenpflichtig?</label>
+                        <div class="btn-group flex-wrap" role="group">
+                            <input type="radio" class="btn-check" name="kostenpfl" id="kpJa" autocomplete="off"
+                                   checked="@(_report.KostenpflichtStatus == KostenpflichtStatus.Ja)"
+                                   @onchange="@(() => _report.KostenpflichtStatus = KostenpflichtStatus.Ja)" />
+                            <label class="btn btn-outline-success" for="kpJa">Ja</label>
+
+                            <input type="radio" class="btn-check" name="kostenpfl" id="kpNein" autocomplete="off"
+                                   checked="@(_report.KostenpflichtStatus == KostenpflichtStatus.Nein)"
+                                   @onchange="@(() => _report.KostenpflichtStatus = KostenpflichtStatus.Nein)" />
+                            <label class="btn btn-outline-secondary" for="kpNein">Nein</label>
+
+                            <input type="radio" class="btn-check" name="kostenpfl" id="kpUnb" autocomplete="off"
+                                   checked="@(_report.KostenpflichtStatus == KostenpflichtStatus.Unbekannt)"
+                                   @onchange="@(() => _report.KostenpflichtStatus = KostenpflichtStatus.Unbekannt)" />
+                            <label class="btn btn-outline-secondary" for="kpUnb">unbekannt</label>
+                        </div>
+                    </div>
+
+                    @if (_report.KostenpflichtStatus == KostenpflichtStatus.Ja)
+                    {
+                        <div class="row">
+                            <div class="col-lg-6">
+                                <h6 class="fw-semibold">Verursacher / Fahrzeughalter</h6>
+                                <div class="mb-2"><input type="text" class="form-control" placeholder="Name, Vorname" @bind="_report.VerursacherName" /></div>
+                                <div class="mb-2"><input type="text" class="form-control" placeholder="Anschrift" @bind="_report.VerursacherAnschrift" /></div>
+                                <div class="mb-2"><input type="text" class="form-control" placeholder="Geburtsdatum" @bind="_report.VerursacherGeburtsdatum" /></div>
+                                <div class="mb-2"><input type="text" class="form-control" placeholder="Kfz-Kennzeichen" @bind="_report.VerursacherKfz" /></div>
+                                <div class="mb-2"><input type="text" class="form-control" placeholder="Ggf. Name des Fahrers" @bind="_report.VerursacherFahrer" /></div>
+                            </div>
+                            <div class="col-lg-6">
+                                <h6 class="fw-semibold">Gesch&auml;digter / Fahrzeughalter</h6>
+                                <div class="mb-2"><input type="text" class="form-control" placeholder="Name, Vorname" @bind="_report.GeschaedigterName" /></div>
+                                <div class="mb-2"><input type="text" class="form-control" placeholder="Anschrift" @bind="_report.GeschaedigterAnschrift" /></div>
+                                <div class="mb-2"><input type="text" class="form-control" placeholder="Geburtsdatum" @bind="_report.GeschaedigterGeburtsdatum" /></div>
+                                <div class="mb-2"><input type="text" class="form-control" placeholder="Kfz-Kennzeichen" @bind="_report.GeschaedigterKfz" /></div>
+                                <div class="mb-2"><input type="text" class="form-control" placeholder="Ggf. Name des Fahrers" @bind="_report.GeschaedigterFahrer" /></div>
+                            </div>
+                        </div>
+                        <small class="text-muted">Bei kostenpflichtigen Eins&auml;tzen bitte zus&auml;tzlich die Kosten-Anlage verwenden (folgt in einem sp&auml;teren Schritt).</small>
+                    }
+                </div>
+            </div>
+
+            @* ---------- Dienststellen / Funktionen vor Ort ---------- *@
+            <div class="card mb-4">
+                <div class="card-header"><h5 class="mb-0"><i class="bi bi-people me-2"></i>Dienststellen / Funktionen vor Ort</h5></div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">weitere Fw / LZ</label>
+                        <textarea class="form-control" rows="2" @bind="_report.WeitereFwLz"></textarea>
+                    </div>
+                    <div class="row g-3 mb-3">
+                        <div class="col-6 col-md-3"><label class="form-label">Anzahl KTW</label><input type="number" min="0" class="form-control" @bind="_report.AnzahlKtw" /></div>
+                        <div class="col-6 col-md-3"><label class="form-label">Anzahl RTW</label><input type="number" min="0" class="form-control" @bind="_report.AnzahlRtw" /></div>
+                        <div class="col-6 col-md-3"><label class="form-label">Anzahl NA</label><input type="number" min="0" class="form-control" @bind="_report.AnzahlNa" /></div>
+                        <div class="col-6 col-md-3"><label class="form-label">Anzahl RTH</label><input type="number" min="0" class="form-control" @bind="_report.AnzahlRth" /></div>
+                    </div>
+                    <div class="row g-1">
+                        <div class="col-6 col-md-4"><label class="rb-check"><input class="form-check-input" type="checkbox" @bind="_report.OrgLRd" /><span>OrgL RD</span></label></div>
+                        <div class="col-6 col-md-4"><label class="rb-check"><input class="form-check-input" type="checkbox" @bind="_report.Lna" /><span>LNA</span></label></div>
+                        <div class="col-6 col-md-4"><label class="rb-check"><input class="form-check-input" type="checkbox" @bind="_report.DrkErsthelfer" /><span>DRK Ersthelfer</span></label></div>
+                        <div class="col-6 col-md-4"><label class="rb-check"><input class="form-check-input" type="checkbox" @bind="_report.PolizeiKripo" /><span>Polizei/Kripo</span></label></div>
+                        <div class="col-6 col-md-4"><label class="rb-check"><input class="form-check-input" type="checkbox" @bind="_report.StadtBillerbeck" /><span>Stadt Billerbeck</span></label></div>
+                        <div class="col-6 col-md-4"><label class="rb-check"><input class="form-check-input" type="checkbox" @bind="_report.Kbm" /><span>KBM</span></label></div>
+                        <div class="col-6 col-md-4"><label class="rb-check"><input class="form-check-input" type="checkbox" @bind="_report.Schornsteinfeger" /><span>Schornsteinfeger</span></label></div>
+                        <div class="col-6 col-md-4"><label class="rb-check"><input class="form-check-input" type="checkbox" @bind="_report.UntereWasserbehoerde" /><span>Untere Wasserbeh&ouml;rde</span></label></div>
+                        <div class="col-6 col-md-4"><label class="rb-check"><input class="form-check-input" type="checkbox" @bind="_report.Veterinaer" /><span>Veterin&auml;r</span></label></div>
+                        <div class="col-6 col-md-4"><label class="rb-check"><input class="form-check-input" type="checkbox" @bind="_report.Thw" /><span>THW</span></label></div>
+                        <div class="col-6 col-md-4"><label class="rb-check"><input class="form-check-input" type="checkbox" @bind="_report.Objektbetreiber" /><span>Objektbetreiber</span></label></div>
+                    </div>
+                    <div class="mt-3">
+                        <label class="form-label">Sonst. Einheiten</label>
+                        <input type="text" class="form-control" @bind="_report.SonstEinheiten" />
+                    </div>
+                </div>
+            </div>
+
+            @* ---------- Personenschäden + Schadenshöhe ---------- *@
+            <div class="card mb-4">
+                <div class="card-header"><h5 class="mb-0"><i class="bi bi-clipboard2-pulse me-2"></i>Personensch&auml;den &amp; Schadensh&ouml;he</h5></div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-6 col-md-4"><label class="form-label">Anzahl Verletzte</label><input type="number" min="0" class="form-control" @bind="_report.AnzahlVerletzte" /></div>
+                        <div class="col-6 col-md-4"><label class="form-label">Anzahl Tote</label><input type="number" min="0" class="form-control" @bind="_report.AnzahlTote" /></div>
+                        <div class="col-6 col-md-4"><label class="form-label">Anzahl verletzte FM (SB)</label><input type="number" min="0" class="form-control" @bind="_report.AnzahlVerletzteFm" /></div>
+                        <div class="col-md-6"><label class="form-label">Gesch&auml;tzter Sachschaden (&euro;)</label><input type="text" class="form-control" @bind="_report.SchadenSachschaden" /></div>
+                        <div class="col-md-6"><label class="form-label">H&ouml;he der erhaltenen Werte (&euro;)</label><input type="text" class="form-control" @bind="_report.SchadenErhalteneWerte" /></div>
+                    </div>
+                </div>
+            </div>
+
+            @* ---------- Kräfteerfassung aus Einsatzliste (read-only) ---------- *@
+            <div class="card mb-4">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="bi bi-person-badge me-2"></i>Eingesetzte Kr&auml;fte (@_entries.Count)</h5>
+                    <small class="text-muted">aus der Einsatzliste</small>
+                </div>
+                <div class="card-body">
+                    @if (_entries.Count == 0)
+                    {
+                        <p class="text-muted mb-0">Keine Kr&auml;fte in der Einsatzliste erfasst.</p>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-sm mb-0">
+                                <thead><tr><th>#</th><th>Name/ID</th><th>Fahrzeug</th><th>Funktionen</th><th>Atemschutz</th></tr></thead>
+                                <tbody>
+                                    @{ var idx = 1; }
+                                    @foreach (var entry in _entries)
+                                    {
+                                        var funcs = _functionsByEntryId.TryGetValue(entry.Id, out var fl)
+                                            ? string.Join(", ", fl.Select(x => x.Name))
+                                            : entry.Function.ToString();
+                                        <tr>
+                                            <td>@idx</td>
+                                            <td>@entry.NameOrId</td>
+                                            <td>@entry.Vehicle</td>
+                                            <td>@funcs</td>
+                                            <td>@(entry.WithBreathingApparatus ? "Ja" : "Nein")</td>
+                                        </tr>
+                                        idx++;
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            @* ---------- Unterschriften ---------- *@
+            <div class="card mb-4">
+                <div class="card-header"><h5 class="mb-0"><i class="bi bi-pen me-2"></i>Unterschriften</h5></div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-6"><label class="form-label">Unterschrift IuK (Name)</label><input type="text" class="form-control" @bind="_report.UnterschriftIuk" /></div>
+                        <div class="col-md-6"><label class="form-label">Unterschrift Einsatzleiter (Name)</label><input type="text" class="form-control" @bind="_report.UnterschriftEinsatzleiter" /></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="report-savebar d-flex align-items-center gap-2 flex-wrap">
+                <button class="btn btn-primary" @onclick="Save" disabled="@_saving">
+                    @if (_saving)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1"></span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-check-lg me-1"></i>
+                    }
+                    Bericht speichern
+                </button>
+                <button class="btn btn-outline-secondary" @onclick="GoBack">Zur&uuml;ck zum Einsatz</button>
+                @if (_showSuccess)
+                {
+                    <span class="text-success ms-1"><i class="bi bi-check-circle-fill me-1"></i>Gespeichert</span>
+                }
+                @if (_showError)
+                {
+                    <span class="text-danger ms-1"><i class="bi bi-exclamation-triangle-fill me-1"></i>Fehler beim Speichern</span>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="d-flex justify-content-center py-5">
+                <div class="spinner-border text-light" role="status"><span class="visually-hidden">Laden...</span></div>
+            </div>
+        }
+    </div>
+</UserAuthCheck>
+
+@code {
+    [Parameter] public int OperationListId { get; set; }
+
+    private OperationList? _list;
+    private OperationReport? _report;
+    private List<OperationEntry> _entries = new();
+    private Dictionary<int, List<OperationFunctionDef>> _functionsByEntryId = new();
+
+    private bool _saving;
+    private bool _showSuccess;
+    private bool _showError;
+
+    private enum Kategorie { Keine, Brand, ThAbcOel, Fehlalarm }
+
+    private Kategorie SelectedKategorie
+    {
+        get => _report!.IsBrandeinsatz ? Kategorie.Brand
+             : _report.IsThAbcOel ? Kategorie.ThAbcOel
+             : _report.IsFehlalarm ? Kategorie.Fehlalarm
+             : Kategorie.Keine;
+        set
+        {
+            // Genau eine Kategorie darf aktiv sein
+            _report!.IsBrandeinsatz = value == Kategorie.Brand;
+            _report.IsThAbcOel = value == Kategorie.ThAbcOel;
+            _report.IsFehlalarm = value == Kategorie.Fehlalarm;
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _list = await OperationRepo.GetByIdAsync(OperationListId);
+        if (_list == null) return;
+
+        _report = await ReportRepo.GetOrCreateAsync(OperationListId);
+
+        // Prefill Straße aus der Einsatzliste-Adresse, falls noch leer
+        if (string.IsNullOrWhiteSpace(_report.Strasse) && !string.IsNullOrWhiteSpace(_list.Address))
+        {
+            _report.Strasse = _list.Address;
+        }
+
+        _entries = await EntryRepo.GetByListIdAsync(OperationListId);
+        var entryIds = _entries.Select(e => e.Id).ToList();
+        _functionsByEntryId = await EntryFunctionRepo.GetFunctionsForEntriesAsync(entryIds);
+    }
+
+    private async Task Save()
+    {
+        if (_report == null) return;
+        _saving = true;
+        _showSuccess = false;
+        _showError = false;
+        try
+        {
+            await ReportRepo.UpdateAsync(_report);
+            _showSuccess = true;
+        }
+        catch
+        {
+            _showError = true;
+        }
+        finally
+        {
+            _saving = false;
+        }
+
+        // Status sofort anzeigen (bei async-Handlern rendert Blazor sonst erst am Ende neu)
+        StateHasChanged();
+
+        // Erfolgsmeldung nach kurzer Zeit automatisch ausblenden
+        if (_showSuccess)
+        {
+            await Task.Delay(3000);
+            _showSuccess = false;
+            StateHasChanged();
+        }
+    }
+
+    private void GoBack() => Navigation.NavigateTo($"/operation/{OperationListId}");
+
+    private async Task ExportPdf()
+    {
+        try
+        {
+            var path = $"/api/export/operation-report/{OperationListId}/pdf";
+            var token = TokenService.CreateToken(path);
+            var baseUri = Navigation.BaseUri.TrimEnd('/');
+            var url = $"{baseUri}{path}?token={Uri.EscapeDataString(token)}";
+            await JS.InvokeVoidAsync("open", url, "_blank");
+        }
+        catch { }
+    }
+}

@@ -19,7 +19,6 @@
 @inject SettingsService SettingsService
 @inject AuthenticationService AuthService
 @inject DownloadTokenService TokenService
-@rendermode InteractiveServer
 
 <PageTitle>Einsatzliste - @_list?.OperationNumber</PageTitle>
 
@@ -263,6 +262,9 @@
                     <button class="btn btn-warning btn-lg" @onclick="CloseList">
                         <i class="bi bi-lock me-2"></i>Liste abschließen
                     </button>
+                    <button class="btn btn-danger btn-lg" @onclick="OpenReport">
+                        <i class="bi bi-clipboard-data me-2"></i>Einsatzbericht
+                    </button>
                     <button class="btn btn-primary btn-lg" @onclick="ExportPdf">
                         <i class="bi bi-file-earmark-pdf me-2"></i>PDF Export
                     </button>
@@ -271,6 +273,9 @@
             else
             {
                 <div class="d-grid gap-2 mt-4" style="max-width: 500px;">
+                    <button class="btn btn-danger btn-lg" @onclick="OpenReport">
+                        <i class="bi bi-clipboard-data me-2"></i>Einsatzbericht
+                    </button>
                     <button class="btn btn-primary btn-lg" @onclick="ExportPdf">
                         <i class="bi bi-file-earmark-pdf me-2"></i>PDF Export
                     </button>
@@ -685,6 +690,11 @@
         {
             _errorMessage = $"Fehler beim Speichern: {ex.Message}";
         }
+    }
+
+    private void OpenReport()
+    {
+        Navigation.NavigateTo($"/operation/{_list!.Id}/bericht");
     }
 
     private async Task ExportPdf()

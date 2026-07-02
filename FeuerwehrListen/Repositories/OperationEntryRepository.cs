@@ -21,6 +21,13 @@ public class OperationEntryRepository
             .ToListAsync();
     }
 
+    public async Task<int> CountByListIdAsync(int listId)
+    {
+        return await _db.OperationEntries
+            .Where(x => x.OperationListId == listId)
+            .CountAsync();
+    }
+
     public async Task<int> CreateAsync(OperationEntry entry)
     {
         return await _db.InsertWithInt32IdentityAsync(entry);

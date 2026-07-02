@@ -24,6 +24,7 @@ public class PdfExportService
     private readonly FireSafetyWatchRequirementRepository _fireSafetyWatchRequirementRepo;
     private readonly FireSafetyWatchEntryRepository _fireSafetyWatchEntryRepo;
     private readonly MemberRepository _memberRepo;
+    private readonly OperationReportRepository _reportRepo;
 
     public PdfExportService(
         AttendanceListRepository attendanceRepo,
@@ -37,8 +38,10 @@ public class PdfExportService
         FireSafetyWatchRepository fireSafetyWatchRepo,
         FireSafetyWatchRequirementRepository fireSafetyWatchRequirementRepo,
         FireSafetyWatchEntryRepository fireSafetyWatchEntryRepo,
-        MemberRepository memberRepo)
+        MemberRepository memberRepo,
+        OperationReportRepository reportRepo)
     {
+        _reportRepo = reportRepo;
         _attendanceRepo = attendanceRepo;
         _operationRepo = operationRepo;
         _attendanceEntryRepo = attendanceEntryRepo;
@@ -514,6 +517,223 @@ public class PdfExportService
             document.Save(memoryStream);
             var bytes = memoryStream.ToArray();
             return bytes;
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"Fehler beim PDF-Export: {ex.GetType().Name}: {ex.Message}", ex);
+        }
+    }
+
+    public async Task<byte[]> ExportOperationReportAsync(int operationListId)
+    {
+        try
+        {
+            var list = await _operationRepo.GetByIdAsync(operationListId);
+            if (list == null) throw new ArgumentException("List not found");
+
+            var report = await _reportRepo.GetOrCreateAsync(operationListId);
+            var entries = await _operationEntryRepo.GetByListIdAsync(operationListId) ?? new List<OperationEntry>();
+            var functionsByEntry = await _entryFunctionRepo.GetFunctionsForEntriesAsync(entries.Select(e => e.Id).ToList());
+
+            var document = new PdfDocument();
+            var page = document.AddPage();
+            var gfx = XGraphics.FromPdfPage(page);
+
+            var font = CreateFont("CreatoDisplay", 11);
+            var titleFont = CreateFont("CreatoDisplay", 16, true);
+            var headerBold = CreateFont("CreatoDisplay", 11, true);
+            var sectionFont = CreateFont("CreatoDisplay", 12, true);
+
+            double left = 40, right = 40, top = 50, bottom = 40;
+            double contentWidth = page.Width - left - right;
+            int pageNumber = 1;
+            double y = top + 36;
+
+            DrawHeader(gfx, "EINSATZBERICHT", titleFont, left, top, contentWidth);
+
+            void ForceNewPage()
+            {
+                DrawFooter(document, page, gfx, font, left, page.Height, contentWidth, pageNumber);
+                page = document.AddPage(); pageNumber++;
+                gfx.Dispose(); gfx = XGraphics.FromPdfPage(page);
+                DrawHeader(gfx, "EINSATZBERICHT", titleFont, left, top, contentWidth);
+                y = top + 36;
+            }
+
+            void NewPageIfNeeded(double needed)
+            {
+                if (y + needed > page.Height - bottom - 20)
+                {
+                    ForceNewPage();
+                }
+            }
+
+            void Line(string text, XFont f)
+            {
+                NewPageIfNeeded(15);
+                gfx.DrawString(text ?? string.Empty, f, XBrushes.Black, new XRect(left, y, contentWidth, 15), XStringFormats.TopLeft);
+                y += 15;
+            }
+
+            void Section(string title)
+            {
+                y += 6;
+                NewPageIfNeeded(22);
+                gfx.DrawString(title, sectionFont, XBrushes.Black, new XRect(left, y, contentWidth, 18), XStringFormats.TopLeft);
+                y += 18;
+                gfx.DrawLine(new XPen(XColors.LightGray, 0.5), left, y, left + contentWidth, y);
+                y += 4;
+            }
+
+            void Wrapped(string label, string? value)
+            {
+                var text = string.IsNullOrWhiteSpace(value) ? "—" : value!;
+                var full = string.IsNullOrEmpty(label) ? text : label + " " + text;
+                foreach (var ln in WrapText(full, gfx, font, contentWidth - 8))
+                {
+                    NewPageIfNeeded(14);
+                    gfx.DrawString(ln, font, XBrushes.Black, new XRect(left, y, contentWidth, 14), XStringFormats.TopLeft);
+                    y += 14;
+                }
+            }
+
+            string CB(bool v) => v ? "[X]" : "[ ]";
+
+            // --- Kopf ---
+            Line($"Nr.: {list.OperationNumber}     Alarmstichwort: {list.Keyword}", headerBold);
+            Line($"Alarmierungszeit: {list.AlertTime:dd.MM.yyyy HH:mm} Uhr", font);
+            Line($"Ort, Ortsteil: {report.OrtOrtsteil ?? string.Empty}", font);
+            Line($"Straße: {report.Strasse ?? string.Empty}", font);
+            Line($"Einsatzleiter: {report.Einsatzleiter ?? string.Empty}", font);
+
+            // --- Einsatzart ---
+            Section("Einsatzart");
+            Line($"{CB(report.IsBrandeinsatz)} Brandeinsatz", headerBold);
+            if (report.IsBrandeinsatz)
+            {
+                Line($"     {CB(report.BrandKleinbrandA)} Kleinbrand A    {CB(report.BrandKleinbrandB)} Kleinbrand B    {CB(report.BrandMittelbrand)} Mittelbrand    {CB(report.BrandGrossbrand)} Großbrand", font);
+                if (!string.IsNullOrWhiteSpace(report.BrandArtObjekt)) Wrapped("     Art des Brandobjektes:", report.BrandArtObjekt);
+                if (!string.IsNullOrWhiteSpace(report.BrandAusbruchstelle)) Wrapped("     Ausbruchstelle:", report.BrandAusbruchstelle);
+                if (!string.IsNullOrWhiteSpace(report.BrandUrsache)) Wrapped("     Brandursache:", report.BrandUrsache);
+            }
+
+            Line($"{CB(report.IsThAbcOel)} TH- / ABC- und Öleinsätze", headerBold);
+            if (report.IsThAbcOel)
+            {
+                var th = new List<string>();
+                if (report.ThVuMitEingekl) th.Add("VU mit eingekl. Person");
+                if (report.ThVuOhneEingekl) th.Add("VU ohne eingekl. Person");
+                if (report.ThZugunfall) th.Add("Zugunfall");
+                if (report.ThFlugzeugunfall) th.Add("Flugzeugunfall");
+                if (report.ThExplosion) th.Add("Explosion");
+                if (report.ThGasgeruch) th.Add("Gasgeruch");
+                if (report.ThSonstigerAbc) th.Add("Sonstiger ABC-Einsatz");
+                if (report.ThWasserEisrettung) th.Add("Wasser-/Eisrettung");
+                if (report.ThMenschenNotlage) th.Add("Menschen in Notlage");
+                if (report.ThTiereNotlage) th.Add("Tiere in Notlage");
+                if (report.ThVerkehrshindernis) th.Add("Verkehrshindernis/-störung");
+                if (report.ThWasserSturmschaden) th.Add("Wasser-/Sturmschaden");
+                if (report.ThGefahrFallenderGegenstand) th.Add("Gefahr durch fallenden Gegenstand");
+                if (report.ThAuslaufendeGuelle) th.Add("Auslaufende Gülle");
+                if (report.ThOeleinsatz) th.Add("Öleinsatz");
+                if (report.ThSonstigeHilfeleistung) th.Add("Sonstige Hilfeleistung");
+                if (th.Count > 0) Wrapped("     -", string.Join(", ", th));
+            }
+
+            Line($"{CB(report.IsFehlalarm)} Fehlalarm", headerBold);
+            if (report.IsFehlalarm)
+            {
+                Line($"     {CB(report.FehlGutenGlauben)} im guten Glauben    {CB(report.FehlBoeswillig)} böswillig    {CB(report.FehlBrandmeldeanlage)} durch Brandmeldeanlage", font);
+            }
+
+            // --- Lagebericht (immer auf eigener Seite) ---
+            ForceNewPage();
+            Section("Lagebericht / eingesetzte Mittel");
+            Wrapped(string.Empty, report.Lagebericht);
+            ForceNewPage();
+
+            // --- Kostenpflichtig ---
+            Section("Kostenpflichtiger Einsatz");
+            Line($"Kostenpflichtig: {report.KostenpflichtStatus}", font);
+
+            static string PersonLine(string? name, string? anschrift, string? geb, string? kfz, string? fahrer)
+            {
+                var parts = new List<string>();
+                if (!string.IsNullOrWhiteSpace(name)) parts.Add(name!);
+                if (!string.IsNullOrWhiteSpace(anschrift)) parts.Add(anschrift!);
+                if (!string.IsNullOrWhiteSpace(geb)) parts.Add($"geb. {geb}");
+                if (!string.IsNullOrWhiteSpace(kfz)) parts.Add($"Kfz {kfz}");
+                if (!string.IsNullOrWhiteSpace(fahrer)) parts.Add($"Fahrer {fahrer}");
+                return parts.Count > 0 ? string.Join("  |  ", parts) : "—";
+            }
+
+            Line("Verursacher / Fahrzeughalter:", headerBold);
+            Wrapped("     ", PersonLine(report.VerursacherName, report.VerursacherAnschrift, report.VerursacherGeburtsdatum, report.VerursacherKfz, report.VerursacherFahrer));
+            Line("Geschädigter / Fahrzeughalter:", headerBold);
+            Wrapped("     ", PersonLine(report.GeschaedigterName, report.GeschaedigterAnschrift, report.GeschaedigterGeburtsdatum, report.GeschaedigterKfz, report.GeschaedigterFahrer));
+
+            // --- Dienststellen ---
+            Section("Dienststellen / Funktionen vor Ort");
+            if (!string.IsNullOrWhiteSpace(report.WeitereFwLz)) Wrapped("weitere Fw / LZ:", report.WeitereFwLz);
+            Line($"Anzahl KTW: {report.AnzahlKtw}    RTW: {report.AnzahlRtw}    NA: {report.AnzahlNa}    RTH: {report.AnzahlRth}", font);
+            var ds = new List<string>();
+            if (report.OrgLRd) ds.Add("OrgL RD");
+            if (report.Lna) ds.Add("LNA");
+            if (report.DrkErsthelfer) ds.Add("DRK Ersthelfer");
+            if (report.PolizeiKripo) ds.Add("Polizei/Kripo");
+            if (report.StadtBillerbeck) ds.Add("Stadt Billerbeck");
+            if (report.Kbm) ds.Add("KBM");
+            if (report.Schornsteinfeger) ds.Add("Schornsteinfeger");
+            if (report.UntereWasserbehoerde) ds.Add("Untere Wasserbehörde");
+            if (report.Veterinaer) ds.Add("Veterinär");
+            if (report.Thw) ds.Add("THW");
+            if (report.Objektbetreiber) ds.Add("Objektbetreiber");
+            if (ds.Count > 0) Wrapped("Vor Ort:", string.Join(", ", ds));
+            if (!string.IsNullOrWhiteSpace(report.SonstEinheiten)) Wrapped("Sonst. Einheiten:", report.SonstEinheiten);
+
+            // --- Personenschäden & Schadenshöhe ---
+            Section("Personenschäden & Schadenshöhe");
+            Line($"Verletzte: {report.AnzahlVerletzte}    Tote: {report.AnzahlTote}    verletzte FM (SB): {report.AnzahlVerletzteFm}", font);
+            Line($"Geschätzter Sachschaden: {report.SchadenSachschaden ?? "—"} €    Erhaltene Werte: {report.SchadenErhalteneWerte ?? "—"} €", font);
+
+            // --- Eingesetzte Kräfte ---
+            Section($"Eingesetzte Kräfte ({entries.Count})");
+            if (entries.Count == 0)
+            {
+                Line("Keine Kräfte erfasst.", font);
+            }
+            else
+            {
+                var widths = new[] { 24d, contentWidth - 24 - 120 - 150 - 40, 120d, 150d, 40d };
+                NewPageIfNeeded(18);
+                DrawTableHeader(gfx, font, headerBold, left, y, widths, new[] { "#", "Name/ID", "Fahrzeug", "Funktionen", "UA" });
+                y += 16;
+                int i = 1;
+                foreach (var e in entries)
+                {
+                    var funcs = functionsByEntry.TryGetValue(e.Id, out var fl)
+                        ? string.Join(", ", fl.Select(x => x.Name))
+                        : e.Function.ToString();
+                    NewPageIfNeeded(20);
+                    var rowH = DrawTableRowWrapped(gfx, font, left, y, widths,
+                        new[] { i.ToString(), e.NameOrId ?? string.Empty, e.Vehicle ?? string.Empty, funcs, e.WithBreathingApparatus ? "Ja" : "Nein" },
+                        new HashSet<int> { 3 });
+                    y += rowH;
+                    i++;
+                }
+            }
+
+            // --- Unterschriften ---
+            Section("Unterschriften");
+            Line($"Datum: {DateTime.Now:dd.MM.yyyy}", font);
+            Line($"Unterschrift IuK: {report.UnterschriftIuk ?? string.Empty}", font);
+            Line($"Unterschrift Einsatzleiter: {report.UnterschriftEinsatzleiter ?? string.Empty}", font);
+
+            DrawFooter(document, page, gfx, font, left, page.Height, contentWidth, pageNumber);
+
+            using var ms = new MemoryStream();
+            document.Save(ms);
+            return ms.ToArray();
         }
         catch (Exception ex)
         {

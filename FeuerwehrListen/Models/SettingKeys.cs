@@ -17,6 +17,12 @@ public static class SettingKeys
     public const string VisibilityDefects = "ModuleVisibility.Defects";
     public const string NotificationDefectRecipients = "Notifications.DefectRecipients";
 
+    /// <summary>
+    /// Wenn "true": Abgeschlossene Listen ohne Einträge werden NICHT per Mail versendet.
+    /// Standard (nicht gesetzt) = true.
+    /// </summary>
+    public const string NotificationSkipEmptyLists = "Notifications.SkipEmptyLists";
+
     public const string SmtpHost = "Smtp.Host";
     public const string SmtpPort = "Smtp.Port";
     public const string SmtpUsername = "Smtp.Username";

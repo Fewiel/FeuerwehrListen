@@ -31,5 +31,6 @@ public class AppDbConnection : DataConnection
     public ITable<AppSetting> AppSettings => this.GetTable<AppSetting>();
     public ITable<Defect> Defects => this.GetTable<Defect>();
     public ITable<DefectStatusChange> DefectStatusChanges => this.GetTable<DefectStatusChange>();
+    public ITable<OperationReport> OperationReports => this.GetTable<OperationReport>();
 }
 
