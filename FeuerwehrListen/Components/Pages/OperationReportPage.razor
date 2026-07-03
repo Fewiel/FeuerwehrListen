@@ -342,7 +342,7 @@
             @* ---------- Kräfteerfassung aus Einsatzliste (read-only) ---------- *@
             <div class="card mb-4">
                 <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
-                    <h5 class="mb-0"><i class="bi bi-person-badge me-2"></i>Eingesetzte Kr&auml;fte (@_entries.Count)</h5>
+                    <h5 class="mb-0"><i class="bi bi-person-badge me-2"></i>Eingesetzte Kr&auml;fte (@EntriesWithVehicle.Count())</h5>
                     <div class="d-flex align-items-center gap-2 flex-wrap">
                         <span class="badge bg-danger" title="Führer / Mannschaft / Gesamt">St&auml;rke @_gesamtStaerke</span>
                         <button type="button" class="btn btn-sm btn-outline-primary" @onclick="OpenVehicleStrengthModal"><i class="bi bi-truck me-1"></i>St&auml;rken je Fahrzeug</button>
@@ -359,9 +359,9 @@
                             }
                         </div>
                     }
-                    @if (_entries.Count == 0)
+                    @if (!EntriesWithVehicle.Any())
                     {
-                        <p class="text-muted mb-0">Keine Kr&auml;fte in der Einsatzliste erfasst.</p>
+                        <p class="text-muted mb-0">Keine Kr&auml;fte mit Fahrzeug in der Einsatzliste erfasst.</p>
                     }
                     else
                     {
@@ -370,7 +370,7 @@
                                 <thead><tr><th>#</th><th>Name/ID</th><th>Fahrzeug</th><th>Funktionen</th><th>Atemschutz</th></tr></thead>
                                 <tbody>
                                     @{ var idx = 1; }
-                                    @foreach (var entry in _entries)
+                                    @foreach (var entry in EntriesWithVehicle)
                                     {
                                         var funcs = _functionsByEntryId.TryGetValue(entry.Id, out var fl)
                                             ? string.Join(", ", fl.Select(x => x.Name))
@@ -711,6 +711,9 @@
             }
         }
     }
+
+    // Einträge mit echtem Fahrzeug (ohne "Ohne Fahrzeug") für die Kräfte-Tabelle
+    private IEnumerable<OperationEntry> EntriesWithVehicle => _entries.Where(e => !StrengthCalc.IsNoVehicle(e.Vehicle));
 
     private void RecalcGesamt()
     {

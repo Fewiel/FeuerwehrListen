@@ -784,8 +784,9 @@ public class PdfExportService
             Line($"Verletzte: {report.AnzahlVerletzte}    Tote: {report.AnzahlTote}    verletzte FM (SB): {report.AnzahlVerletzteFm}", font);
             Line($"Geschätzter Sachschaden: {report.SchadenSachschaden ?? "—"} €    Erhaltene Werte: {report.SchadenErhalteneWerte ?? "—"} €", font);
 
-            // --- Eingesetzte Kräfte ---
-            Section($"Eingesetzte Kräfte ({entries.Count})");
+            // --- Eingesetzte Kräfte (ohne "Ohne Fahrzeug") ---
+            var entriesWithVehicle = entries.Where(e => !StrengthCalc.IsNoVehicle(e.Vehicle)).ToList();
+            Section($"Eingesetzte Kräfte ({entriesWithVehicle.Count})");
             Line($"Gesamtstärke (Führer / Mannschaft / Gesamt): {StrengthCalc.CombinedTotal(entries, functionsByEntry, vehicleStrengths.Select(v => (v.VehicleName, v.Staerke)), externalForces.Select(e => e.Staerke))}", headerBold);
             if (vehicleStrengths.Count > 0)
             {
@@ -793,7 +794,7 @@ public class PdfExportService
                 foreach (var vs in vehicleStrengths)
                     Line($"     {vs.VehicleName}: {vs.Staerke}", font);
             }
-            if (entries.Count == 0)
+            if (entriesWithVehicle.Count == 0)
             {
                 Line("Keine Kräfte erfasst.", font);
             }
@@ -804,7 +805,7 @@ public class PdfExportService
                 DrawTableHeader(gfx, font, headerBold, left, y, widths, new[] { "#", "Name/ID", "Fahrzeug", "Funktionen", "UA" });
                 y += 16;
                 int i = 1;
-                foreach (var e in entries)
+                foreach (var e in entriesWithVehicle)
                 {
                     var funcs = functionsByEntry.TryGetValue(e.Id, out var fl)
                         ? string.Join(", ", fl.Select(x => x.Name))
