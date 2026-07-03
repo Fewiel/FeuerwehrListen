@@ -297,7 +297,7 @@
                         <div class="d-flex flex-wrap gap-2">
                             @foreach (var m in _mittel)
                             {
-                                <span class="badge rounded-pill bg-primary">@m.Name@(m.Anzahl > 0 ? $" · {m.Anzahl}" : "")</span>
+                                <span class="badge rounded-pill bg-primary">@m.Name@(m.Anzahl > 0 ? $" · {m.Anzahl}" : "")@(!string.IsNullOrWhiteSpace(m.Dauer) ? $" · {m.Dauer}" : "")</span>
                             }
                         </div>
                     }
@@ -342,7 +342,7 @@
             @* ---------- Kräfteerfassung aus Einsatzliste (read-only) ---------- *@
             <div class="card mb-4">
                 <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
-                    <h5 class="mb-0"><i class="bi bi-person-badge me-2"></i>Eingesetzte Kr&auml;fte (@EntriesWithVehicle.Count())</h5>
+                    <h5 class="mb-0"><i class="bi bi-person-badge me-2"></i>Eingesetzte Kr&auml;fte &middot; Eigene (@EntriesWithVehicle.Count())</h5>
                     <div class="d-flex align-items-center gap-2 flex-wrap">
                         <span class="badge bg-danger" title="Führer / Mannschaft / Gesamt">St&auml;rke @_gesamtStaerke</span>
                         <button type="button" class="btn btn-sm btn-outline-primary" @onclick="OpenVehicleStrengthModal"><i class="bi bi-truck me-1"></i>St&auml;rken je Fahrzeug</button>
@@ -350,6 +350,7 @@
                 </div>
                 <div class="card-body">
                     <p class="text-muted small mb-2">Gesamtst&auml;rke (F&uuml;hrer / Mannschaft / Gesamt) aus Fahrzeug-St&auml;rken + externen Kr&auml;ften: <strong>@_gesamtStaerke</strong></p>
+                    <p class="text-muted small mb-2"><i class="bi bi-info-circle me-1"></i>Diese Liste zeigt nur <strong>eigene</strong> Kr&auml;fte (mit Fahrzeug). <strong>Externe Kr&auml;fte</strong> werden oben unter „Dienststellen / Externe Kr&auml;fte" erfasst.</p>
                     @if (_vehicleStrengths.Count > 0)
                     {
                         <div class="mb-3 d-flex flex-wrap gap-2">
@@ -500,15 +501,16 @@
                                 <button type="button" class="btn-close" @onclick="CloseMittelModal"></button>
                             </div>
                             <div class="modal-body">
-                                <p class="text-muted small">Schalter aktivieren und ggf. Anzahl angeben. Ganz unten k&ouml;nnen beliebig viele „Sonstiges" erg&auml;nzt werden.</p>
+                                <p class="text-muted small">Schalter aktivieren, dann <strong>Anzahl</strong> und <strong>Dauer</strong> (z.&nbsp;B. „2 Std") angeben. Ganz unten k&ouml;nnen beliebig viele „Sonstiges" erg&auml;nzt werden.</p>
                                 @foreach (var item in _mittelEditor)
                                 {
-                                    <div class="d-flex align-items-center gap-3 py-2 border-bottom">
+                                    <div class="d-flex align-items-center gap-2 py-2 border-bottom">
                                         <div class="form-check form-switch mb-0">
                                             <input class="form-check-input" type="checkbox" id="@($"mittel_{item.Key}")" @bind="item.Active" />
                                         </div>
                                         <label class="flex-grow-1 mb-0" for="@($"mittel_{item.Key}")">@item.Name</label>
-                                        <input type="number" min="0" class="form-control form-control-sm" style="width:90px" @bind="item.Anzahl" disabled="@(!item.Active)" />
+                                        <input type="number" min="0" class="form-control form-control-sm" style="width:75px" @bind="item.Anzahl" disabled="@(!item.Active)" title="Anzahl" placeholder="Anz." />
+                                        <input type="text" class="form-control form-control-sm" style="width:110px" @bind="item.Dauer" disabled="@(!item.Active)" title="Dauer" placeholder="Dauer" />
                                     </div>
                                 }
 
@@ -518,7 +520,8 @@
                                     var idx = i;
                                     <div class="d-flex align-items-center gap-2 mb-2">
                                         <input class="form-control form-control-sm" placeholder="Bezeichnung" @bind="_customMittel[idx].Name" />
-                                        <input type="number" min="0" class="form-control form-control-sm" style="width:90px" @bind="_customMittel[idx].Anzahl" />
+                                        <input type="number" min="0" class="form-control form-control-sm" style="width:75px" @bind="_customMittel[idx].Anzahl" title="Anzahl" placeholder="Anz." />
+                                        <input type="text" class="form-control form-control-sm" style="width:110px" @bind="_customMittel[idx].Dauer" title="Dauer" placeholder="Dauer" />
                                         <button type="button" class="btn btn-sm btn-outline-danger" title="Entfernen" @onclick="() => _customMittel.RemoveAt(idx)"><i class="bi bi-trash"></i></button>
                                     </div>
                                 }
@@ -629,6 +632,7 @@
         public string Name { get; set; } = "";
         public bool Active { get; set; }
         public int Anzahl { get; set; }
+        public string? Dauer { get; set; }
     }
 
     private List<MittelEditItem> _mittelEditor = new();
@@ -873,12 +877,13 @@
                 Key = i.ToString(),
                 Name = name,
                 Active = existing != null,
-                Anzahl = existing?.Anzahl ?? 0
+                Anzahl = existing?.Anzahl ?? 0,
+                Dauer = existing?.Dauer
             };
         }).ToList();
 
         _customMittel = _mittel.Where(m => m.IsCustom)
-            .Select(m => new MittelEditItem { Name = m.Name ?? "", Active = true, Anzahl = m.Anzahl })
+            .Select(m => new MittelEditItem { Name = m.Name ?? "", Active = true, Anzahl = m.Anzahl, Dauer = m.Dauer })
             .ToList();
 
         _showMittelModal = true;
@@ -892,9 +897,9 @@
     {
         var result = new List<OperationReportMittel>();
         foreach (var e in _mittelEditor.Where(e => e.Active))
-            result.Add(new OperationReportMittel { Name = e.Name, Anzahl = e.Anzahl, IsCustom = false });
+            result.Add(new OperationReportMittel { Name = e.Name, Anzahl = e.Anzahl, Dauer = e.Dauer?.Trim(), IsCustom = false });
         foreach (var c in _customMittel.Where(c => !string.IsNullOrWhiteSpace(c.Name)))
-            result.Add(new OperationReportMittel { Name = c.Name.Trim(), Anzahl = c.Anzahl, IsCustom = true });
+            result.Add(new OperationReportMittel { Name = c.Name.Trim(), Anzahl = c.Anzahl, Dauer = c.Dauer?.Trim(), IsCustom = true });
 
         await ReportRepo.ReplaceMittelAsync(_report!.Id, result);
         _mittel = await ReportRepo.GetMittelAsync(_report.Id);

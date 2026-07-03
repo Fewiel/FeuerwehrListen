@@ -21,5 +21,8 @@ public class OperationReportMittel
 
     [Column("Anzahl")] public int Anzahl { get; set; }
 
+    /// <summary>Einsatzdauer des Mittels, z. B. „2 Std" (Freitext).</summary>
+    [Column("Dauer")] public string? Dauer { get; set; }
+
     [Column("IsCustom")] public bool IsCustom { get; set; }
 }

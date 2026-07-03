@@ -742,12 +742,6 @@ public class PdfExportService
 
             // --- Dienststellen ---
             Section("Dienststellen / Funktionen vor Ort");
-            if (externalForces.Count > 0)
-            {
-                Line("Externe Kräfte:", headerBold);
-                foreach (var f in externalForces)
-                    Line($"     {(string.IsNullOrWhiteSpace(f.Rufname) ? "—" : f.Rufname)}  ·  Stärke {(string.IsNullOrWhiteSpace(f.Staerke) ? "—" : f.Staerke)}", font);
-            }
             if (!string.IsNullOrWhiteSpace(report.WeitereFwLz)) Wrapped("weitere Fw / LZ:", report.WeitereFwLz);
             Line($"Anzahl KTW: {report.AnzahlKtw}    RTW: {report.AnzahlRtw}    NA: {report.AnzahlNa}    RTH: {report.AnzahlRth}", font);
             var ds = new List<string>();
@@ -773,8 +767,23 @@ public class PdfExportService
             }
             else
             {
+                var mittelWidths = new[] { contentWidth - 70 - 130, 70d, 130d };
+                NewPageIfNeeded(18);
+                DrawTableHeader(gfx, font, headerBold, left, y, mittelWidths, new[] { "Mittel", "Anzahl", "Dauer" });
+                y += 16;
                 foreach (var m in mittel)
-                    Line($"{CB(true)} {m.Name}" + (m.Anzahl > 0 ? $"  (Anzahl: {m.Anzahl})" : ""), font);
+                {
+                    NewPageIfNeeded(20);
+                    var rowH = DrawTableRowWrapped(gfx, font, left, y, mittelWidths,
+                        new[]
+                        {
+                            m.Name ?? string.Empty,
+                            m.Anzahl > 0 ? m.Anzahl.ToString() : "—",
+                            string.IsNullOrWhiteSpace(m.Dauer) ? "—" : m.Dauer
+                        },
+                        new HashSet<int> { 0 });
+                    y += rowH;
+                }
             }
 
             // --- Personenschäden & Schadenshöhe ---
@@ -786,7 +795,7 @@ public class PdfExportService
 
             // --- Eingesetzte Kräfte (ohne "Ohne Fahrzeug") ---
             var entriesWithVehicle = entries.Where(e => !StrengthCalc.IsNoVehicle(e.Vehicle)).ToList();
-            Section($"Eingesetzte Kräfte ({entriesWithVehicle.Count})");
+            Section($"Eingesetzte Kräfte · Eigene ({entriesWithVehicle.Count})");
             Line($"Gesamtstärke (Führer / Mannschaft / Gesamt): {StrengthCalc.CombinedTotal(entries, functionsByEntry, vehicleStrengths.Select(v => (v.VehicleName, v.Staerke)), externalForces.Select(e => e.Staerke))}", headerBold);
             if (vehicleStrengths.Count > 0)
             {
@@ -816,6 +825,32 @@ public class PdfExportService
                         new HashSet<int> { 3 });
                     y += rowH;
                     i++;
+                }
+            }
+
+            // --- Externe Kräfte (direkt unter den eigenen) ---
+            Section("Externe Kräfte");
+            if (externalForces.Count == 0)
+            {
+                Line("Keine erfasst.", font);
+            }
+            else
+            {
+                var extWidths = new[] { contentWidth - 130, 130d };
+                NewPageIfNeeded(18);
+                DrawTableHeader(gfx, font, headerBold, left, y, extWidths, new[] { "Rufname", "Stärke" });
+                y += 16;
+                foreach (var f in externalForces)
+                {
+                    NewPageIfNeeded(20);
+                    var rowH = DrawTableRowWrapped(gfx, font, left, y, extWidths,
+                        new[]
+                        {
+                            string.IsNullOrWhiteSpace(f.Rufname) ? "—" : f.Rufname,
+                            string.IsNullOrWhiteSpace(f.Staerke) ? "—" : f.Staerke
+                        },
+                        new HashSet<int> { 0 });
+                    y += rowH;
                 }
             }
 
