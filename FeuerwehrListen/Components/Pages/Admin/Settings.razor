@@ -6,6 +6,7 @@
 @inject SettingsService SettingsService
 @inject NavigationManager Navigation
 @inject IWebHostEnvironment Environment
+@inject NextcloudService Nextcloud
 
 <PageTitle>Einstellungen</PageTitle>
 
@@ -104,6 +105,55 @@
                             <input class="form-check-input" type="checkbox" id="smtpSsl" @bind="_smtpUseSsl" />
                             <label class="form-check-label" for="smtpSsl">SSL/TLS verwenden</label>
                         </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mb-4">
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-cloud-arrow-up me-2"></i>Nextcloud (Einsatzbilder)</h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted mb-3">
+                            F&uuml;r den automatischen Upload von Einsatzbildern. Lege in Nextcloud unter
+                            <em>Einstellungen &rarr; Sicherheit &rarr; „App-Passwort erstellen"</em> ein App-Passwort an
+                            (funktioniert auch mit 2FA) und trage Benutzername + App-Passwort hier ein.
+                        </p>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="ncUrl">Server-URL</label>
+                            <input type="text" class="form-control" id="ncUrl" placeholder="https://cloud.example.de" @bind="_ncUrl" />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label" for="ncUser">Benutzername</label>
+                            <input type="text" class="form-control" id="ncUser" @bind="_ncUsername" />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label" for="ncPass">App-Passwort</label>
+                            <input type="password" class="form-control" id="ncPass" @bind="_ncAppPassword" />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label" for="ncBase">Basis-Ordner</label>
+                            <input type="text" class="form-control" id="ncBase" placeholder="/Feuerwehr Billerbeck/Einsatzbilder" @bind="_ncBasePath" />
+                            <small class="text-muted">Zielordner je Einsatz: <code>&lt;Basis&gt;/JJJJ/JJ&lt;Einsatznummer&gt;</code> &ndash; z.&nbsp;B. <code>&hellip;/2026/2629999</code></small>
+                        </div>
+
+                        <div class="d-flex align-items-center gap-2 flex-wrap">
+                            <button type="button" class="btn btn-outline-primary" @onclick="TestNextcloud" disabled="@_ncTesting">
+                                @if (_ncTesting) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                                <i class="bi bi-plug me-1"></i>Verbindung testen
+                            </button>
+                            @if (!string.IsNullOrEmpty(_ncTestMessage))
+                            {
+                                <span class="@(_ncTestOk ? "text-success" : "text-danger")">
+                                    <i class="bi @(_ncTestOk ? "bi-check-circle-fill" : "bi-exclamation-triangle-fill") me-1"></i>@_ncTestMessage
+                                </span>
+                            }
+                        </div>
+                        <small class="text-muted d-block mt-2">Zum Testen zuerst speichern oder direkt die eingegebenen Werte pr&uuml;fen.</small>
                     </div>
                 </div>
             </div>
@@ -322,6 +372,16 @@
     private string _brandingLogoUrl = string.Empty;
     private string _brandingAppName = string.Empty;
     private string _qrReorderRecipients = string.Empty;
+
+    // Nextcloud
+    private string _ncUrl = string.Empty;
+    private string _ncUsername = string.Empty;
+    private string _ncAppPassword = string.Empty;
+    private string _ncBasePath = string.Empty;
+    private bool _ncTesting;
+    private bool _ncTestOk;
+    private string _ncTestMessage = string.Empty;
+
     private bool _iconUploaded;
     private bool _isSaving;
     private bool _showSuccess;
@@ -360,6 +420,27 @@
         _brandingLogoUrl = GetString(settings, SettingKeys.BrandingLogoUrl, string.Empty);
         _brandingAppName = GetString(settings, SettingKeys.BrandingAppName, string.Empty);
         _qrReorderRecipients = GetString(settings, SettingKeys.QrReorderRecipients, string.Empty);
+
+        _ncUrl = GetString(settings, SettingKeys.NextcloudUrl, string.Empty);
+        _ncUsername = GetString(settings, SettingKeys.NextcloudUsername, string.Empty);
+        _ncAppPassword = GetString(settings, SettingKeys.NextcloudAppPassword, string.Empty);
+        _ncBasePath = GetString(settings, SettingKeys.NextcloudBasePath, "/Feuerwehr Billerbeck/Einsatzbilder");
+    }
+
+    private async Task TestNextcloud()
+    {
+        _ncTesting = true;
+        _ncTestMessage = string.Empty;
+        try
+        {
+            var (ok, msg) = await Nextcloud.TestConnectionAsync(_ncUrl.Trim(), _ncUsername.Trim(), _ncAppPassword);
+            _ncTestOk = ok;
+            _ncTestMessage = msg;
+        }
+        finally
+        {
+            _ncTesting = false;
+        }
     }
 
     private async Task SaveSettings()
@@ -408,6 +489,11 @@
             // Update manifest.json with new app name
             await UpdateManifestName(_brandingAppName.Trim());
             await SettingsService.UpdateSettingAsync(SettingKeys.QrReorderRecipients, _qrReorderRecipients.Trim());
+
+            await SettingsService.UpdateSettingAsync(SettingKeys.NextcloudUrl, _ncUrl.Trim());
+            await SettingsService.UpdateSettingAsync(SettingKeys.NextcloudUsername, _ncUsername.Trim());
+            await SettingsService.UpdateSettingAsync(SettingKeys.NextcloudAppPassword, _ncAppPassword);
+            await SettingsService.UpdateSettingAsync(SettingKeys.NextcloudBasePath, string.IsNullOrWhiteSpace(_ncBasePath) ? "/Feuerwehr Billerbeck/Einsatzbilder" : _ncBasePath.Trim());
 
             _showSuccess = true;
         }

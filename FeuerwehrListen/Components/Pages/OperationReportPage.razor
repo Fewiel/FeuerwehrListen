@@ -11,6 +11,7 @@
 @inject NavigationManager Navigation
 @inject DownloadTokenService TokenService
 @inject IJSRuntime JS
+@inject FeuerwehrListen.Services.NextcloudService Nextcloud
 
 <PageTitle>Einsatzbericht - @(_list?.OperationNumber)</PageTitle>
 
@@ -376,6 +377,61 @@
                 </div>
             </div>
 
+            @* ---------- Einsatzbilder (Nextcloud) ---------- *@
+            <div class="card mb-4">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="bi bi-images me-2"></i>Einsatzbilder</h5>
+                    @if (_ncConfigured)
+                    {
+                        @if (_ncUploadedCount > 0)
+                        {
+                            <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>@_ncUploadedCount Bild(er) hochgeladen</span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-warning text-dark"><i class="bi bi-exclamation-triangle me-1"></i>Noch keine Bilder</span>
+                        }
+                    }
+                </div>
+                <div class="card-body">
+                    @if (!_ncConfigured)
+                    {
+                        <p class="text-muted mb-0">Nextcloud ist nicht konfiguriert. Ein Administrator kann die Zug&auml;nge in den Einstellungen hinterlegen.</p>
+                    }
+                    else
+                    {
+                        <p class="text-muted">Bilder werden automatisch nach <code>@_ncFolder</code> hochgeladen.</p>
+                        <div class="mb-3">
+                            <InputFile OnChange="OnImagesSelected" multiple accept="image/*" class="form-control" />
+                        </div>
+                        @if (_selectedImages.Count > 0)
+                        {
+                            <ul class="list-group mb-3">
+                                @foreach (var f in _selectedImages)
+                                {
+                                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                                        <span><i class="bi bi-image me-2"></i>@f.Name <small class="text-muted">(@FormatSize(f.Size))</small></span>
+                                    </li>
+                                }
+                            </ul>
+                            <button type="button" class="btn btn-primary" @onclick="UploadImages" disabled="@_ncUploading">
+                                @if (_ncUploading)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-1"></span>
+                                }
+                                <i class="bi bi-cloud-arrow-up me-1"></i>@_selectedImages.Count Bild(er) hochladen
+                            </button>
+                        }
+                        @if (!string.IsNullOrEmpty(_ncUploadMessage))
+                        {
+                            <div class="mt-2 @(_ncUploadError ? "text-danger" : "text-success")">
+                                <i class="bi @(_ncUploadError ? "bi-exclamation-triangle-fill" : "bi-check-circle-fill") me-1"></i>@_ncUploadMessage
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+
             @* ---------- Unterschriften ---------- *@
             <div class="card mb-4">
                 <div class="card-header"><h5 class="mb-0"><i class="bi bi-pen me-2"></i>Unterschriften</h5></div>
@@ -528,6 +584,16 @@
     private List<MittelEditItem> _mittelEditor = new();
     private List<MittelEditItem> _customMittel = new();
 
+    // --- Einsatzbilder (Nextcloud) ---
+    private bool _ncConfigured;
+    private bool _ncChecked;
+    private string _ncFolder = string.Empty;
+    private int _ncUploadedCount;
+    private List<IBrowserFile> _selectedImages = new();
+    private bool _ncUploading;
+    private bool _ncUploadError;
+    private string _ncUploadMessage = string.Empty;
+
     private enum Kategorie { Keine, Brand, ThAbcOel, Fehlalarm }
 
     private Kategorie SelectedKategorie
@@ -564,7 +630,88 @@
 
         _externalForces = await ReportRepo.GetExternalForcesAsync(_report.Id);
         _mittel = await ReportRepo.GetMittelAsync(_report.Id);
+
+        _ncConfigured = Nextcloud.IsConfigured;
+        if (_ncConfigured && _list != null)
+            _ncFolder = Nextcloud.BuildOperationFolder(_list.AlertTime.Year, _list.OperationNumber);
     }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Bild-Anzahl in Nextcloud erst nach dem ersten Render prüfen (blockiert die Seite nicht).
+        if (firstRender && _ncConfigured && !_ncChecked && _list != null)
+        {
+            _ncChecked = true;
+            var count = await Nextcloud.CountFilesAsync(_ncFolder);
+            if (count >= 0)
+            {
+                _ncUploadedCount = count;
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+    }
+
+    private void OnImagesSelected(InputFileChangeEventArgs e)
+    {
+        _selectedImages = e.GetMultipleFiles(50).ToList();
+        _ncUploadMessage = string.Empty;
+        _ncUploadError = false;
+    }
+
+    private async Task UploadImages()
+    {
+        if (_list == null || _selectedImages.Count == 0) return;
+        _ncUploading = true;
+        _ncUploadError = false;
+        _ncUploadMessage = string.Empty;
+        var ok = 0;
+        var errors = new List<string>();
+        try
+        {
+            foreach (var file in _selectedImages)
+            {
+                try
+                {
+                    using var ms = new MemoryStream();
+                    await file.OpenReadStream(20 * 1024 * 1024).CopyToAsync(ms);
+                    await Nextcloud.UploadAsync(_ncFolder, SafeName(file.Name), ms.ToArray(), file.ContentType);
+                    ok++;
+                }
+                catch (Exception ex)
+                {
+                    errors.Add($"{file.Name}: {ex.Message}");
+                }
+            }
+
+            var count = await Nextcloud.CountFilesAsync(_ncFolder);
+            _ncUploadedCount = count >= 0 ? count : _ncUploadedCount + ok;
+
+            if (errors.Count == 0)
+            {
+                _ncUploadMessage = $"{ok} Bild(er) erfolgreich hochgeladen.";
+                _selectedImages = new();
+            }
+            else
+            {
+                _ncUploadError = true;
+                _ncUploadMessage = $"{ok} hochgeladen, {errors.Count} fehlgeschlagen: {string.Join("; ", errors)}";
+            }
+        }
+        finally
+        {
+            _ncUploading = false;
+        }
+    }
+
+    private static string SafeName(string name)
+    {
+        foreach (var c in System.IO.Path.GetInvalidFileNameChars())
+            name = name.Replace(c, '_');
+        return name;
+    }
+
+    private static string FormatSize(long bytes)
+        => bytes < 1024 * 1024 ? $"{bytes / 1024} KB" : $"{bytes / 1024.0 / 1024.0:F1} MB";
 
     // --- Externe Kräfte ---
     private void ToggleExternalForceForm() => _showExternalForceForm = !_showExternalForceForm;

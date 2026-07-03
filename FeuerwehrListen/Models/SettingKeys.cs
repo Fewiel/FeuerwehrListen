@@ -35,6 +35,12 @@ public static class SettingKeys
     public const string BrandingAppName = "Branding.AppName";
     public const string QrReorderRecipients = "Notifications.QrReorderRecipients";
 
+    // Nextcloud (WebDAV) für Einsatzbilder
+    public const string NextcloudUrl = "Nextcloud.Url";
+    public const string NextcloudUsername = "Nextcloud.Username";
+    public const string NextcloudAppPassword = "Nextcloud.AppPassword";
+    public const string NextcloudBasePath = "Nextcloud.BasePath";
+
     public static string GetAttendanceRecipientsKey(int unitNumber) =>
         $"{NotificationAttendanceRecipientsPrefix}{unitNumber}";
 }

@@ -19,6 +19,7 @@
 @inject SettingsService SettingsService
 @inject AuthenticationService AuthService
 @inject DownloadTokenService TokenService
+@inject NextcloudService Nextcloud
 
 <PageTitle>Einsatzliste - @_list?.OperationNumber</PageTitle>
 
@@ -646,6 +647,19 @@
     private async Task CloseList()
     {
         if (_list == null) return;
+
+        // Nachfrage, wenn Nextcloud konfiguriert ist, aber noch keine Einsatzbilder hochgeladen wurden.
+        if (Nextcloud.IsConfigured)
+        {
+            var folder = Nextcloud.BuildOperationFolder(_list.AlertTime.Year, _list.OperationNumber);
+            var count = await Nextcloud.CountFilesAsync(folder);
+            if (count == 0)
+            {
+                var proceed = await JS.InvokeAsync<bool>("confirm",
+                    "Es wurden noch keine Einsatzbilder nach Nextcloud hochgeladen. Liste trotzdem abschließen?");
+                if (!proceed) return;
+            }
+        }
 
         _list.Address = string.IsNullOrWhiteSpace(_address) ? null : _address.Trim();
         _list.Status = ListStatus.Closed;

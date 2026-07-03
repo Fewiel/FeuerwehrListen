@@ -128,6 +128,8 @@ builder.Services.AddScoped<PersonalRequirementsService>();
 builder.Services.AddScoped<UnitAssignmentService>();
 builder.Services.AddScoped<EmailSenderService>();
 builder.Services.AddScoped<ListNotificationService>();
+builder.Services.AddHttpClient();
+builder.Services.AddScoped<NextcloudService>();
 
 builder.Services.AddSingleton<SidebarService>();
 builder.Services.AddSingleton<SettingsService>();
