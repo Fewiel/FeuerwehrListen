@@ -10,74 +10,156 @@
 
 <PageTitle>Abgeschlossene Listen - Admin</PageTitle>
 
+<style>
+    .acc-toggle {
+        background: transparent;
+        border: 0;
+        width: 100%;
+        cursor: pointer;
+        font-size: 1.05rem;
+        font-weight: 600;
+        color: var(--tw-ink, #171B21);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: .9rem 1rem;
+        text-align: left;
+    }
+    .acc-toggle:hover { background: rgba(21,25,30,.03); }
+    .acc-toggle .chev { transition: transform .15s ease; color: #8A929C; }
+</style>
+
 <UserAuthCheck>
 
     <div class="container mt-4">
         <div class="row mb-4">
             <div class="col">
                 <h1>Abgeschlossene Listen</h1>
+                <p class="text-muted mb-0">W&auml;hle eine Kategorie zum Aufklappen.</p>
             </div>
         </div>
 
         <div class="row">
             <div class="col-12">
-                <ListComponent TItem="OperationList"
-                               Title="Einsatzlisten"
-                               IconClass="bi bi-exclamation-triangle"
-                               Items="_closedOperation"
-                               EmptyListMessage="Keine abgeschlossenen Einsatzlisten">
-                    <ItemTemplate>
-                        <div @onclick='() => Navigation.NavigateTo($"/operation/{context.Id}")' style="cursor: pointer;">
-                            <div class="d-flex w-100 justify-content-between">
-                                <h6 class="mb-1">@context.OperationNumber - @context.Keyword</h6>
-                                <small>@context.ClosedAt?.ToString("dd.MM.yyyy HH:mm")</small>
-                            </div>
-                            <p class="mb-1"><strong>@context.Address</strong></p>
-                        </div>
-                        <button class="btn btn-sm btn-warning mt-2" @onclick="() => ArchiveOperationList(context.Id)" @onclick:stopPropagation="true">
-                            <i class="bi bi-archive"></i> Archivieren
-                        </button>
-                    </ItemTemplate>
-                </ListComponent>
 
-                <ListComponent TItem="AttendanceList"
-                               Title="Anwesenheitslisten"
-                               IconClass="bi bi-calendar-check"
-                               Items="_closedAttendance"
-                               EmptyListMessage="Keine abgeschlossenen Anwesenheitslisten">
-                    <ItemTemplate>
-                        <div @onclick='() => Navigation.NavigateTo($"/attendance/{context.Id}")' style="cursor: pointer;">
-                            <div class="d-flex w-100 justify-content-between">
-                                <h6 class="mb-1">@context.Title</h6>
-                                <small>@context.ClosedAt?.ToString("dd.MM.yyyy HH:mm")</small>
-                            </div>
-                            <p class="mb-1"><strong>@context.Unit</strong></p>
-                            <small class="text-muted">@context.Description</small>
-                        </div>
-                        <button class="btn btn-sm btn-warning mt-2" @onclick="() => ArchiveAttendanceList(context.Id)" @onclick:stopPropagation="true">
-                            <i class="bi bi-archive"></i> Archivieren
+                @* ---------- Einsatzlisten ---------- *@
+                <div class="card mb-3">
+                    <div class="card-header p-0">
+                        <button class="acc-toggle" @onclick="() => _openOperation = !_openOperation">
+                            <span><i class="bi bi-exclamation-triangle me-2 text-danger"></i>Einsatzlisten
+                                <span class="badge bg-danger ms-2">@_closedOperation.Count</span>
+                            </span>
+                            <i class="bi @(_openOperation ? "bi-chevron-up" : "bi-chevron-down") chev"></i>
                         </button>
-                    </ItemTemplate>
-                </ListComponent>
-                
-                <ListComponent TItem="FireSafetyWatch"
-                               Title="Brandsicherheitswachen"
-                               IconClass="bi bi-shield-check"
-                               Items="_closedFireSafetyWatches"
-                               EmptyListMessage="Keine abgeschlossenen Brandsicherheitswachen">
-                    <ItemTemplate>
-                        <div @onclick='() => Navigation.NavigateTo($"/firesafetywatches/{context.Id}")' style="cursor: pointer;">
-                            <div class="d-flex w-100 justify-content-between">
-                                <h6 class="mb-1">@context.Name</h6>
-                                <small>@context.ClosedAt?.ToString("dd.MM.yyyy HH:mm")</small>
-                            </div>
-                            <p class="mb-1"><strong>@context.Location</strong></p>
-                        </div>
-                        <button class="btn btn-sm btn-warning mt-2" @onclick="() => ArchiveFireSafetyWatch(context.Id)" @onclick:stopPropagation="true">
-                            <i class="bi bi-archive"></i> Archivieren
+                    </div>
+                    @if (_openOperation)
+                    {
+                        <ul class="list-group list-group-flush">
+                            @if (_closedOperation.Count == 0)
+                            {
+                                <li class="list-group-item"><p class="text-muted mb-0">Keine abgeschlossenen Einsatzlisten</p></li>
+                            }
+                            else
+                            {
+                                @foreach (var context in _closedOperation)
+                                {
+                                    <li class="list-group-item list-group-item-action" @key="context.Id">
+                                        <div @onclick='() => Navigation.NavigateTo($"/operation/{context.Id}")' style="cursor: pointer;">
+                                            <div class="d-flex w-100 justify-content-between">
+                                                <h6 class="mb-1">@context.OperationNumber - @context.Keyword</h6>
+                                                <small>@context.ClosedAt?.ToString("dd.MM.yyyy HH:mm")</small>
+                                            </div>
+                                            <p class="mb-1"><strong>@context.Address</strong></p>
+                                        </div>
+                                        <button class="btn btn-sm btn-warning mt-2" @onclick="() => ArchiveOperationList(context.Id)" @onclick:stopPropagation="true">
+                                            <i class="bi bi-archive"></i> Archivieren
+                                        </button>
+                                    </li>
+                                }
+                            }
+                        </ul>
+                    }
+                </div>
+
+                @* ---------- Anwesenheitslisten ---------- *@
+                <div class="card mb-3">
+                    <div class="card-header p-0">
+                        <button class="acc-toggle" @onclick="() => _openAttendance = !_openAttendance">
+                            <span><i class="bi bi-calendar-check me-2"></i>Anwesenheitslisten
+                                <span class="badge bg-secondary ms-2">@_closedAttendance.Count</span>
+                            </span>
+                            <i class="bi @(_openAttendance ? "bi-chevron-up" : "bi-chevron-down") chev"></i>
                         </button>
-                    </ItemTemplate>
-                </ListComponent>
+                    </div>
+                    @if (_openAttendance)
+                    {
+                        <ul class="list-group list-group-flush">
+                            @if (_closedAttendance.Count == 0)
+                            {
+                                <li class="list-group-item"><p class="text-muted mb-0">Keine abgeschlossenen Anwesenheitslisten</p></li>
+                            }
+                            else
+                            {
+                                @foreach (var context in _closedAttendance)
+                                {
+                                    <li class="list-group-item list-group-item-action" @key="context.Id">
+                                        <div @onclick='() => Navigation.NavigateTo($"/attendance/{context.Id}")' style="cursor: pointer;">
+                                            <div class="d-flex w-100 justify-content-between">
+                                                <h6 class="mb-1">@context.Title</h6>
+                                                <small>@context.ClosedAt?.ToString("dd.MM.yyyy HH:mm")</small>
+                                            </div>
+                                            <p class="mb-1"><strong>@context.Unit</strong></p>
+                                            <small class="text-muted">@context.Description</small>
+                                        </div>
+                                        <button class="btn btn-sm btn-warning mt-2" @onclick="() => ArchiveAttendanceList(context.Id)" @onclick:stopPropagation="true">
+                                            <i class="bi bi-archive"></i> Archivieren
+                                        </button>
+                                    </li>
+                                }
+                            }
+                        </ul>
+                    }
+                </div>
+
+                @* ---------- Brandsicherheitswachen ---------- *@
+                <div class="card mb-3">
+                    <div class="card-header p-0">
+                        <button class="acc-toggle" @onclick="() => _openFireSafetyWatch = !_openFireSafetyWatch">
+                            <span><i class="bi bi-shield-check me-2 text-primary"></i>Brandsicherheitswachen
+                                <span class="badge bg-primary ms-2">@_closedFireSafetyWatches.Count</span>
+                            </span>
+                            <i class="bi @(_openFireSafetyWatch ? "bi-chevron-up" : "bi-chevron-down") chev"></i>
+                        </button>
+                    </div>
+                    @if (_openFireSafetyWatch)
+                    {
+                        <ul class="list-group list-group-flush">
+                            @if (_closedFireSafetyWatches.Count == 0)
+                            {
+                                <li class="list-group-item"><p class="text-muted mb-0">Keine abgeschlossenen Brandsicherheitswachen</p></li>
+                            }
+                            else
+                            {
+                                @foreach (var context in _closedFireSafetyWatches)
+                                {
+                                    <li class="list-group-item list-group-item-action" @key="context.Id">
+                                        <div @onclick='() => Navigation.NavigateTo($"/firesafetywatches/{context.Id}")' style="cursor: pointer;">
+                                            <div class="d-flex w-100 justify-content-between">
+                                                <h6 class="mb-1">@context.Name</h6>
+                                                <small>@context.ClosedAt?.ToString("dd.MM.yyyy HH:mm")</small>
+                                            </div>
+                                            <p class="mb-1"><strong>@context.Location</strong></p>
+                                        </div>
+                                        <button class="btn btn-sm btn-warning mt-2" @onclick="() => ArchiveFireSafetyWatch(context.Id)" @onclick:stopPropagation="true">
+                                            <i class="bi bi-archive"></i> Archivieren
+                                        </button>
+                                    </li>
+                                }
+                            }
+                        </ul>
+                    }
+                </div>
+
             </div>
         </div>
     </div>
@@ -88,6 +170,11 @@
     private List<AttendanceList> _closedAttendance = new();
     private List<OperationList> _closedOperation = new();
     private List<FireSafetyWatch> _closedFireSafetyWatches = new();
+
+    // Aufklapp-Zustand je Kategorie (standardmäßig eingeklappt für kompakte Übersicht)
+    private bool _openOperation;
+    private bool _openAttendance;
+    private bool _openFireSafetyWatch;
 
     protected override async Task OnInitializedAsync()
     {
@@ -122,7 +209,7 @@
             await LoadLists();
         }
     }
-    
+
     private async Task ArchiveFireSafetyWatch(int id)
     {
         var watch = await FireSafetyWatchRepo.GetByIdAsync(id);
@@ -134,4 +221,3 @@
         }
     }
 }
-
