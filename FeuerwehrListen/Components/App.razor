@@ -18,7 +18,19 @@
 
 <body>
     <Routes @rendermode="InteractiveServer" />
-    <script src="https://fastly.jsdelivr.net/npm/barcode-detector@@3/dist/iife/polyfill.min.js"></script>
+    <script src="lib/barcode-detector/polyfill.min.js"></script>
+    <script>
+        // WASM des Barcode-Polyfills lokal laden (statt CDN) – für Altgeräte / falls das CDN ausfällt
+        try {
+            if (window.BarcodeDetectionAPI && window.BarcodeDetectionAPI.setZXingModuleOverrides) {
+                window.BarcodeDetectionAPI.setZXingModuleOverrides({
+                    locateFile: function (path, prefix) {
+                        return (path && path.endsWith('.wasm')) ? '/lib/barcode-detector/' + path : (prefix || '') + path;
+                    }
+                });
+            }
+        } catch (e) { console.error('BarcodeDetector WASM override failed', e); }
+    </script>
     <script src="qr-scanner.js"></script>
     <script src="signature.js"></script>
     <script src="_framework/blazor.web.js" autostart="false"></script>
