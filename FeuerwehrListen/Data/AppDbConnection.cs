@@ -32,5 +32,7 @@ public class AppDbConnection : DataConnection
     public ITable<Defect> Defects => this.GetTable<Defect>();
     public ITable<DefectStatusChange> DefectStatusChanges => this.GetTable<DefectStatusChange>();
     public ITable<OperationReport> OperationReports => this.GetTable<OperationReport>();
+    public ITable<OperationReportExternalForce> OperationReportExternalForces => this.GetTable<OperationReportExternalForce>();
+    public ITable<OperationReportMittel> OperationReportMittels => this.GetTable<OperationReportMittel>();
 }
 

@@ -97,6 +97,11 @@ public class OperationReport
     [Column("Thw")] public bool Thw { get; set; }
     [Column("Objektbetreiber")] public bool Objektbetreiber { get; set; }
 
+    // --- Menschenrettung ---
+    [Column("HatMenschenrettung")] public bool HatMenschenrettung { get; set; }
+    [Column("MenschenrettungDauer")] public string? MenschenrettungDauer { get; set; }
+    [Column("MenschenrettungPersonalaufwand")] public string? MenschenrettungPersonalaufwand { get; set; }
+
     // --- Seite 3: Personenschäden ---
     [Column("AnzahlVerletzte")] public int AnzahlVerletzte { get; set; }
     [Column("AnzahlTote")] public int AnzahlTote { get; set; }

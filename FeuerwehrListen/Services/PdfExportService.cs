@@ -534,6 +534,8 @@ public class PdfExportService
             var report = await _reportRepo.GetOrCreateAsync(operationListId);
             var entries = await _operationEntryRepo.GetByListIdAsync(operationListId) ?? new List<OperationEntry>();
             var functionsByEntry = await _entryFunctionRepo.GetFunctionsForEntriesAsync(entries.Select(e => e.Id).ToList());
+            var externalForces = await _reportRepo.GetExternalForcesAsync(report.Id);
+            var mittel = await _reportRepo.GetMittelAsync(report.Id);
 
             var document = new PdfDocument();
             var page = document.AddPage();
@@ -739,6 +741,12 @@ public class PdfExportService
 
             // --- Dienststellen ---
             Section("Dienststellen / Funktionen vor Ort");
+            if (externalForces.Count > 0)
+            {
+                Line("Externe Kräfte:", headerBold);
+                foreach (var f in externalForces)
+                    Line($"     {(string.IsNullOrWhiteSpace(f.Rufname) ? "—" : f.Rufname)}  ·  Stärke {(string.IsNullOrWhiteSpace(f.Staerke) ? "—" : f.Staerke)}", font);
+            }
             if (!string.IsNullOrWhiteSpace(report.WeitereFwLz)) Wrapped("weitere Fw / LZ:", report.WeitereFwLz);
             Line($"Anzahl KTW: {report.AnzahlKtw}    RTW: {report.AnzahlRtw}    NA: {report.AnzahlNa}    RTH: {report.AnzahlRth}", font);
             var ds = new List<string>();
@@ -756,8 +764,22 @@ public class PdfExportService
             if (ds.Count > 0) Wrapped("Vor Ort:", string.Join(", ", ds));
             if (!string.IsNullOrWhiteSpace(report.SonstEinheiten)) Wrapped("Sonst. Einheiten:", report.SonstEinheiten);
 
+            // --- Eingesetzte Mittel ---
+            Section("Eingesetzte Mittel");
+            if (mittel.Count == 0)
+            {
+                Line("Keine erfasst.", font);
+            }
+            else
+            {
+                foreach (var m in mittel)
+                    Line($"{CB(true)} {m.Name}" + (m.Anzahl > 0 ? $"  (Anzahl: {m.Anzahl})" : ""), font);
+            }
+
             // --- Personenschäden & Schadenshöhe ---
             Section("Personenschäden & Schadenshöhe");
+            Line($"Menschenrettung: {(report.HatMenschenrettung ? "Ja" : "Nein")}"
+                + (report.HatMenschenrettung ? $"   (Dauer: {report.MenschenrettungDauer ?? "—"}, Personalaufwand: {report.MenschenrettungPersonalaufwand ?? "—"})" : ""), font);
             Line($"Verletzte: {report.AnzahlVerletzte}    Tote: {report.AnzahlTote}    verletzte FM (SB): {report.AnzahlVerletzteFm}", font);
             Line($"Geschätzter Sachschaden: {report.SchadenSachschaden ?? "—"} €    Erhaltene Werte: {report.SchadenErhalteneWerte ?? "—"} €", font);
 

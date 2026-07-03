@@ -45,6 +45,58 @@ public class OperationReportRepository
 
     public async Task DeleteByOperationListIdAsync(int operationListId)
     {
+        var report = await GetByOperationListIdAsync(operationListId);
+        if (report != null)
+        {
+            await _db.OperationReportExternalForces.Where(x => x.OperationReportId == report.Id).DeleteAsync();
+            await _db.OperationReportMittels.Where(x => x.OperationReportId == report.Id).DeleteAsync();
+        }
         await _db.OperationReports.Where(x => x.OperationListId == operationListId).DeleteAsync();
+    }
+
+    // --- Externe Kräfte ---
+
+    public async Task<List<OperationReportExternalForce>> GetExternalForcesAsync(int reportId)
+    {
+        return await _db.OperationReportExternalForces
+            .Where(x => x.OperationReportId == reportId)
+            .OrderBy(x => x.Id)
+            .ToListAsync();
+    }
+
+    public async Task<int> InsertExternalForceAsync(OperationReportExternalForce force)
+    {
+        return await _db.InsertWithInt32IdentityAsync(force);
+    }
+
+    public async Task UpdateExternalForceAsync(OperationReportExternalForce force)
+    {
+        await _db.UpdateAsync(force);
+    }
+
+    public async Task DeleteExternalForceAsync(int id)
+    {
+        await _db.OperationReportExternalForces.Where(x => x.Id == id).DeleteAsync();
+    }
+
+    // --- Eingesetzte Mittel ---
+
+    public async Task<List<OperationReportMittel>> GetMittelAsync(int reportId)
+    {
+        return await _db.OperationReportMittels
+            .Where(x => x.OperationReportId == reportId)
+            .OrderBy(x => x.Id)
+            .ToListAsync();
+    }
+
+    /// <summary>Ersetzt die komplette Mittel-Liste eines Berichts (delete + insert).</summary>
+    public async Task ReplaceMittelAsync(int reportId, IEnumerable<OperationReportMittel> mittel)
+    {
+        await _db.OperationReportMittels.Where(x => x.OperationReportId == reportId).DeleteAsync();
+        foreach (var m in mittel)
+        {
+            m.OperationReportId = reportId;
+            await _db.InsertAsync(m);
+        }
     }
 }
