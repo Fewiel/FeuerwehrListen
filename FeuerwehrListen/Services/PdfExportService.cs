@@ -759,33 +759,6 @@ public class PdfExportService
             if (ds.Count > 0) Wrapped("Vor Ort:", string.Join(", ", ds));
             if (!string.IsNullOrWhiteSpace(report.SonstEinheiten)) Wrapped("Sonst. Einheiten:", report.SonstEinheiten);
 
-            // --- Eingesetzte Mittel ---
-            Section("Eingesetzte Mittel");
-            if (mittel.Count == 0)
-            {
-                Line("Keine erfasst.", font);
-            }
-            else
-            {
-                var mittelWidths = new[] { contentWidth - 70 - 130, 70d, 130d };
-                NewPageIfNeeded(18);
-                DrawTableHeader(gfx, font, headerBold, left, y, mittelWidths, new[] { "Mittel", "Anzahl", "Dauer" });
-                y += 16;
-                foreach (var m in mittel)
-                {
-                    NewPageIfNeeded(20);
-                    var rowH = DrawTableRowWrapped(gfx, font, left, y, mittelWidths,
-                        new[]
-                        {
-                            m.Name ?? string.Empty,
-                            m.Anzahl > 0 ? m.Anzahl.ToString() : "—",
-                            string.IsNullOrWhiteSpace(m.Dauer) ? "—" : m.Dauer
-                        },
-                        new HashSet<int> { 0 });
-                    y += rowH;
-                }
-            }
-
             // --- Personenschäden & Schadenshöhe ---
             Section("Personenschäden & Schadenshöhe");
             Line($"Menschenrettung: {(report.HatMenschenrettung ? "Ja" : "Nein")}"
@@ -863,6 +836,40 @@ public class PdfExportService
             double sigW = (contentWidth - sigGap) / 2;
             DrawSignature(left, y, sigW, "Unterschrift IuK", report.UnterschriftIuk, report.UnterschriftIukImage);
             DrawSignature(left + sigW + sigGap, y, sigW, "Unterschrift Einsatzleiter", report.UnterschriftEinsatzleiter, report.UnterschriftEinsatzleiterImage);
+            y += 88;
+
+            // --- Eingesetzte Mittel: eigene letzte Seite, IuK-Unterschrift darunter ---
+            ForceNewPage();
+            Section("Eingesetzte Mittel");
+            if (mittel.Count == 0)
+            {
+                Line("Keine erfasst.", font);
+            }
+            else
+            {
+                var mittelWidths = new[] { contentWidth - 70 - 130, 70d, 130d };
+                NewPageIfNeeded(18);
+                DrawTableHeader(gfx, font, headerBold, left, y, mittelWidths, new[] { "Mittel", "Anzahl", "Dauer" });
+                y += 16;
+                foreach (var m in mittel)
+                {
+                    NewPageIfNeeded(20);
+                    var rowH = DrawTableRowWrapped(gfx, font, left, y, mittelWidths,
+                        new[]
+                        {
+                            m.Name ?? string.Empty,
+                            m.Anzahl > 0 ? m.Anzahl.ToString() : "—",
+                            string.IsNullOrWhiteSpace(m.Dauer) ? "—" : m.Dauer
+                        },
+                        new HashSet<int> { 0 });
+                    y += rowH;
+                }
+            }
+
+            // IuK-Unterschrift unter der Mittel-Liste
+            y += 30;
+            NewPageIfNeeded(90);
+            DrawSignature(left, y, (contentWidth - sigGap) / 2, "Unterschrift IuK", report.UnterschriftIuk, report.UnterschriftIukImage);
             y += 88;
 
             DrawFooter(document, page, gfx, font, left, page.Height, contentWidth, pageNumber);
