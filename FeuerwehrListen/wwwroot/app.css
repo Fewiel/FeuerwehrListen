@@ -96,6 +96,15 @@ main { flex: 1; background: var(--tw-bg); }
     font-size: 14px; font-weight: 500; text-decoration: none; display: inline-flex; align-items: center; gap: 7px;
 }
 .tw-login:hover { background: rgba(255,255,255,.14); color: #fff; text-decoration: none; }
+
+/* Unterschriften-Pad */
+.sig-field { display: block; }
+.sig-canvas-wrap { position: relative; }
+.sig-canvas {
+    width: 100%; height: 150px; background: #fff; border: 1px solid var(--tw-line-strong);
+    border-radius: 10px; touch-action: none; cursor: crosshair; display: block;
+}
+.sig-clear { position: absolute; top: 8px; right: 8px; }
 .tw-drop-head {
     font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--tw-faint);
     padding: 8px 12px 4px;

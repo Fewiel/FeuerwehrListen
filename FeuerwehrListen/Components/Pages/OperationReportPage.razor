@@ -3,6 +3,7 @@
 @using FeuerwehrListen.Services
 @using FeuerwehrListen.Repositories
 @using FeuerwehrListen.Components.Layout
+@using FeuerwehrListen.Components.Shared
 @inject OperationListRepository OperationRepo
 @inject OperationReportRepository ReportRepo
 @inject OperationEntryRepository EntryRepo
@@ -182,9 +183,7 @@
                         </div>
                     </div>
 
-                    @if (_report.KostenpflichtStatus == KostenpflichtStatus.Ja)
-                    {
-                        <div class="row">
+                    <div class="row">
                             <div class="col-lg-6">
                                 <h6 class="fw-semibold">Verursacher / Fahrzeughalter</h6>
                                 <div class="mb-2"><input type="text" class="form-control" placeholder="Name, Vorname" @bind="_report.VerursacherName" /></div>
@@ -201,9 +200,8 @@
                                 <div class="mb-2"><input type="text" class="form-control" placeholder="Kfz-Kennzeichen" @bind="_report.GeschaedigterKfz" /></div>
                                 <div class="mb-2"><input type="text" class="form-control" placeholder="Ggf. Name des Fahrers" @bind="_report.GeschaedigterFahrer" /></div>
                             </div>
-                        </div>
-                        <small class="text-muted">Bei kostenpflichtigen Eins&auml;tzen bitte zus&auml;tzlich die Kosten-Anlage verwenden (folgt in einem sp&auml;teren Schritt).</small>
-                    }
+                    </div>
+                    <small class="text-muted">Verursacher- und Gesch&auml;digten-Daten k&ouml;nnen unabh&auml;ngig von der Kostenpflicht erfasst werden. Bei kostenpflichtigen Eins&auml;tzen bitte zus&auml;tzlich die Kosten-Anlage verwenden.</small>
                 </div>
             </div>
 
@@ -298,9 +296,18 @@
             <div class="card mb-4">
                 <div class="card-header"><h5 class="mb-0"><i class="bi bi-pen me-2"></i>Unterschriften</h5></div>
                 <div class="card-body">
-                    <div class="row g-3">
-                        <div class="col-md-6"><label class="form-label">Unterschrift IuK (Name)</label><input type="text" class="form-control" @bind="_report.UnterschriftIuk" /></div>
-                        <div class="col-md-6"><label class="form-label">Unterschrift Einsatzleiter (Name)</label><input type="text" class="form-control" @bind="_report.UnterschriftEinsatzleiter" /></div>
+                    <p class="text-muted mb-3">Direkt hier digital unterschreiben &ndash; oder das Feld frei lassen und nach dem Ausdruck von Hand unterschreiben.</p>
+                    <div class="row g-4">
+                        <div class="col-md-6">
+                            <label class="form-label">Unterschrift IuK</label>
+                            <SignaturePad @ref="_sigIuk" Initial="@_report.UnterschriftIukImage" />
+                            <input type="text" class="form-control mt-2" placeholder="Name (in Druckbuchstaben)" @bind="_report.UnterschriftIuk" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Unterschrift Einsatzleiter</label>
+                            <SignaturePad @ref="_sigEl" Initial="@_report.UnterschriftEinsatzleiterImage" />
+                            <input type="text" class="form-control mt-2" placeholder="Name (in Druckbuchstaben)" @bind="_report.UnterschriftEinsatzleiter" />
+                        </div>
                     </div>
                 </div>
             </div>
@@ -349,6 +356,9 @@
     private bool _showSuccess;
     private bool _showError;
 
+    private SignaturePad? _sigIuk;
+    private SignaturePad? _sigEl;
+
     private enum Kategorie { Keine, Brand, ThAbcOel, Fehlalarm }
 
     private Kategorie SelectedKategorie
@@ -392,6 +402,12 @@
         _showError = false;
         try
         {
+            // Digitale Unterschriften aus den Zeichenflächen übernehmen
+            if (_sigIuk != null)
+                _report.UnterschriftIukImage = await _sigIuk.GetDataUrlAsync();
+            if (_sigEl != null)
+                _report.UnterschriftEinsatzleiterImage = await _sigEl.GetDataUrlAsync();
+
             await ReportRepo.UpdateAsync(_report);
             _showSuccess = true;
         }

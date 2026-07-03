@@ -109,6 +109,9 @@ public class OperationReport
     // --- Unterschriften ---
     [Column("UnterschriftIuk")] public string? UnterschriftIuk { get; set; }
     [Column("UnterschriftEinsatzleiter")] public string? UnterschriftEinsatzleiter { get; set; }
+    // Digitale Unterschrift als PNG-Data-URL (optional).
+    [Column("UnterschriftIukImage")] public string? UnterschriftIukImage { get; set; }
+    [Column("UnterschriftEinsatzleiterImage")] public string? UnterschriftEinsatzleiterImage { get; set; }
 
     [Column("CreatedAt")] public DateTime CreatedAt { get; set; }
     [Column("UpdatedAt")] public DateTime? UpdatedAt { get; set; }
