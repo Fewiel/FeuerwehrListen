@@ -542,7 +542,12 @@ public class PdfExportService
             var font = CreateFont("CreatoDisplay", 11);
             var titleFont = CreateFont("CreatoDisplay", 16, true);
             var headerBold = CreateFont("CreatoDisplay", 11, true);
-            var sectionFont = CreateFont("CreatoDisplay", 12, true);
+            var sectionFont = CreateFont("CreatoDisplay", 12.5, true);
+
+            var sectionColor = new XSolidBrush(XColor.FromArgb(179, 0, 31));
+            var labelColor = new XSolidBrush(XColor.FromArgb(110, 115, 122));
+            var accentPen = new XPen(XColor.FromArgb(228, 0, 43), 0.9);
+            var signatureStreams = new List<MemoryStream>();
 
             double left = 40, right = 40, top = 50, bottom = 40;
             double contentWidth = page.Width - left - right;
@@ -577,34 +582,94 @@ public class PdfExportService
 
             void Section(string title)
             {
-                y += 6;
-                NewPageIfNeeded(22);
-                gfx.DrawString(title, sectionFont, XBrushes.Black, new XRect(left, y, contentWidth, 18), XStringFormats.TopLeft);
-                y += 18;
-                gfx.DrawLine(new XPen(XColors.LightGray, 0.5), left, y, left + contentWidth, y);
-                y += 4;
+                y += 12;
+                NewPageIfNeeded(26);
+                gfx.DrawString(title, sectionFont, sectionColor, new XRect(left, y, contentWidth, 18), XStringFormats.TopLeft);
+                y += 19;
+                gfx.DrawLine(accentPen, left, y, left + contentWidth, y);
+                y += 8;
             }
 
+            // Beschriftetes Wertepaar (Label grau, Wert schwarz) in einer Zeile
+            void KeyVal(string label, string? value)
+            {
+                NewPageIfNeeded(16);
+                gfx.DrawString(label, font, labelColor, new XRect(left, y, 150, 15), XStringFormats.TopLeft);
+                gfx.DrawString(string.IsNullOrWhiteSpace(value) ? "—" : value, font, XBrushes.Black,
+                    new XRect(left + 150, y, contentWidth - 150, 15), XStringFormats.TopLeft);
+                y += 16;
+            }
+
+            // Mehrzeiliger Text: Absätze/Zeilenumbrüche werden respektiert
             void Wrapped(string label, string? value)
             {
                 var text = string.IsNullOrWhiteSpace(value) ? "—" : value!;
                 var full = string.IsNullOrEmpty(label) ? text : label + " " + text;
-                foreach (var ln in WrapText(full, gfx, font, contentWidth - 8))
+                var sourceLines = full.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n');
+                foreach (var src in sourceLines)
                 {
-                    NewPageIfNeeded(14);
-                    gfx.DrawString(ln, font, XBrushes.Black, new XRect(left, y, contentWidth, 14), XStringFormats.TopLeft);
-                    y += 14;
+                    if (src.Length == 0)
+                    {
+                        NewPageIfNeeded(7);
+                        y += 7;
+                        continue;
+                    }
+                    foreach (var ln in WrapText(src, gfx, font, contentWidth - 8))
+                    {
+                        NewPageIfNeeded(14);
+                        gfx.DrawString(ln, font, XBrushes.Black, new XRect(left, y, contentWidth, 14), XStringFormats.TopLeft);
+                        y += 14;
+                    }
                 }
+            }
+
+            // Unterschriftfeld: optionales Bild, Linie, Label + Name
+            void DrawSignature(double sx, double sy, double sw, string labelText, string? name, string? imageData)
+            {
+                const double boxH = 52;
+                if (!string.IsNullOrWhiteSpace(imageData) && imageData!.StartsWith("data:image"))
+                {
+                    try
+                    {
+                        var comma = imageData.IndexOf(',');
+                        var bytes = Convert.FromBase64String(imageData.Substring(comma + 1));
+                        // PNG über System.Drawing dekodieren und auf weißen Grund legen
+                        // (Browser-PNGs sind transparent; PdfSharp verträgt das nicht direkt).
+                        using var srcMs = new MemoryStream(bytes);
+                        using var src = new System.Drawing.Bitmap(srcMs);
+                        using var flat = new System.Drawing.Bitmap(src.Width, src.Height);
+                        using (var g = System.Drawing.Graphics.FromImage(flat))
+                        {
+                            g.Clear(System.Drawing.Color.White);
+                            g.DrawImage(src, 0, 0, src.Width, src.Height);
+                        }
+                        var outMs = new MemoryStream();
+                        flat.Save(outMs, System.Drawing.Imaging.ImageFormat.Png);
+                        outMs.Position = 0;
+                        signatureStreams.Add(outMs);
+                        var img = XImage.FromStream(outMs);
+                        double ratio = Math.Min(sw / img.PixelWidth, boxH / img.PixelHeight);
+                        double dw = img.PixelWidth * ratio, dh = img.PixelHeight * ratio;
+                        gfx.DrawImage(img, sx, sy + (boxH - dh), dw, dh);
+                    }
+                    catch { }
+                }
+                double lineY = sy + boxH + 2;
+                gfx.DrawLine(new XPen(XColors.Black, 0.6), sx, lineY, sx + sw, lineY);
+                gfx.DrawString(labelText, headerBold, XBrushes.Black, new XRect(sx, lineY + 3, sw, 14), XStringFormats.TopLeft);
+                if (!string.IsNullOrWhiteSpace(name))
+                    gfx.DrawString(name, font, labelColor, new XRect(sx, lineY + 17, sw, 14), XStringFormats.TopLeft);
             }
 
             string CB(bool v) => v ? "[X]" : "[ ]";
 
             // --- Kopf ---
-            Line($"Nr.: {list.OperationNumber}     Alarmstichwort: {list.Keyword}", headerBold);
-            Line($"Alarmierungszeit: {list.AlertTime:dd.MM.yyyy HH:mm} Uhr", font);
-            Line($"Ort, Ortsteil: {report.OrtOrtsteil ?? string.Empty}", font);
-            Line($"Straße: {report.Strasse ?? string.Empty}", font);
-            Line($"Einsatzleiter: {report.Einsatzleiter ?? string.Empty}", font);
+            KeyVal("Einsatznummer", list.OperationNumber);
+            KeyVal("Alarmstichwort", list.Keyword);
+            KeyVal("Alarmierungszeit", $"{list.AlertTime:dd.MM.yyyy · HH:mm} Uhr");
+            KeyVal("Ort, Ortsteil", report.OrtOrtsteil);
+            KeyVal("Straße", report.Strasse);
+            KeyVal("Einsatzleiter", report.Einsatzleiter);
 
             // --- Einsatzart ---
             Section("Einsatzart");
@@ -725,14 +790,20 @@ public class PdfExportService
 
             // --- Unterschriften ---
             Section("Unterschriften");
-            Line($"Datum: {DateTime.Now:dd.MM.yyyy}", font);
-            Line($"Unterschrift IuK: {report.UnterschriftIuk ?? string.Empty}", font);
-            Line($"Unterschrift Einsatzleiter: {report.UnterschriftEinsatzleiter ?? string.Empty}", font);
+            KeyVal("Datum", $"{DateTime.Now:dd.MM.yyyy}");
+            NewPageIfNeeded(96);
+            y += 8;
+            double sigGap = 30;
+            double sigW = (contentWidth - sigGap) / 2;
+            DrawSignature(left, y, sigW, "Unterschrift IuK", report.UnterschriftIuk, report.UnterschriftIukImage);
+            DrawSignature(left + sigW + sigGap, y, sigW, "Unterschrift Einsatzleiter", report.UnterschriftEinsatzleiter, report.UnterschriftEinsatzleiterImage);
+            y += 88;
 
             DrawFooter(document, page, gfx, font, left, page.Height, contentWidth, pageNumber);
 
             using var ms = new MemoryStream();
             document.Save(ms);
+            foreach (var s in signatureStreams) { try { s.Dispose(); } catch { } }
             return ms.ToArray();
         }
         catch (Exception ex)

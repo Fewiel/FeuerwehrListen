@@ -1,8 +1,7 @@
-﻿@page "/"
+@page "/"
 @using FeuerwehrListen.Models
 @using FeuerwehrListen.Services
 @using FeuerwehrListen.Repositories
-@using FeuerwehrListen.Components.Shared
 @using Microsoft.AspNetCore.Components.Authorization
 @implements IDisposable
 @inject AttendanceListRepository AttendanceRepo
@@ -15,26 +14,59 @@
 
 <PageTitle>Übersicht - Feuerwehr Listen</PageTitle>
 
+<style>
+    .dash-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin-bottom: 1.25rem; }
+    .dash-head h1 { margin: 0; }
+    .dash-head .sub { margin: 4px 0 0; color: var(--tw-mut); font-size: 13.5px; }
+    .dash-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+    .dash-stats { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 1.25rem; }
+    .dash-stat { background: var(--tw-surface); border: 1px solid var(--tw-line); border-radius: 12px; padding: 11px 15px; display: flex; align-items: center; gap: 11px; min-width: 150px; }
+    .dash-stat .d { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+    .dash-stat .n { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .dash-stat .l { font-size: 12.5px; color: var(--tw-mut); line-height: 1.2; }
+
+    .dash-grid { display: grid; gap: 12px; grid-template-columns: 1fr; }
+    @@media (min-width: 520px) { .dash-grid { grid-template-columns: repeat(2, 1fr); } }
+    @@media (min-width: 720px) { .dash-grid { grid-template-columns: repeat(3, 1fr); } }
+    @@media (min-width: 1400px) { .dash-grid { grid-template-columns: repeat(4, 1fr); } }
+    .dash-card { background: var(--tw-surface); border: 1px solid var(--tw-line); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; }
+    .dash-card.hot { border-color: #F3B4BE; box-shadow: 0 0 0 3px rgba(228,0,43,.05); }
+    .dash-ch { display: flex; align-items: center; gap: 11px; margin-bottom: 12px; }
+    .dash-chip { width: 40px; height: 40px; border-radius: 11px; display: flex; align-items: center; justify-content: center; flex: none; font-size: 1.2rem; }
+    .dash-ch > div { min-width: 0; }
+    .dash-card h4 { margin: 0; font-size: 15.5px; font-weight: 600; overflow-wrap: anywhere; }
+    .dash-card .k { margin: 2px 0 0; font-size: 12px; color: var(--tw-mut); font-family: ui-monospace, Consolas, monospace; overflow-wrap: anywhere; }
+    .dash-mrow { display: flex; justify-content: space-between; align-items: center; font-size: 14px; padding: 8px 0; border-top: 1px solid var(--tw-line); }
+    .dash-mrow > span:first-child { color: var(--tw-mut); }
+    .dash-mrow .v { font-variant-numeric: tabular-nums; }
+    .dash-open { margin-top: 14px; height: 44px; border: 1px solid var(--tw-line-strong); background: var(--tw-bg); border-radius: 10px; font-size: 14px; font-weight: 500; color: var(--tw-ink); display: flex; align-items: center; justify-content: center; gap: 7px; text-decoration: none; }
+    .dash-open:hover { background: var(--tw-surface-2); text-decoration: none; color: var(--tw-ink); }
+    .dash-empty { background: var(--tw-surface); border: 1px dashed var(--tw-line-strong); border-radius: 14px; padding: 48px 20px; text-align: center; color: var(--tw-mut); }
+    .dash-empty i { font-size: 2rem; color: var(--tw-faint); }
+
+    .st { font-size: 12px; font-weight: 600; padding: 4px 11px; border-radius: 999px; }
+    .st-run { background: var(--tw-red-bg); color: var(--tw-red-d); }
+    .st-open { background: var(--tw-blue-bg); color: var(--tw-blue-d); }
+    .st-plan { background: var(--tw-amber-bg); color: var(--tw-amber-d); }
+</style>
+
 <div class="container mt-4">
-    <div class="row mb-4">
-        <div class="col">
+    <div class="dash-head">
+        <div>
             <h1>Offene Listen</h1>
-            <p class="text-muted">
-                <small>
-                    <i class="bi bi-arrow-clockwise"></i> Automatische Aktualisierung alle 30 Sekunden
-                </small>
-            </p>
+            <p class="sub"><i class="bi bi-arrow-clockwise"></i> Automatische Aktualisierung alle 30&nbsp;Sekunden</p>
         </div>
-        <div class="col-auto">
+        <div class="dash-actions">
             @if (SettingsService.IsModuleVisible(SettingKeys.VisibilityAttendance))
             {
-                <button class="btn btn-primary me-2" @onclick='() => Navigation.NavigateTo("/create-attendance")'>
+                <button class="btn btn-primary" @onclick='() => Navigation.NavigateTo("/create-attendance")'>
                     <i class="bi bi-plus-circle"></i> Neue Anwesenheitsliste
                 </button>
             }
             @if (SettingsService.IsModuleVisible(SettingKeys.VisibilityOperations))
             {
-                <button class="btn btn-danger me-2" @onclick='() => Navigation.NavigateTo("/create-operation")'>
+                <button class="btn btn-danger" @onclick='() => Navigation.NavigateTo("/create-operation")'>
                     <i class="bi bi-plus-circle"></i> Neue Einsatzliste
                 </button>
             }
@@ -47,83 +79,84 @@
         </div>
     </div>
 
-    <div class="row">
-        <div class="col-12">
-            @if (SettingsService.IsModuleVisible(SettingKeys.VisibilityOperations))
-            {
-                <ListComponent TItem="OperationList"
-                               Title="Einsatzlisten"
-                               IconClass="bi bi-exclamation-triangle"
-                               Items="_operationLists"
-                               EmptyListMessage="Keine offenen Einsatzlisten">
-                    <ItemTemplate>
-                        <a href="/operation/@context.Id" class="text-white text-decoration-none">
-                            <div class="d-flex w-100 justify-content-between">
-                                <h6 class="mb-1">@context.OperationNumber - @context.Keyword</h6>
-                                <small>@context.AlertTime.ToString("dd.MM.yyyy HH:mm")</small>
-                            </div>
-                            <p class="mb-1"><strong>@context.Address</strong></p>
-                        </a>
-                    </ItemTemplate>
-                </ListComponent>
-            }
+    <div class="dash-stats">
+        @if (SettingsService.IsModuleVisible(SettingKeys.VisibilityOperations))
+        {
+            <div class="dash-stat"><span class="d" style="background:var(--tw-red)"></span><span class="n">@_operationLists.Count</span><span class="l">Einsätze<br>laufend</span></div>
+        }
+        @if (SettingsService.IsModuleVisible(SettingKeys.VisibilityAttendance))
+        {
+            <div class="dash-stat"><span class="d" style="background:var(--tw-blue)"></span><span class="n">@_attendanceLists.Count</span><span class="l">Anwesenheits-<br>listen offen</span></div>
+        }
+        @if (SettingsService.IsModuleVisible(SettingKeys.VisibilityFireSafetyWatch))
+        {
+            <div class="dash-stat"><span class="d" style="background:var(--tw-amber)"></span><span class="n">@_fireSafetyWatches.Count</span><span class="l">Wachen<br>geplant</span></div>
+        }
+        @if (SettingsService.IsModuleVisible(SettingKeys.VisibilityDefects) && _openDefectsCount > 0)
+        {
+            <a class="dash-stat" href="/defects" style="text-decoration:none;color:inherit"><span class="d" style="background:#6B7480"></span><span class="n">@_openDefectsCount</span><span class="l">Mängel<br>offen</span></a>
+        }
+    </div>
 
-            @if (SettingsService.IsModuleVisible(SettingKeys.VisibilityAttendance))
+    @if (_operationLists.Count == 0 && _attendanceLists.Count == 0 && _fireSafetyWatches.Count == 0)
+    {
+        <div class="dash-empty">
+            <i class="bi bi-check2-circle"></i>
+            <p class="mb-0 mt-2">Aktuell keine offenen Listen.</p>
+        </div>
+    }
+    else
+    {
+        <div class="dash-grid">
+            @foreach (var op in _operationLists)
             {
-                <ListComponent TItem="AttendanceList"
-                               Title="Anwesenheitslisten"
-                               IconClass="bi bi-calendar-check"
-                               Items="_attendanceLists"
-                               EmptyListMessage="Keine offenen Anwesenheitslisten">
-                    <ItemTemplate>
-                        <a href="/attendance/@context.Id" class="text-white text-decoration-none">
-                            <div class="d-flex w-100 justify-content-between">
-                                <h6 class="mb-1">@context.Title</h6>
-                                <small>@context.CreatedAt.ToString("dd.MM.yyyy HH:mm")</small>
-                            </div>
-                            <p class="mb-1">
-                                <strong>@context.Unit</strong>
-                                @if (context.UnitNumber.HasValue)
-                                {
-                                    <span class="badge bg-primary ms-2">Einheit @context.UnitNumber</span>
-                                }
-                            </p>
-                            <small class="text-muted">@context.Description</small>
-                        </a>
-                    </ItemTemplate>
-                </ListComponent>
-            }
-
-            @if (SettingsService.IsModuleVisible(SettingKeys.VisibilityFireSafetyWatch))
-            {
-                <ListComponent TItem="FireSafetyWatch"
-                               Title="Brandsicherheitswachen"
-                               IconClass="bi bi-shield-check"
-                               Items="_fireSafetyWatches"
-                               EmptyListMessage="Keine offenen Brandsicherheitswachen">
-                    <ItemTemplate>
-                        <a href="/firesafetywatches/@context.Id" class="text-white text-decoration-none">
-                            <div class="d-flex w-100 justify-content-between">
-                                <h6 class="mb-1">@context.Name</h6>
-                                <small>@context.EventDateTime.ToString("dd.MM.yyyy HH:mm")</small>
-                            </div>
-                            <p class="mb-1"><strong>@context.Location</strong></p>
-                        </a>
-                    </ItemTemplate>
-                </ListComponent>
-            }
-
-            @if (SettingsService.IsModuleVisible(SettingKeys.VisibilityDefects) && _openDefectsCount > 0)
-            {
-                <div class="card mb-3">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <h5 class="mb-0"><i class="bi bi-tools me-2"></i>Offene M&auml;ngel (@_openDefectsCount)</h5>
-                        <a href="/defects" class="btn btn-sm btn-outline-primary">Zur M&auml;ngelliste</a>
+                <div class="dash-card hot">
+                    <div class="dash-ch">
+                        <div class="dash-chip" style="background:#FDE7EA;color:#E4002B"><i class="bi bi-truck"></i></div>
+                        <div>
+                            <h4>@(string.IsNullOrWhiteSpace(op.Keyword) ? op.OperationNumber : op.Keyword)</h4>
+                            <p class="k">@op.OperationNumber@(string.IsNullOrWhiteSpace(op.Address) ? "" : " · " + op.Address)</p>
+                        </div>
                     </div>
+                    <div class="dash-mrow"><span>Alarmiert</span><span class="v">@op.AlertTime.ToString("dd.MM. HH:mm")</span></div>
+                    <div class="dash-mrow"><span>Status</span><span class="st st-run">läuft</span></div>
+                    <a class="dash-open" href="/operation/@op.Id">Öffnen <i class="bi bi-arrow-right"></i></a>
+                </div>
+            }
+
+            @foreach (var att in _attendanceLists)
+            {
+                <div class="dash-card">
+                    <div class="dash-ch">
+                        <div class="dash-chip" style="background:#E7F0FE;color:#1F6FEB"><i class="bi bi-clipboard-check"></i></div>
+                        <div>
+                            <h4>@att.Title</h4>
+                            <p class="k">@att.Unit@(att.UnitNumber.HasValue ? " · Einheit " + att.UnitNumber : "")</p>
+                        </div>
+                    </div>
+                    <div class="dash-mrow"><span>Erstellt</span><span class="v">@att.CreatedAt.ToString("dd.MM. HH:mm")</span></div>
+                    <div class="dash-mrow"><span>Status</span><span class="st st-open">offen</span></div>
+                    <a class="dash-open" href="/attendance/@att.Id">Öffnen <i class="bi bi-arrow-right"></i></a>
+                </div>
+            }
+
+            @foreach (var w in _fireSafetyWatches)
+            {
+                <div class="dash-card">
+                    <div class="dash-ch">
+                        <div class="dash-chip" style="background:#FBEEDA;color:#C77700"><i class="bi bi-shield-check"></i></div>
+                        <div>
+                            <h4>@w.Name</h4>
+                            <p class="k">@w.Location</p>
+                        </div>
+                    </div>
+                    <div class="dash-mrow"><span>Beginn</span><span class="v">@w.EventDateTime.ToString("dd.MM. HH:mm")</span></div>
+                    <div class="dash-mrow"><span>Status</span><span class="st st-plan">geplant</span></div>
+                    <a class="dash-open" href="/firesafetywatches/@w.Id">Öffnen <i class="bi bi-arrow-right"></i></a>
                 </div>
             }
         </div>
-    </div>
+    }
 </div>
 
 @code {

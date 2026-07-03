@@ -1,10 +1,10 @@
 @namespace FeuerwehrListen.Components.Shared
 
-<div style="position: relative; height: @Height; background-color: #1a1a1a; border: 1px solid #444; border-radius: 4px; overflow: hidden; min-width: 80px; display: block;">
+<div style="position: relative; height: @Height; background-color: #E9ECEF; border: 1px solid #D6DBE1; border-radius: 6px; overflow: hidden; min-width: 80px; display: block;">
     <div style="position: absolute; top: 0; left: 0; bottom: 0; right: auto; width: @(Math.Min(Value, 100).ToString("F2", System.Globalization.CultureInfo.InvariantCulture))%; background-color: @Color; display: block; transition: width 0.3s;"></div>
     @if (ShowLabel)
     {
-        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-weight: bold; font-size: @FontSize; pointer-events: none; z-index: 1; text-shadow: 0 0 3px rgba(0,0,0,0.8); white-space: nowrap;">
+        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #171B21; font-weight: 700; font-size: @FontSize; pointer-events: none; z-index: 1; text-shadow: 0 0 4px rgba(255,255,255,0.9); white-space: nowrap;">
             @if (!string.IsNullOrEmpty(CustomLabel))
             {
                 @CustomLabel

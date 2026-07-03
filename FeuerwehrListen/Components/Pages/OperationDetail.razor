@@ -78,6 +78,14 @@
 
         <QrScanner IsActive="@(_list?.Status == ListStatus.Open)" OnCodeScanned="HandleQrCodeScanned" OnManualEntryRequested="ShowNumpad" />
 
+        @if (_list.Status != ListStatus.Open && AuthService.IsAuthenticated)
+        {
+            <div class="alert alert-info mt-2" role="alert">
+                <i class="bi bi-pencil-square me-1"></i>
+                Dieser Einsatz ist abgeschlossen. Als angemeldeter Benutzer kannst du noch Einsatzkräfte <strong>nachtragen</strong>.
+            </div>
+        }
+
         @if (_confirmationVisible)
         {
             <div class="entry-confirmation-overlay">
@@ -144,7 +152,7 @@
                                                     <th>Funktionen</th>
                                                     <th>Unter Atemschutz</th>
                                                     <th>Eingetragen um</th>
-                                                    @if (_list.Status == ListStatus.Open)
+                                                    @if (_list.Status == ListStatus.Open || AuthService.IsAuthenticated)
                                                     {
                                                         <th>Aktion</th>
                                                     }
@@ -171,7 +179,7 @@
                                                             }
                                                         </td>
                                                         <td>@entry.EnteredAt.ToString("HH:mm:ss")</td>
-                                                        @if (_list.Status == ListStatus.Open)
+                                                        @if (_list.Status == ListStatus.Open || AuthService.IsAuthenticated)
                                                         {
                                                             <td>
                                                                 <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteEntry(entry.Id)" title="Entfernen">
@@ -203,7 +211,7 @@
                                                     <th>Funktionen</th>
                                                     <th>Unter Atemschutz</th>
                                                     <th>Eingetragen um</th>
-                                                    @if (_list.Status == ListStatus.Open)
+                                                    @if (_list.Status == ListStatus.Open || AuthService.IsAuthenticated)
                                                     {
                                                         <th>Aktion</th>
                                                     }
@@ -230,7 +238,7 @@
                                                             }
                                                         </td>
                                                         <td>@entry.EnteredAt.ToString("HH:mm:ss")</td>
-                                                        @if (_list.Status == ListStatus.Open)
+                                                        @if (_list.Status == ListStatus.Open || AuthService.IsAuthenticated)
                                                         {
                                                             <td>
                                                                 <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteEntry(entry.Id)" title="Entfernen">
@@ -273,6 +281,9 @@
             else
             {
                 <div class="d-grid gap-2 mt-4" style="max-width: 500px;">
+                    <button class="btn btn-outline-danger btn-lg" @onclick="ShowNumpad">
+                        <i class="bi bi-person-plus me-2"></i>Einsatzkraft nachtragen
+                    </button>
                     <button class="btn btn-danger btn-lg" @onclick="OpenReport">
                         <i class="bi bi-clipboard-data me-2"></i>Einsatzbericht
                     </button>
@@ -330,7 +341,7 @@
     private bool _confirmationVisible;
     private string _confirmationName = "";
     
-    private bool CanSubmit => _list?.Status == ListStatus.Open
+    private bool CanSubmit => (_list?.Status == ListStatus.Open || AuthService.IsAuthenticated)
         && _selectedMember != null
         && (_noVehicle || _selectedVehicle != null);
 
@@ -381,7 +392,9 @@
 
     private async Task AddEntry((string memberName, string vehicleName, List<string> functionNames, bool withBreathingApparatus) data)
     {
-        if (_list?.Status != ListStatus.Open || _selectedMember == null)
+        if (_list == null || _selectedMember == null)
+            return;
+        if (_list.Status != ListStatus.Open && !AuthService.IsAuthenticated)
             return;
 
         // Duplikat-Check
@@ -613,7 +626,10 @@
 
     private async Task DeleteEntry(int entryId)
     {
-        if (_list?.Status != ListStatus.Open)
+        if (_list == null)
+            return;
+        // Offene Liste: unverändert. Abgeschlossene Liste: nur angemeldete Benutzer.
+        if (_list.Status != ListStatus.Open && !AuthService.IsAuthenticated)
             return;
 
         try
