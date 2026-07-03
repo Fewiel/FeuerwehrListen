@@ -30,7 +30,7 @@ public class StatisticsController : ControllerBase
     [HttpGet("top-participants")]
     public async Task<ActionResult<ApiResponse<List<TopParticipant>>>> GetTopParticipants([FromQuery] int limit = 10)
     {
-        var participants = await _statisticsService.GetTopParticipantsAsync(limit);
+        var participants = await _statisticsService.GetTopParticipantsAsync(null, limit);
         return Ok(new ApiResponse<List<TopParticipant>>
         {
             Success = true,

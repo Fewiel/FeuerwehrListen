@@ -1159,8 +1159,9 @@ public class PdfExportService
         return null;
     }
 
-    public async Task<byte[]> ExportStatisticsReportAsync()
+    public async Task<byte[]> ExportStatisticsReportAsync(StatsFilter? filter = null)
     {
+        filter ??= new StatsFilter { ListType = StatListType.All };
         try
         {
             var document = new PdfDocument();
@@ -1177,14 +1178,21 @@ public class PdfExportService
             DrawHeader(gfx, "STATISTIK-BERICHT", titleFont, left, top, contentWidth);
             double yPosition = top + 36;
             gfx.DrawString($"Bericht erstellt am: {DateTime.Now:dd.MM.yyyy HH:mm}", font, XBrushes.Black, new XRect(left, yPosition, contentWidth, 16), XStringFormats.TopLeft);
+            yPosition += 18;
+
+            var zeitraum = (filter.From.HasValue || filter.To.HasValue)
+                ? $"{(filter.From.HasValue ? filter.From.Value.ToString("dd.MM.yyyy HH:mm") : "Beginn")} - {(filter.To.HasValue ? filter.To.Value.ToString("dd.MM.yyyy HH:mm") : "heute")}"
+                : "gesamter Zeitraum";
+            var einheitText = filter.Unit > 0 ? $" | Einheit {filter.Unit}" : "";
+            gfx.DrawString($"Filter: {filter.ListTypeLabel} | Zeitraum: {zeitraum}{einheitText}", font, new XSolidBrush(XColor.FromArgb(110, 115, 122)), new XRect(left, yPosition, contentWidth, 16), XStringFormats.TopLeft);
             yPosition += 22;
 
-            var overview = await _statisticsService.GetListStatisticsAsync();
-            var topParticipants = await _statisticsService.GetTopParticipantsAsync(10);
-            var vehicleStats = await _statisticsService.GetVehicleStatisticsAsync();
-            var functionStats = await _statisticsService.GetFunctionStatisticsAsync();
-            var breathingStats = await _statisticsService.GetBreathingApparatusStatisticsAsync();
-            var opComposition = await _statisticsService.GetOperationCompositionAsync(15);
+            var overview = await _statisticsService.GetListStatisticsAsync(filter);
+            var topParticipants = await _statisticsService.GetTopParticipantsAsync(filter, 10);
+            var vehicleStats = await _statisticsService.GetVehicleStatisticsAsync(filter);
+            var functionStats = await _statisticsService.GetFunctionStatisticsAsync(filter);
+            var breathingStats = await _statisticsService.GetBreathingApparatusStatisticsAsync(filter);
+            var opComposition = await _statisticsService.GetOperationCompositionAsync(filter, 15);
 
             var headerBold = CreateFont("CreatoDisplay", 12, true);
             DrawTableHeader(gfx, font, headerBold, left, yPosition, new[] { contentWidth / 2, contentWidth / 2 }, new[] { "Kennzahl", "Wert" });
@@ -1210,6 +1218,8 @@ public class PdfExportService
             yPosition += 18;
             yPosition += 6;
 
+            if (filter.IncludeOperations)
+            {
             PaginateIfNeeded(document, ref page, ref gfx, ref yPosition, ref pageNumber, titleFont, font, left, contentWidth);
             gfx.DrawString("Fahrzeug-Nutzung", titleFont, XBrushes.Black, new XRect(left, yPosition, contentWidth, 18), XStringFormats.TopLeft);
             yPosition += 22;
@@ -1366,6 +1376,7 @@ public class PdfExportService
                     yPosition += 12;
                 }
             }
+            } // Ende if (filter.IncludeOperations)
 
             DrawFooter(document, page, gfx, font, left, page.Height, contentWidth, pageNumber);
             using var memoryStream = new MemoryStream();

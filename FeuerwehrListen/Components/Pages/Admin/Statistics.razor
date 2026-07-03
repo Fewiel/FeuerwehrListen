@@ -9,44 +9,71 @@
 @inject NavigationManager Navigation
 @inject IJSRuntime JSRuntime
 @inject DownloadTokenService TokenService
-@inject MemberRepository MemberRepo
-@inject UnitAssignmentService UnitAssignmentService
 
 <PageTitle>Statistiken - Admin</PageTitle>
 
 <AdminAuthCheck>
 
 <div class="container mt-4">
-    <div class="row mb-4">
+    <div class="row mb-3">
         <div class="col">
             <h1>📊 Statistiken & Auswertungen</h1>
             <p class="text-muted">Übersicht über Teilnahmequoten, Trends und Leistungsindikatoren</p>
         </div>
-        <div class="col-auto d-flex align-items-center gap-2">
-            <label class="form-label mb-0 me-2"><i class="bi bi-funnel"></i> Einheit:</label>
-            <select class="form-select form-select-sm" style="width: auto;"
-                    @bind="_selectedUnit" @bind:after="OnUnitFilterChanged">
-                <option value="0">Alle Einheiten</option>
-                @for (int u = 1; u <= 9; u++)
-                {
-                    <option value="@u">Einheit @u</option>
-                }
-            </select>
+        <div class="col-auto">
             <button class="btn btn-primary" @onclick="ExportStatisticsPdf">
-                <i class="bi bi-file-earmark-pdf"></i> PDF-Export
+                <i class="bi bi-file-earmark-pdf"></i> PDF-Export (mit Filter)
             </button>
         </div>
     </div>
 
-    @if (_selectedUnit > 0)
-    {
-        <div class="alert alert-info py-2 mb-3">
-            <i class="bi bi-info-circle me-1"></i>
-            <strong>Filter aktiv:</strong> Mitglieder-bezogene Statistiken (Top Teilnehmer, Mitglieder-Statistiken)
-            sind auf <strong>Einheit @_selectedUnit</strong> beschränkt.
-            Globale Auswertungen (Fahrzeuge, Funktionen, Stichwörter, Einsätze) werden weiterhin gesamthaft angezeigt.
+    @* ---------- Filterleiste ---------- *@
+    <div class="card mb-4">
+        <div class="card-body">
+            <div class="row g-3 align-items-end">
+                <div class="col-12 col-md-3">
+                    <label class="form-label mb-1"><i class="bi bi-collection me-1"></i>Listentyp</label>
+                    <select class="form-select form-select-sm" @bind="_filter.ListType" @bind:after="ReloadStatistics">
+                        <option value="@StatListType.Operation">Einsatzlisten</option>
+                        <option value="@StatListType.Attendance">Anwesenheitslisten</option>
+                        <option value="@StatListType.FireSafetyWatch">Brandsicherheitswachen</option>
+                        <option value="@StatListType.All">Gesamt</option>
+                    </select>
+                </div>
+                <div class="col-6 col-md-3">
+                    <label class="form-label mb-1"><i class="bi bi-calendar-event me-1"></i>Von</label>
+                    <input type="datetime-local" class="form-control form-control-sm" @bind="_filter.From" @bind:after="ReloadStatistics" />
+                </div>
+                <div class="col-6 col-md-3">
+                    <label class="form-label mb-1"><i class="bi bi-calendar-event me-1"></i>Bis</label>
+                    <input type="datetime-local" class="form-control form-control-sm" @bind="_filter.To" @bind:after="ReloadStatistics" />
+                </div>
+                <div class="col-8 col-md-2">
+                    <label class="form-label mb-1"><i class="bi bi-funnel me-1"></i>Einheit</label>
+                    <select class="form-select form-select-sm" @bind="_filter.Unit" @bind:after="ReloadStatistics">
+                        <option value="0">Alle Einheiten</option>
+                        @for (int u = 1; u <= 9; u++)
+                        {
+                            <option value="@u">Einheit @u</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-4 col-md-1">
+                    <button class="btn btn-outline-secondary btn-sm w-100" @onclick="ResetFilter" title="Filter zurücksetzen">
+                        <i class="bi bi-arrow-counterclockwise"></i>
+                    </button>
+                </div>
+            </div>
+            @if (!_filter.IncludeOperations)
+            {
+                <div class="alert alert-info py-2 mb-0 mt-3">
+                    <i class="bi bi-info-circle me-1"></i>
+                    Fahrzeug-, Funktions-, Atemschutz-, Stichwort- und Requirements-Auswertungen gelten nur für <strong>Einsatzlisten</strong>
+                    und werden bei diesem Listentyp ausgeblendet.
+                </div>
+            }
         </div>
-    }
+    </div>
 
     @if (_loading)
     {
@@ -140,6 +167,8 @@
                 </div>
             </div>
 
+            @if (_filter.IncludeOperations)
+            {
             <div class="col-md-6 mb-4">
                 <div class="card">
                     <div class="card-header">
@@ -239,9 +268,9 @@
                             </div>
                         </div>
                         <hr>
-                        <ProgressBar Value="@_breathingStats.WithApparatusPercentage" 
-                                     Color="#ffc107" 
-                                     Height="30px" 
+                        <ProgressBar Value="@_breathingStats.WithApparatusPercentage"
+                                     Color="#ffc107"
+                                     Height="30px"
                                      FontSize="14px"
                                      CustomLabel="@($"{_breathingStats.WithApparatusPercentage:F1}% unter Atemschutz")" />
                     </div>
@@ -278,7 +307,7 @@
                                                 <td>
                                                     @if (keyword.OperationsWithRequirements > 0)
                                                     {
-                                                        <ProgressBar Value="@keyword.RequirementsFulfillmentRate" 
+                                                        <ProgressBar Value="@keyword.RequirementsFulfillmentRate"
                                                                      Color="@GetRequirementsColor(keyword.RequirementsFulfillmentRate)" />
                                                         <small class="text-muted">@keyword.RequirementsFulfillmentRate.ToString("F1")%</small>
                                                     }
@@ -306,11 +335,11 @@
                         <div class="row text-center mb-3">
                             <div class="col-4">
                                 <h4 class="text-primary">@_requirementsStats.TotalOperations</h4>
-                                <small class="text-muted">Gesamt Einsätze</small>
+                                <small class="text-muted">Einsätze mit Requirements</small>
                             </div>
                             <div class="col-4">
-                                <h4 class="text-info">@_requirementsStats.OperationsWithRequirements</h4>
-                                <small class="text-muted">Mit Requirements</small>
+                                <h4 class="text-info">@_requirementsStats.OperationsFulfillingRequirements</h4>
+                                <small class="text-muted">Erfüllt</small>
                             </div>
                             <div class="col-4">
                                 <h4 class="@GetRequirementsStatusColor(_requirementsStats.RequirementsFulfillmentRate)">@_requirementsStats.RequirementsFulfillmentRate.ToString("F1")%</h4>
@@ -325,8 +354,8 @@
                                     @_requirementsStats.RequirementsFulfillmentRate.ToString("F1")%
                                 </span>
                             </div>
-                            <ProgressBar Value="@_requirementsStats.RequirementsFulfillmentRate" 
-                                         Color="@GetRequirementsColor(_requirementsStats.RequirementsFulfillmentRate)" 
+                            <ProgressBar Value="@_requirementsStats.RequirementsFulfillmentRate"
+                                         Color="@GetRequirementsColor(_requirementsStats.RequirementsFulfillmentRate)"
                                          Height="25px" />
                         </div>
                         @if (_requirementsStats.KeywordSummaries.Any())
@@ -340,8 +369,8 @@
                                             <span>@keyword.KeywordName</span>
                                             <div class="d-flex align-items-center">
                                                 <span class="me-2">@keyword.FulfillmentRate.ToString("F0")%</span>
-                                                <ProgressBar Value="@keyword.FulfillmentRate" 
-                                                             Color="@GetRequirementsColor(keyword.FulfillmentRate)" 
+                                                <ProgressBar Value="@keyword.FulfillmentRate"
+                                                             Color="@GetRequirementsColor(keyword.FulfillmentRate)"
                                                              Height="15px" />
                                             </div>
                                         </div>
@@ -349,11 +378,18 @@
                                 }
                             </div>
                         }
+                        else
+                        {
+                            <p class="text-muted mb-0">Keine Einsätze mit gesetzten Requirements im Filterzeitraum.</p>
+                        }
                     </div>
                 </div>
             </div>
+            }
         </div>
 
+        @if (_filter.IncludeOperations)
+        {
         <div class="row mb-4">
             <div class="col-12">
                 <div class="card">
@@ -449,7 +485,7 @@
                                                     <strong>Keine Personal Requirements definiert</strong> - Stichwort ohne Requirements-Konfiguration
                                                 </div>
                                             }
-                                            
+
                                             @if (op.FunctionCounts.Any(f => f.Value > 0) || op.WithVehicleTruppCount > 0)
                                             {
                                                 <h6 class="mb-3">Funktionen (mit Fahrzeug):</h6>
@@ -474,7 +510,7 @@
                                                     }
                                                 </div>
                                             }
-                                            
+
                                             @if (op.NoVehicleFunctionCounts.Any(f => f.Value > 0) || op.WithoutVehicleTruppCount > 0)
                                             {
                                                 <hr class="my-3" />
@@ -500,7 +536,7 @@
                                                     }
                                                 </div>
                                             }
-                                            
+
                                             @if (!op.FunctionCounts.Any(f => f.Value > 0) && !op.NoVehicleFunctionCounts.Any(f => f.Value > 0) && op.WithVehicleTruppCount == 0 && op.WithoutVehicleTruppCount == 0)
                                             {
                                                 <p class="text-muted mb-0">Keine Funktionen zugewiesen</p>
@@ -518,6 +554,7 @@
                 </div>
             </div>
         </div>
+        }
 
         <div class="row">
             <div class="col-12">
@@ -594,14 +631,22 @@
     private int _pageSize = 10;
     private int _totalPages => _opCompositionData.Any() ? (int)Math.Ceiling(_opCompositionData.Count / (double)_pageSize) : 1;
 
-    // Unit-Filter (0 = alle Einheiten)
-    private int _selectedUnit = 0;
-    private List<TopParticipant> _allTopParticipants = new();
-    private List<MemberStatistics> _allMemberStats = new();
-    private HashSet<string>? _allowedMemberNumbers;
+    // Vorausgewählt: Einsatzlisten
+    private StatsFilter _filter = new StatsFilter { ListType = StatListType.Operation };
 
     protected override async Task OnInitializedAsync()
     {
+        await LoadStatistics();
+    }
+
+    private async Task ReloadStatistics()
+    {
+        await LoadStatistics();
+    }
+
+    private async Task ResetFilter()
+    {
+        _filter = new StatsFilter { ListType = StatListType.Operation };
         await LoadStatistics();
     }
 
@@ -612,17 +657,16 @@
 
         try
         {
-            _listStats = await StatsService.GetListStatisticsAsync();
-            _allTopParticipants = await StatsService.GetTopParticipantsAsync(50);
-            _allMemberStats = await StatsService.GetMemberStatisticsAsync();
-            _vehicleStats = await StatsService.GetVehicleStatisticsAsync();
-            _functionStats = await StatsService.GetFunctionStatisticsAsync();
-            _breathingStats = await StatsService.GetBreathingApparatusStatisticsAsync();
-            _opCompositionData = await StatsService.GetOperationCompositionAsync(100);
-            _keywordStats = await StatsService.GetKeywordStatisticsAsync();
-            _requirementsStats = await StatsService.GetPersonalRequirementsStatisticsAsync();
-
-            await ApplyUnitFilter();
+            _listStats = await StatsService.GetListStatisticsAsync(_filter);
+            _topParticipants = await StatsService.GetTopParticipantsAsync(_filter, 10);
+            _memberStats = await StatsService.GetMemberStatisticsAsync(_filter);
+            _vehicleStats = await StatsService.GetVehicleStatisticsAsync(_filter);
+            _functionStats = await StatsService.GetFunctionStatisticsAsync(_filter);
+            _breathingStats = await StatsService.GetBreathingApparatusStatisticsAsync(_filter);
+            _opCompositionData = await StatsService.GetOperationCompositionAsync(_filter, 100);
+            _keywordStats = await StatsService.GetKeywordStatisticsAsync(_filter);
+            _requirementsStats = await StatsService.GetPersonalRequirementsStatisticsAsync(_filter);
+            _currentPage = 0;
         }
         finally
         {
@@ -631,71 +675,24 @@
         }
     }
 
-    private async Task OnUnitFilterChanged()
-    {
-        await ApplyUnitFilter();
-        StateHasChanged();
-    }
-
-    private async Task ApplyUnitFilter()
-    {
-        if (_selectedUnit <= 0)
-        {
-            _allowedMemberNumbers = null;
-            _topParticipants = _allTopParticipants.Take(10).ToList();
-            _memberStats = _allMemberStats;
-            return;
-        }
-
-        // Mitgliedsnummern ermitteln, die der gewählten Einheit angehören (Multi-Unit-fähig).
-        var members = await MemberRepo.GetAllAsync();
-        var unitsByMember = await MemberRepo.GetUnitsForMembersAsync(members.Select(m => m.Id));
-
-        var allowed = new HashSet<string>();
-        foreach (var m in members)
-        {
-            unitsByMember.TryGetValue(m.Id, out var fromTable);
-            var combined = UnitAssignmentService.CombineUnitNumbers(m, fromTable);
-            if (combined.Contains(_selectedUnit))
-                allowed.Add(m.MemberNumber);
-        }
-        _allowedMemberNumbers = allowed;
-
-        _topParticipants = _allTopParticipants
-            .Where(t => allowed.Contains(t.MemberNumber))
-            .Take(10)
-            .ToList();
-        _memberStats = _allMemberStats
-            .Where(m => allowed.Contains(m.MemberNumber))
-            .ToList();
-    }
-
     private void ToggleOperation(string operationNumber)
     {
         if (_expandedOperations.Contains(operationNumber))
-        {
             _expandedOperations.Remove(operationNumber);
-        }
         else
-        {
             _expandedOperations.Add(operationNumber);
-        }
     }
 
     private void NextPage()
     {
         if (_currentPage < _totalPages - 1)
-        {
             _currentPage++;
-        }
     }
 
     private void PreviousPage()
     {
         if (_currentPage > 0)
-        {
             _currentPage--;
-        }
     }
 
     private async Task ExportStatisticsPdf()
@@ -705,23 +702,17 @@
             var path = "/api/export/statistics/pdf";
             var token = TokenService.CreateToken(path);
             var baseUri = Navigation.BaseUri.TrimEnd('/');
-            var url = $"{baseUri}/api/export/statistics/pdf?token={Uri.EscapeDataString(token)}";
+            var query = $"?token={Uri.EscapeDataString(token)}&listType={(int)_filter.ListType}&unit={_filter.Unit}";
+            if (_filter.From.HasValue)
+                query += $"&from={Uri.EscapeDataString(_filter.From.Value.ToString("o"))}";
+            if (_filter.To.HasValue)
+                query += $"&to={Uri.EscapeDataString(_filter.To.Value.ToString("o"))}";
+            var url = $"{baseUri}{path}{query}";
             await JSRuntime.InvokeVoidAsync("open", url, "_blank");
         }
         catch (Exception)
         {
         }
-    }
-
-    private string GetProgressBarClass(double rate)
-    {
-        return rate switch
-        {
-            >= 80 => "bg-success",
-            >= 60 => "bg-info",
-            >= 40 => "bg-warning",
-            _ => "bg-danger"
-        };
     }
 
     private string GetProgressBarColor(double rate)
@@ -739,11 +730,11 @@
     {
         return rate switch
         {
-            >= 90 => "#198754", // Grün für sehr gut
-            >= 70 => "#20c997", // Türkis für gut
-            >= 50 => "#ffc107", // Gelb für mittel
-            >= 30 => "#fd7e14", // Orange für schlecht
-            _ => "#dc3545"      // Rot für sehr schlecht
+            >= 90 => "#198754",
+            >= 70 => "#20c997",
+            >= 50 => "#ffc107",
+            >= 30 => "#fd7e14",
+            _ => "#dc3545"
         };
     }
 

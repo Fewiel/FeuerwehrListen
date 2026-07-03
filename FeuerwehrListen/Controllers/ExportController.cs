@@ -119,7 +119,8 @@ public class ExportController : ControllerBase
 
     [AllowAnonymous]
     [HttpGet("statistics/pdf")]
-    public async Task<IActionResult> ExportStatisticsPdf([FromQuery] string? token)
+    public async Task<IActionResult> ExportStatisticsPdf([FromQuery] string? token,
+        [FromQuery] int listType = 3, [FromQuery] DateTime? from = null, [FromQuery] DateTime? to = null, [FromQuery] int unit = 0)
     {
         try
         {
@@ -128,7 +129,14 @@ public class ExportController : ControllerBase
             {
                 return Unauthorized("Ungültiges oder fehlendes Download-Token");
             }
-            var pdfBytes = await _pdfService.ExportStatisticsReportAsync();
+            var filter = new Models.StatsFilter
+            {
+                ListType = Enum.IsDefined(typeof(Models.StatListType), listType) ? (Models.StatListType)listType : Models.StatListType.All,
+                From = from,
+                To = to,
+                Unit = unit
+            };
+            var pdfBytes = await _pdfService.ExportStatisticsReportAsync(filter);
             var fileName = $"Statistikbericht_{DateTime.Now:yyyyMMdd}.pdf";
             
             return File(pdfBytes, "application/pdf", fileName);
