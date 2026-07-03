@@ -37,6 +37,14 @@
 
         <QrScanner IsActive="@(_list?.Status == ListStatus.Open)" OnCodeScanned="HandleQrCodeScanned" OnManualEntryRequested="ShowNumpad" />
 
+        @if (_list.Status != ListStatus.Open && AuthService.IsAuthenticated)
+        {
+            <div class="alert alert-info mt-2" role="alert">
+                <i class="bi bi-pencil-square me-1"></i>
+                Diese Liste ist abgeschlossen. Als angemeldeter Benutzer kannst du noch Personen <strong>nachtragen</strong>.
+            </div>
+        }
+
         @if (_confirmationVisible)
         {
             <div class="entry-confirmation-overlay">
@@ -87,7 +95,7 @@
                                         <th>#</th>
                                         <th>Name/ID</th>
                                         <th>Eingetragen um</th>
-                                            @if (_list.Status == ListStatus.Open && AuthService.IsAuthenticated)
+                                            @if (AuthService.IsAuthenticated)
                                             {
                                                 <th>Aktion</th>
                                             }
@@ -100,7 +108,7 @@
                                             <td>@(index + 1)</td>
                                             <td><strong>@entry.NameOrId</strong></td>
                                             <td>@entry.EnteredAt.ToString("HH:mm:ss")</td>
-                                            @if (_list.Status == ListStatus.Open && AuthService.IsAuthenticated)
+                                            @if (AuthService.IsAuthenticated)
                                             {
                                                 <td>
                                                     <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteEntry(entry.Id)" title="Entfernen">
@@ -131,7 +139,7 @@
                                             <th>#</th>
                                             <th>Name/ID</th>
                                             <th>Eingetragen um</th>
-                                            @if (_list.Status == ListStatus.Open && AuthService.IsAuthenticated)
+                                            @if (AuthService.IsAuthenticated)
                                             {
                                                 <th>Aktion</th>
                                             }
@@ -144,7 +152,7 @@
                                                 <td>@(index + 1)</td>
                                                 <td><strong>@entry.NameOrId</strong></td>
                                                 <td>@entry.EnteredAt.ToString("HH:mm:ss")</td>
-                                                @if (_list.Status == ListStatus.Open && AuthService.IsAuthenticated)
+                                                @if (AuthService.IsAuthenticated)
                                                 {
                                                     <td>
                                                         <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteEntry(entry.Id)" title="Entfernen">
@@ -182,6 +190,9 @@
             else
             {
                 <div class="d-grid gap-2 mt-4" style="max-width: 500px;">
+                    <button class="btn btn-danger btn-lg" @onclick="ShowNumpad">
+                        <i class="bi bi-person-plus me-2"></i>Person nachtragen
+                    </button>
                     <button class="btn btn-primary btn-lg" @onclick="ExportPdf">
                         <i class="bi bi-file-earmark-pdf me-2"></i>PDF Export
                     </button>
@@ -246,7 +257,10 @@
 
     private async Task AddEntry()
     {
-        if (_list?.Status != ListStatus.Open)
+        if (_list == null)
+            return;
+        // Offene Liste: für alle. Abgeschlossene Liste: nur angemeldete Benutzer dürfen nachtragen.
+        if (_list.Status != ListStatus.Open && !AuthService.IsAuthenticated)
             return;
 
         _errorMessage = string.Empty;
@@ -281,7 +295,9 @@
         }
 
         var targetListId = Id;
-        if (_list.UnitNumber.HasValue)
+        // Einheiten-Umleitung nur bei OFFENEN Listen; beim Nachtragen in eine
+        // abgeschlossene Liste wird direkt in diese Liste eingetragen.
+        if (_list.Status == ListStatus.Open && _list.UnitNumber.HasValue)
         {
             // Multi-Unit: alle Einheiten des Mitglieds prüfen.
             var memberUnits = await UnitAssignmentService.ResolveAllUnitNumbersAsync(member);
@@ -543,7 +559,7 @@
 
     private async Task DeleteEntry(int entryId)
     {
-        if (_list?.Status != ListStatus.Open)
+        if (_list == null || !AuthService.IsAuthenticated)
             return;
 
         try
