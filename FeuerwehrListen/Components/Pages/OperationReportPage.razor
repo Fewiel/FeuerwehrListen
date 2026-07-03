@@ -665,16 +665,28 @@
         _ncUploadError = false;
         _ncUploadMessage = string.Empty;
         var ok = 0;
+        var skipped = 0;
         var errors = new List<string>();
         try
         {
+            // Bereits vorhandene Dateien einlesen -> Duplikate nicht erneut hochladen.
+            var existing = await Nextcloud.GetExistingFileNamesAsync(_ncFolder);
+            var uploadedThisBatch = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
             foreach (var file in _selectedImages)
             {
+                var name = SafeName(file.Name);
+                if (existing.Contains(name) || uploadedThisBatch.Contains(name))
+                {
+                    skipped++;
+                    continue;
+                }
                 try
                 {
                     using var ms = new MemoryStream();
                     await file.OpenReadStream(20 * 1024 * 1024).CopyToAsync(ms);
-                    await Nextcloud.UploadAsync(_ncFolder, SafeName(file.Name), ms.ToArray(), file.ContentType);
+                    await Nextcloud.UploadAsync(_ncFolder, name, ms.ToArray(), file.ContentType);
+                    uploadedThisBatch.Add(name);
                     ok++;
                 }
                 catch (Exception ex)
@@ -686,15 +698,19 @@
             var count = await Nextcloud.CountFilesAsync(_ncFolder);
             _ncUploadedCount = count >= 0 ? count : _ncUploadedCount + ok;
 
+            var parts = new List<string> { $"{ok} hochgeladen" };
+            if (skipped > 0) parts.Add($"{skipped} übersprungen (bereits vorhanden)");
+            if (errors.Count > 0) parts.Add($"{errors.Count} fehlgeschlagen");
+
             if (errors.Count == 0)
             {
-                _ncUploadMessage = $"{ok} Bild(er) erfolgreich hochgeladen.";
+                _ncUploadMessage = string.Join(", ", parts) + ".";
                 _selectedImages = new();
             }
             else
             {
                 _ncUploadError = true;
-                _ncUploadMessage = $"{ok} hochgeladen, {errors.Count} fehlgeschlagen: {string.Join("; ", errors)}";
+                _ncUploadMessage = string.Join(", ", parts) + ": " + string.Join("; ", errors);
             }
         }
         finally

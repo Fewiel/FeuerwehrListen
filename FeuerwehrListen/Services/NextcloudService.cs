@@ -126,6 +126,42 @@ public class NextcloudService
     }
 
     /// <summary>
+    /// Liefert die vorhandenen Dateinamen im Ordner (PROPFIND Depth 1), um doppelte
+    /// Uploads zu vermeiden. Leeres Set, wenn Ordner fehlt/nicht erreichbar.
+    /// </summary>
+    public async Task<HashSet<string>> GetExistingFileNamesAsync(string relativeFolder)
+    {
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var cfg = Config();
+        if (string.IsNullOrWhiteSpace(cfg.url) || string.IsNullOrWhiteSpace(cfg.user) || string.IsNullOrWhiteSpace(cfg.pass))
+            return result;
+        try
+        {
+            using var client = CreateClient(cfg.user, cfg.pass);
+            client.Timeout = TimeSpan.FromSeconds(20);
+            var davRoot = DavRoot(cfg.url, cfg.user);
+            var req = new HttpRequestMessage(new HttpMethod("PROPFIND"), $"{davRoot}/{EncodePath(relativeFolder)}");
+            req.Headers.Add("Depth", "1");
+            using var resp = await client.SendAsync(req);
+            if (!resp.IsSuccessStatusCode && (int)resp.StatusCode != 207) return result;
+
+            var xml = await resp.Content.ReadAsStringAsync();
+            XNamespace d = "DAV:";
+            var doc = XDocument.Parse(xml);
+            foreach (var href in doc.Descendants(d + "href"))
+            {
+                var raw = href.Value;
+                // Ordner/Collections enden auf '/' -> überspringen; nur Dateien zählen.
+                if (string.IsNullOrWhiteSpace(raw) || raw.EndsWith("/")) continue;
+                var lastSeg = raw.Substring(raw.LastIndexOf('/') + 1);
+                result.Add(Uri.UnescapeDataString(lastSeg));
+            }
+        }
+        catch { }
+        return result;
+    }
+
+    /// <summary>
     /// Anzahl Dateien in einem Ordner (PROPFIND Depth 1). -1 wenn Ordner fehlt/Fehler.
     /// </summary>
     public async Task<int> CountFilesAsync(string relativeFolder)
