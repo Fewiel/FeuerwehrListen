@@ -344,12 +344,12 @@
                 <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
                     <h5 class="mb-0"><i class="bi bi-person-badge me-2"></i>Eingesetzte Kr&auml;fte (@_entries.Count)</h5>
                     <div class="d-flex align-items-center gap-2 flex-wrap">
-                        <span class="badge bg-danger" title="Führer / Helfer / Mannschaft / Gesamt">St&auml;rke @_gesamtStaerke</span>
+                        <span class="badge bg-danger" title="Führer / Mannschaft / Gesamt">St&auml;rke @_gesamtStaerke</span>
                         <button type="button" class="btn btn-sm btn-outline-primary" @onclick="OpenVehicleStrengthModal"><i class="bi bi-truck me-1"></i>St&auml;rken je Fahrzeug</button>
                     </div>
                 </div>
                 <div class="card-body">
-                    <p class="text-muted small mb-2">Gesamtst&auml;rke (F&uuml;hrer / Helfer / Mannschaft / Gesamt) aus der Einsatzliste: <strong>@_gesamtStaerke</strong></p>
+                    <p class="text-muted small mb-2">Gesamtst&auml;rke (F&uuml;hrer / Mannschaft / Gesamt) aus Fahrzeug-St&auml;rken + externen Kr&auml;ften: <strong>@_gesamtStaerke</strong></p>
                     @if (_vehicleStrengths.Count > 0)
                     {
                         <div class="mb-3 d-flex flex-wrap gap-2">
@@ -688,9 +688,9 @@
         _externalForces = await ReportRepo.GetExternalForcesAsync(_report.Id);
         _mittel = await ReportRepo.GetMittelAsync(_report.Id);
 
-        _vehicles = await VehicleRepo.GetActiveAsync();
+        _vehicles = (await VehicleRepo.GetActiveAsync()).Where(v => !StrengthCalc.IsNoVehicle(v.Name)).ToList();
         _vehicleStrengths = await ReportRepo.GetVehicleStrengthsAsync(_report.Id);
-        _gesamtStaerke = StrengthCalc.FormatTotal(_entries, _functionsByEntryId);
+        RecalcGesamt();
 
         _ncConfigured = Nextcloud.IsConfigured;
         if (_ncConfigured && _list != null)
@@ -712,6 +712,14 @@
         }
     }
 
+    private void RecalcGesamt()
+    {
+        _gesamtStaerke = StrengthCalc.CombinedTotal(
+            _entries, _functionsByEntryId,
+            _vehicleStrengths.Select(v => (v.VehicleName, v.Staerke)),
+            _externalForces.Select(e => e.Staerke));
+    }
+
     // --- Stärken je Fahrzeug ---
     private void OpenVehicleStrengthModal()
     {
@@ -729,6 +737,7 @@
     {
         await ReportRepo.ReplaceVehicleStrengthsAsync(_report!.Id, _vehicleStrengthEditor);
         _vehicleStrengths = await ReportRepo.GetVehicleStrengthsAsync(_report.Id);
+        RecalcGesamt();
         _showVehicleStrengthModal = false;
     }
 
@@ -825,6 +834,7 @@
         };
         force.Id = await ReportRepo.InsertExternalForceAsync(force);
         _externalForces.Add(force);
+        RecalcGesamt();
         // Felder für das nächste Fahrzeug leeren
         _newForceRufname = string.Empty;
         _newForceStaerke = string.Empty;
@@ -837,12 +847,16 @@
     }
 
     private async Task UpdateExternalForce(OperationReportExternalForce force)
-        => await ReportRepo.UpdateExternalForceAsync(force);
+    {
+        await ReportRepo.UpdateExternalForceAsync(force);
+        RecalcGesamt();
+    }
 
     private async Task RemoveExternalForce(OperationReportExternalForce force)
     {
         await ReportRepo.DeleteExternalForceAsync(force.Id);
         _externalForces.Remove(force);
+        RecalcGesamt();
     }
 
     // --- Eingesetzte Mittel ---

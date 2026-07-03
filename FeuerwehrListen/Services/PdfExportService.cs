@@ -786,7 +786,7 @@ public class PdfExportService
 
             // --- Eingesetzte Kräfte ---
             Section($"Eingesetzte Kräfte ({entries.Count})");
-            Line($"Gesamtstärke (Führer / Helfer / Mannschaft / Gesamt): {StrengthCalc.FormatTotal(entries, functionsByEntry)}", headerBold);
+            Line($"Gesamtstärke (Führer / Mannschaft / Gesamt): {StrengthCalc.CombinedTotal(entries, functionsByEntry, vehicleStrengths.Select(v => (v.VehicleName, v.Staerke)), externalForces.Select(e => e.Staerke))}", headerBold);
             if (vehicleStrengths.Count > 0)
             {
                 Line("Stärke je Fahrzeug:", headerBold);
