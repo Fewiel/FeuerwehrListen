@@ -28,12 +28,24 @@
     </div>
 
     @* ---------- Filterleiste ---------- *@
+    <style>
+        /* Alle Filter-Controls exakt gleiche Höhe */
+        .stat-filters .form-select,
+        .stat-filters .form-control,
+        .stat-filters .btn { height: 38px; }
+    </style>
     <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span class="fw-semibold"><i class="bi bi-funnel me-1"></i>Filter</span>
+            <button class="btn btn-sm btn-outline-secondary" @onclick="ResetFilter">
+                <i class="bi bi-arrow-counterclockwise me-1"></i>Zurücksetzen
+            </button>
+        </div>
         <div class="card-body">
-            <div class="row g-3 align-items-end">
-                <div class="col-12 col-md-3">
+            <div class="row g-3 align-items-end stat-filters">
+                <div class="col-12 col-md-4">
                     <label class="form-label mb-1"><i class="bi bi-collection me-1"></i>Listentyp</label>
-                    <select class="form-select form-select-sm" @bind="_filter.ListType" @bind:after="ReloadStatistics">
+                    <select class="form-select" @bind="_filter.ListType" @bind:after="ReloadStatistics">
                         <option value="@StatListType.Operation">Einsatzlisten</option>
                         <option value="@StatListType.Attendance">Anwesenheitslisten</option>
                         <option value="@StatListType.FireSafetyWatch">Brandsicherheitswachen</option>
@@ -42,26 +54,21 @@
                 </div>
                 <div class="col-6 col-md-3">
                     <label class="form-label mb-1"><i class="bi bi-calendar-event me-1"></i>Von</label>
-                    <input type="datetime-local" class="form-control form-control-sm" @bind="_filter.From" @bind:after="ReloadStatistics" />
+                    <input type="datetime-local" class="form-control" @bind="_filter.From" @bind:after="ReloadStatistics" />
                 </div>
                 <div class="col-6 col-md-3">
                     <label class="form-label mb-1"><i class="bi bi-calendar-event me-1"></i>Bis</label>
-                    <input type="datetime-local" class="form-control form-control-sm" @bind="_filter.To" @bind:after="ReloadStatistics" />
+                    <input type="datetime-local" class="form-control" @bind="_filter.To" @bind:after="ReloadStatistics" />
                 </div>
-                <div class="col-8 col-md-2">
-                    <label class="form-label mb-1"><i class="bi bi-funnel me-1"></i>Einheit</label>
-                    <select class="form-select form-select-sm" @bind="_filter.Unit" @bind:after="ReloadStatistics">
+                <div class="col-12 col-md-2">
+                    <label class="form-label mb-1"><i class="bi bi-diagram-3 me-1"></i>Einheit</label>
+                    <select class="form-select" @bind="_filter.Unit" @bind:after="ReloadStatistics">
                         <option value="0">Alle Einheiten</option>
                         @for (int u = 1; u <= 9; u++)
                         {
                             <option value="@u">Einheit @u</option>
                         }
                     </select>
-                </div>
-                <div class="col-4 col-md-1">
-                    <button class="btn btn-outline-secondary btn-sm w-100" @onclick="ResetFilter" title="Filter zurücksetzen">
-                        <i class="bi bi-arrow-counterclockwise"></i>
-                    </button>
                 </div>
             </div>
             @if (!_filter.IncludeOperations)
@@ -631,8 +638,8 @@
     private int _pageSize = 10;
     private int _totalPages => _opCompositionData.Any() ? (int)Math.Ceiling(_opCompositionData.Count / (double)_pageSize) : 1;
 
-    // Vorausgewählt: Einsatzlisten
-    private StatsFilter _filter = new StatsFilter { ListType = StatListType.Operation };
+    // Vorausgewählt: Einsatzlisten, Von = Jahresanfang (01.01. 00:01)
+    private StatsFilter _filter = new StatsFilter { ListType = StatListType.Operation, From = new DateTime(DateTime.Now.Year, 1, 1, 0, 1, 0) };
 
     protected override async Task OnInitializedAsync()
     {
@@ -646,7 +653,7 @@
 
     private async Task ResetFilter()
     {
-        _filter = new StatsFilter { ListType = StatListType.Operation };
+        _filter = new StatsFilter { ListType = StatListType.Operation, From = new DateTime(DateTime.Now.Year, 1, 1, 0, 1, 0) };
         await LoadStatistics();
     }
 
