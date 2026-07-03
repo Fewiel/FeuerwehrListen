@@ -536,6 +536,7 @@ public class PdfExportService
             var functionsByEntry = await _entryFunctionRepo.GetFunctionsForEntriesAsync(entries.Select(e => e.Id).ToList());
             var externalForces = await _reportRepo.GetExternalForcesAsync(report.Id);
             var mittel = await _reportRepo.GetMittelAsync(report.Id);
+            var vehicleStrengths = await _reportRepo.GetVehicleStrengthsAsync(report.Id);
 
             var document = new PdfDocument();
             var page = document.AddPage();
@@ -785,6 +786,13 @@ public class PdfExportService
 
             // --- Eingesetzte Kräfte ---
             Section($"Eingesetzte Kräfte ({entries.Count})");
+            Line($"Gesamtstärke (Führer / Helfer / Mannschaft / Gesamt): {StrengthCalc.FormatTotal(entries, functionsByEntry)}", headerBold);
+            if (vehicleStrengths.Count > 0)
+            {
+                Line("Stärke je Fahrzeug:", headerBold);
+                foreach (var vs in vehicleStrengths)
+                    Line($"     {vs.VehicleName}: {vs.Staerke}", font);
+            }
             if (entries.Count == 0)
             {
                 Line("Keine Kräfte erfasst.", font);

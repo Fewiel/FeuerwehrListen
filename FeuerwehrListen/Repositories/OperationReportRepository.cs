@@ -50,8 +50,52 @@ public class OperationReportRepository
         {
             await _db.OperationReportExternalForces.Where(x => x.OperationReportId == report.Id).DeleteAsync();
             await _db.OperationReportMittels.Where(x => x.OperationReportId == report.Id).DeleteAsync();
+            await _db.OperationReportVehicleStrengths.Where(x => x.OperationReportId == report.Id).DeleteAsync();
         }
         await _db.OperationReports.Where(x => x.OperationListId == operationListId).DeleteAsync();
+    }
+
+    // --- Fahrzeug-Stärken ---
+
+    public async Task<List<OperationReportVehicleStrength>> GetVehicleStrengthsAsync(int reportId)
+    {
+        return await _db.OperationReportVehicleStrengths
+            .Where(x => x.OperationReportId == reportId)
+            .OrderBy(x => x.Id)
+            .ToListAsync();
+    }
+
+    /// <summary>Ersetzt alle Fahrzeug-Stärken eines Berichts (nur nicht-leere Einträge).</summary>
+    public async Task ReplaceVehicleStrengthsAsync(int reportId, IEnumerable<OperationReportVehicleStrength> items)
+    {
+        await _db.OperationReportVehicleStrengths.Where(x => x.OperationReportId == reportId).DeleteAsync();
+        foreach (var s in items)
+        {
+            if (string.IsNullOrWhiteSpace(s.VehicleName) || string.IsNullOrWhiteSpace(s.Staerke)) continue;
+            s.OperationReportId = reportId;
+            await _db.InsertAsync(s);
+        }
+    }
+
+    /// <summary>Setzt/aktualisiert die Stärke eines einzelnen Fahrzeugs (für Nachkorrektur beim Abschließen).</summary>
+    public async Task UpsertVehicleStrengthAsync(int reportId, string vehicleName, string staerke)
+    {
+        var existing = await _db.OperationReportVehicleStrengths
+            .FirstOrDefaultAsync(x => x.OperationReportId == reportId && x.VehicleName == vehicleName);
+        if (existing != null)
+        {
+            existing.Staerke = staerke;
+            await _db.UpdateAsync(existing);
+        }
+        else
+        {
+            await _db.InsertAsync(new OperationReportVehicleStrength
+            {
+                OperationReportId = reportId,
+                VehicleName = vehicleName,
+                Staerke = staerke
+            });
+        }
     }
 
     // --- Externe Kräfte ---

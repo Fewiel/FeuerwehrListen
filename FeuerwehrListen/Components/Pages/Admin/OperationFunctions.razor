@@ -37,6 +37,15 @@
                                 Standardfunktion
                             </label>
                         </div>
+                        <div class="mb-3">
+                            <label class="form-label">Zählstelle in der Stärke</label>
+                            <select class="form-select" @bind="_strengthPosition">
+                                <option value="@StrengthPosition.Zugfuehrer">Zugführer (1. Zahl)</option>
+                                <option value="@StrengthPosition.Gruppenfuehrer">Gruppenführer (2. Zahl)</option>
+                                <option value="@StrengthPosition.Mannschaft">Mannschaft (3. Zahl)</option>
+                            </select>
+                            <small class="text-muted">Bestimmt, an welcher Stelle der Stärke (F&uuml;hrer / Helfer / Mannschaft / Gesamt) diese Funktion gez&auml;hlt wird.</small>
+                        </div>
                         <button class="btn btn-primary me-2" @onclick="Save">Speichern</button>
                         <button class="btn btn-secondary" @onclick="Cancel">Abbrechen</button>
                     </div>
@@ -61,6 +70,7 @@
                                     <tr>
                                         <th>Name</th>
                                         <th>Standard</th>
+                                        <th>Zählstelle</th>
                                         <th>Aktionen</th>
                                     </tr>
                                 </thead>
@@ -79,6 +89,7 @@
                                                     <span class="badge bg-secondary">Nein</span>
                                                 }
                                             </td>
+                                            <td><span class="badge bg-info text-dark">@PosLabel(item.StrengthPosition)</span></td>
                                             <td>
                                                 <button class="btn btn-sm btn-primary me-2" @onclick="() => Edit(item)">Bearbeiten</button>
                                                 <button class="btn btn-sm btn-danger" @onclick="() => Delete(item.Id)">Löschen</button>
@@ -103,6 +114,14 @@
     private OperationFunctionDef? _editing = null;
     private string _name = string.Empty;
     private bool _isDefault = false;
+    private StrengthPosition _strengthPosition = StrengthPosition.Mannschaft;
+
+    private static string PosLabel(StrengthPosition p) => p switch
+    {
+        StrengthPosition.Zugfuehrer => "Zugführer",
+        StrengthPosition.Gruppenfuehrer => "Gruppenführer",
+        _ => "Mannschaft"
+    };
 
     protected override async Task OnInitializedAsync()
     {
@@ -120,6 +139,7 @@
         _editing = null;
         _name = string.Empty;
         _isDefault = false;
+        _strengthPosition = StrengthPosition.Mannschaft;
     }
 
     private void Edit(OperationFunctionDef item)
@@ -128,6 +148,7 @@
         _editing = item;
         _name = item.Name;
         _isDefault = item.IsDefault;
+        _strengthPosition = item.StrengthPosition;
     }
 
     private void Cancel()
@@ -144,6 +165,7 @@
         {
             _editing.Name = _name.Trim();
             _editing.IsDefault = _isDefault;
+            _editing.StrengthPosition = _strengthPosition;
             await FunctionRepo.UpdateAsync(_editing);
         }
         else
@@ -151,7 +173,8 @@
             var def = new OperationFunctionDef
             {
                 Name = _name.Trim(),
-                IsDefault = _isDefault
+                IsDefault = _isDefault,
+                StrengthPosition = _strengthPosition
             };
             await FunctionRepo.CreateAsync(def);
         }

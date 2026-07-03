@@ -20,6 +20,7 @@
 @inject AuthenticationService AuthService
 @inject DownloadTokenService TokenService
 @inject NextcloudService Nextcloud
+@inject OperationReportRepository ReportRepo
 
 <PageTitle>Einsatzliste - @_list?.OperationNumber</PageTitle>
 
@@ -665,6 +666,20 @@
         _list.Status = ListStatus.Closed;
         _list.ClosedAt = DateTime.Now;
         await OperationRepo.UpdateAsync(_list);
+
+        // Fahrzeug-Stärken im Bericht aus den tatsächlichen Einträgen nachkorrigieren (nur wenn ein Bericht existiert).
+        var report = await ReportRepo.GetByOperationListIdAsync(_list.Id);
+        if (report != null)
+        {
+            var entries = await EntryRepo.GetByListIdAsync(_list.Id) ?? new List<OperationEntry>();
+            var funcs = await EntryFunctionRepo.GetFunctionsForEntriesAsync(entries.Select(e => e.Id).ToList());
+            foreach (var g in entries.Where(e => !string.IsNullOrWhiteSpace(e.Vehicle)).GroupBy(e => e.Vehicle))
+            {
+                var fm = StrengthCalc.VehicleFuehrerMannschaft(g, funcs);
+                await ReportRepo.UpsertVehicleStrengthAsync(report.Id, g.Key, fm);
+            }
+        }
+
         await ListNotificationService.NotifyOperationClosedAsync(_list);
         await LoadData();
     }

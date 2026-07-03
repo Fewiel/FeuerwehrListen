@@ -8,6 +8,7 @@
 @inject OperationReportRepository ReportRepo
 @inject OperationEntryRepository EntryRepo
 @inject OperationEntryFunctionRepository EntryFunctionRepo
+@inject VehicleRepository VehicleRepo
 @inject NavigationManager Navigation
 @inject DownloadTokenService TokenService
 @inject IJSRuntime JS
@@ -221,7 +222,7 @@
                         @if (_showExternalForceForm)
                         {
                             <div class="row g-2 align-items-end mb-2">
-                                <div class="col-12 col-md-5"><label class="form-label small mb-1">Rufname</label><input class="form-control" placeholder="z. B. Florian Coesfeld 1/44" @bind="_newForceRufname" @onkeydown="ExternalForceKeyDown" /></div>
+                                <div class="col-12 col-md-5"><label class="form-label small mb-1">Rufname</label><input class="form-control" placeholder="z. B. HVX-1-LF20-1" @bind="_newForceRufname" @onkeydown="ExternalForceKeyDown" /></div>
                                 <div class="col-8 col-md-4"><label class="form-label small mb-1">St&auml;rke</label><input class="form-control" placeholder="z. B. 1/8" @bind="_newForceStaerke" @onkeydown="ExternalForceKeyDown" /></div>
                                 <div class="col-4 col-md-3"><button type="button" class="btn btn-success w-100" @onclick="AddExternalForce"><i class="bi bi-check-lg"></i> Eintragen</button></div>
                             </div>
@@ -340,11 +341,24 @@
 
             @* ---------- Kräfteerfassung aus Einsatzliste (read-only) ---------- *@
             <div class="card mb-4">
-                <div class="card-header d-flex justify-content-between align-items-center">
+                <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
                     <h5 class="mb-0"><i class="bi bi-person-badge me-2"></i>Eingesetzte Kr&auml;fte (@_entries.Count)</h5>
-                    <small class="text-muted">aus der Einsatzliste</small>
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                        <span class="badge bg-danger" title="Führer / Helfer / Mannschaft / Gesamt">St&auml;rke @_gesamtStaerke</span>
+                        <button type="button" class="btn btn-sm btn-outline-primary" @onclick="OpenVehicleStrengthModal"><i class="bi bi-truck me-1"></i>St&auml;rken je Fahrzeug</button>
+                    </div>
                 </div>
                 <div class="card-body">
+                    <p class="text-muted small mb-2">Gesamtst&auml;rke (F&uuml;hrer / Helfer / Mannschaft / Gesamt) aus der Einsatzliste: <strong>@_gesamtStaerke</strong></p>
+                    @if (_vehicleStrengths.Count > 0)
+                    {
+                        <div class="mb-3 d-flex flex-wrap gap-2">
+                            @foreach (var vs in _vehicleStrengths)
+                            {
+                                <span class="badge rounded-pill bg-secondary">@vs.VehicleName: @vs.Staerke</span>
+                            }
+                        </div>
+                    }
                     @if (_entries.Count == 0)
                     {
                         <p class="text-muted mb-0">Keine Kr&auml;fte in der Einsatzliste erfasst.</p>
@@ -518,6 +532,42 @@
                     </div>
                 </div>
             }
+
+            @* ---------- Modal: Stärken je Fahrzeug ---------- *@
+            @if (_showVehicleStrengthModal)
+            {
+                <div class="modal fade show d-block" tabindex="-1" style="background:rgba(0,0,0,.5);">
+                    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title"><i class="bi bi-truck me-2"></i>St&auml;rken je Fahrzeug</h5>
+                                <button type="button" class="btn-close" @onclick="CloseVehicleStrengthModal"></button>
+                            </div>
+                            <div class="modal-body">
+                                <p class="text-muted small">Format <code>F&uuml;hrer/Mannschaft</code> (z.&nbsp;B. <code>1/8</code> = 1 GF + 8 Mannschaft). Beim Abschlie&szlig;en der Einsatzliste werden gesetzte Fahrzeuge aus den tats&auml;chlichen Eintr&auml;gen nachkorrigiert.</p>
+                                @if (_vehicleStrengthEditor.Count == 0)
+                                {
+                                    <p class="text-muted mb-0">Keine Fahrzeuge angelegt.</p>
+                                }
+                                else
+                                {
+                                    @foreach (var item in _vehicleStrengthEditor)
+                                    {
+                                        <div class="d-flex align-items-center gap-3 py-2 border-bottom">
+                                            <label class="flex-grow-1 mb-0 fw-semibold">@item.VehicleName</label>
+                                            <input class="form-control form-control-sm" style="width:120px" placeholder="1/8" @bind="item.Staerke" />
+                                        </div>
+                                    }
+                                }
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-outline-secondary" @onclick="CloseVehicleStrengthModal">Abbrechen</button>
+                                <button type="button" class="btn btn-primary" @onclick="SaveVehicleStrengths"><i class="bi bi-check-lg me-1"></i>&Uuml;bernehmen</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
         }
         else
         {
@@ -584,6 +634,13 @@
     private List<MittelEditItem> _mittelEditor = new();
     private List<MittelEditItem> _customMittel = new();
 
+    // --- Eingesetzte Kräfte / Stärke ---
+    private List<Vehicle> _vehicles = new();
+    private List<OperationReportVehicleStrength> _vehicleStrengths = new();
+    private string _gesamtStaerke = "0/0/0/0";
+    private bool _showVehicleStrengthModal;
+    private List<OperationReportVehicleStrength> _vehicleStrengthEditor = new();
+
     // --- Einsatzbilder (Nextcloud) ---
     private bool _ncConfigured;
     private bool _ncChecked;
@@ -631,6 +688,10 @@
         _externalForces = await ReportRepo.GetExternalForcesAsync(_report.Id);
         _mittel = await ReportRepo.GetMittelAsync(_report.Id);
 
+        _vehicles = await VehicleRepo.GetActiveAsync();
+        _vehicleStrengths = await ReportRepo.GetVehicleStrengthsAsync(_report.Id);
+        _gesamtStaerke = StrengthCalc.FormatTotal(_entries, _functionsByEntryId);
+
         _ncConfigured = Nextcloud.IsConfigured;
         if (_ncConfigured && _list != null)
             _ncFolder = Nextcloud.BuildOperationFolder(_list.AlertTime.Year, _list.OperationNumber);
@@ -649,6 +710,26 @@
                 await InvokeAsync(StateHasChanged);
             }
         }
+    }
+
+    // --- Stärken je Fahrzeug ---
+    private void OpenVehicleStrengthModal()
+    {
+        _vehicleStrengthEditor = _vehicles.Select(v =>
+        {
+            var existing = _vehicleStrengths.FirstOrDefault(s => s.VehicleName == v.Name);
+            return new OperationReportVehicleStrength { VehicleName = v.Name, Staerke = existing?.Staerke };
+        }).ToList();
+        _showVehicleStrengthModal = true;
+    }
+
+    private void CloseVehicleStrengthModal() => _showVehicleStrengthModal = false;
+
+    private async Task SaveVehicleStrengths()
+    {
+        await ReportRepo.ReplaceVehicleStrengthsAsync(_report!.Id, _vehicleStrengthEditor);
+        _vehicleStrengths = await ReportRepo.GetVehicleStrengthsAsync(_report.Id);
+        _showVehicleStrengthModal = false;
     }
 
     private void OnImagesSelected(InputFileChangeEventArgs e)
