@@ -128,4 +128,16 @@ public class FunctionRequirementSummary
     public double FulfillmentRate { get; set; }
 }
 
+/// <summary>Teilnahme-Verlauf je Einsatzart (Stichwort) über die Zeit – zeigt sinkende Beteiligung.</summary>
+public class ParticipationTypeTrend
+{
+    public string Einsatzart { get; set; } = string.Empty;
+    public int OperationCount { get; set; }
+    public double AverageParticipants { get; set; }
+    /// <summary>Teilnehmerzahl je Einsatz in chronologischer Reihenfolge (für Sparkline).</summary>
+    public List<int> Series { get; set; } = new();
+    /// <summary>Veränderung erste vs. zweite Hälfte der Einsätze in Prozent (negativ = weniger Teilnehmer).</summary>
+    public double TrendPercent { get; set; }
+}
+
 

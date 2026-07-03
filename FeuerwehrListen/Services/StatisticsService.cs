@@ -528,6 +528,58 @@ public class StatisticsService
         return result.OrderByDescending(k => k.UsageCount).ToList();
     }
 
+    /// <summary>
+    /// Teilnahme-Trend je Einsatzart (Stichwort): Teilnehmerzahl je Einsatz in zeitlicher Reihenfolge
+    /// plus Veränderung erste vs. zweite Hälfte – um sinkende Beteiligung zu erkennen.
+    /// </summary>
+    public async Task<List<ParticipationTypeTrend>> GetParticipationTrendByTypeAsync(StatsFilter? filter = null)
+    {
+        filter ??= new StatsFilter { ListType = StatListType.All };
+        if (!filter.IncludeOperations) return new List<ParticipationTypeTrend>();
+
+        var ops = await FilteredOperationListsAsync(filter);
+        if (ops.Count == 0) return new List<ParticipationTypeTrend>();
+
+        var opIds = ops.Select(o => o.Id).ToList();
+        var entryCountByOp = (await _db.OperationEntries.Where(e => opIds.Contains(e.OperationListId)).ToListAsync())
+            .GroupBy(e => e.OperationListId)
+            .ToDictionary(g => g.Key, g => g.Count());
+
+        var result = new List<ParticipationTypeTrend>();
+        var groups = ops.GroupBy(o => string.IsNullOrWhiteSpace(o.Keyword) ? "Ohne Stichwort" : o.Keyword!.Trim());
+
+        foreach (var g in groups)
+        {
+            var typeOps = g.OrderBy(o => o.AlertTime).ToList();
+            var series = typeOps.Select(o => entryCountByOp.GetValueOrDefault(o.Id, 0)).ToList();
+            var opCount = typeOps.Count;
+            var avg = opCount > 0 ? series.Average() : 0;
+
+            double trendPercent = 0;
+            if (opCount >= 2)
+            {
+                var half = opCount / 2;
+                var firstAvg = series.Take(half).DefaultIfEmpty(0).Average();
+                var secondAvg = series.Skip(opCount - half).DefaultIfEmpty(0).Average();
+                if (firstAvg > 0)
+                    trendPercent = Math.Round((secondAvg - firstAvg) / firstAvg * 100, 0);
+                else if (secondAvg > 0)
+                    trendPercent = 100;
+            }
+
+            result.Add(new ParticipationTypeTrend
+            {
+                Einsatzart = g.Key,
+                OperationCount = opCount,
+                AverageParticipants = Math.Round(avg, 1),
+                Series = series,
+                TrendPercent = trendPercent
+            });
+        }
+
+        return result.OrderByDescending(r => r.OperationCount).ToList();
+    }
+
     public async Task<PersonalRequirementsStatistics> GetPersonalRequirementsStatisticsAsync(StatsFilter? filter = null)
     {
         filter ??= new StatsFilter { ListType = StatListType.All };

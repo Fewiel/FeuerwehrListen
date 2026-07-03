@@ -128,6 +128,57 @@
             </div>
         </div>
 
+        @if (_filter.IncludeOperations)
+        {
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">📉 Teilnahme-Trend nach Einsatzart</h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted small mb-3">
+                            Teilnehmerzahl je Einsatz im gew&auml;hlten Zeitraum (chronologisch).
+                            <span class="text-danger fw-semibold">Rot/fallend</span> bedeutet: zu dieser Einsatzart kommen zunehmend <strong>weniger</strong> Kr&auml;fte.
+                        </p>
+                        @if (_typeTrends.Count == 0)
+                        {
+                            <p class="text-muted mb-0">Keine Eins&auml;tze im Zeitraum.</p>
+                        }
+                        else
+                        {
+                            <div class="table-responsive">
+                                <table class="table table-sm align-middle mb-0">
+                                    <thead>
+                                        <tr>
+                                            <th>Einsatzart</th>
+                                            <th class="text-center">Eins&auml;tze</th>
+                                            <th class="text-center">&Oslash; Teiln.</th>
+                                            <th>Verlauf</th>
+                                            <th class="text-center">Trend</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var tr in _typeTrends)
+                                        {
+                                            <tr>
+                                                <td><strong>@tr.Einsatzart</strong></td>
+                                                <td class="text-center">@tr.OperationCount</td>
+                                                <td class="text-center">@tr.AverageParticipants.ToString("F1")</td>
+                                                <td>@((MarkupString)Sparkline(tr))</td>
+                                                <td class="text-center">@((MarkupString)TrendBadge(tr.TrendPercent, tr.OperationCount))</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+        }
+
         <div class="row">
             <div class="col-md-6 mb-4">
                 <div class="card">
@@ -633,6 +684,8 @@
     private List<OperationComposition> _opCompositionData = new();
     private List<KeywordStatistics> _keywordStats = new();
     private PersonalRequirementsStatistics _requirementsStats = new();
+    private List<ParticipationTypeTrend> _typeTrends = new();
+    private double _trendMax = 1;
     private HashSet<string> _expandedOperations = new();
     private int _currentPage = 0;
     private int _pageSize = 10;
@@ -673,6 +726,9 @@
             _opCompositionData = await StatsService.GetOperationCompositionAsync(_filter, 100);
             _keywordStats = await StatsService.GetKeywordStatisticsAsync(_filter);
             _requirementsStats = await StatsService.GetPersonalRequirementsStatisticsAsync(_filter);
+            _typeTrends = await StatsService.GetParticipationTrendByTypeAsync(_filter);
+            _trendMax = _typeTrends.SelectMany(t => t.Series).DefaultIfEmpty(0).Max();
+            if (_trendMax <= 0) _trendMax = 1;
             _currentPage = 0;
         }
         finally
@@ -720,6 +776,46 @@
         catch (Exception)
         {
         }
+    }
+
+    // Zahl mit Invariant-Kultur (Punkt als Dezimaltrenner) für SVG-Koordinaten
+    private static string N(double d) => d.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
+
+    private string Sparkline(ParticipationTypeTrend tr)
+    {
+        var s = tr.Series;
+        if (s.Count == 0) return string.Empty;
+        double w = 150, h = 32, pad = 4;
+        var max = _trendMax <= 0 ? 1 : _trendMax;
+        var color = tr.TrendPercent < -5 ? "#dc3545" : tr.TrendPercent > 5 ? "#198754" : "#6c757d";
+
+        if (s.Count == 1)
+        {
+            double cy1 = h - pad - ((double)s[0] / max) * (h - 2 * pad);
+            return $"<svg width=\"{N(w)}\" height=\"{N(h)}\"><circle cx=\"{N(w / 2)}\" cy=\"{N(cy1)}\" r=\"3\" fill=\"{color}\"/></svg>";
+        }
+
+        var pts = new List<string>();
+        for (int i = 0; i < s.Count; i++)
+        {
+            double x = pad + (double)i / (s.Count - 1) * (w - 2 * pad);
+            double y = h - pad - ((double)s[i] / max) * (h - 2 * pad);
+            pts.Add($"{N(x)},{N(y)}");
+        }
+        var poly = string.Join(" ", pts);
+        var last = pts[^1].Split(',');
+        return $"<svg width=\"{N(w)}\" height=\"{N(h)}\"><polyline points=\"{poly}\" fill=\"none\" stroke=\"{color}\" stroke-width=\"2\"/><circle cx=\"{last[0]}\" cy=\"{last[1]}\" r=\"2.5\" fill=\"{color}\"/></svg>";
+    }
+
+    private string TrendBadge(double pct, int opCount)
+    {
+        if (opCount < 2)
+            return "<span class=\"badge bg-light text-muted\">&ndash;</span>";
+        if (pct < -5)
+            return $"<span class=\"badge bg-danger\"><i class=\"bi bi-arrow-down-right\"></i> {N(pct)}%</span>";
+        if (pct > 5)
+            return $"<span class=\"badge bg-success\"><i class=\"bi bi-arrow-up-right\"></i> +{N(pct)}%</span>";
+        return "<span class=\"badge bg-secondary\"><i class=\"bi bi-arrow-right\"></i> stabil</span>";
     }
 
     private string GetProgressBarColor(double rate)
