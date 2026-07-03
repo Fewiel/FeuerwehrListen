@@ -20,7 +20,14 @@ if (builder.Environment.IsProduction())
 GlobalFontSettings.FontResolver = new FontResolver();
 
 builder.Services.AddRazorComponents()
-    .AddInteractiveServerComponents();
+    .AddInteractiveServerComponents()
+    .AddHubOptions(options =>
+    {
+        // Standard sind 32 KB. Digital gezeichnete Unterschriften (PNG-DataURL vom Canvas)
+        // kommen per JS-Interop zurück und können größer sein -> sonst bricht der Circuit
+        // beim Speichern ab ("hängt fest / verliert die Verbindung").
+        options.MaximumReceiveMessageSize = 5 * 1024 * 1024; // 5 MB
+    });
 
 builder.Services.AddScoped<AuthenticationService>();
 builder.Services.AddScoped<AuthenticationStateProvider>(sp => sp.GetRequiredService<AuthenticationService>());
