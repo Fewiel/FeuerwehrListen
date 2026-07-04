@@ -55,6 +55,10 @@ public class NextcloudService
         var basePath = BasePath.Trim('/');
         var yy = (year % 100).ToString("D2");
         var num = (operationNumber ?? "").Trim();
+        // Falls die Nummer doch mit dem vollen Jahr beginnt (z. B. "2026-000999"),
+        // das führende Jahr entfernen -> Ordner ist immer "26<Nummer>", nie doppeltes Jahr.
+        var m = System.Text.RegularExpressions.Regex.Match(num, $@"^{year}\s*-?\s*(.+)$");
+        if (m.Success) num = m.Groups[1].Value.Trim();
         return $"{basePath}/{year}/{yy}{num}";
     }
 
