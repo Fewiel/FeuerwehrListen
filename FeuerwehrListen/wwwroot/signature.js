@@ -1,9 +1,17 @@
-// Einfaches Unterschriften-Pad auf <canvas>
+// Einfaches Unterschriften-Pad auf <canvas>.
+// Nutzt Maus- UND Touch-Events, damit es auch auf aelteren Tablets (iOS < 13,
+// die keine Pointer Events haben) funktioniert. preventDefault (nicht-passiv)
+// verhindert das Scrollen der Seite beim Zeichnen.
 window.signaturePad = {
     attach: function (id) {
         var c = document.getElementById(id);
         if (!c || c.dataset.attached) return;
         c.dataset.attached = "1";
+
+        // Verhindert Browser-Gesten (Scroll/Zoom) auf dem Canvas (iOS 13+).
+        c.style.touchAction = "none";
+        c.style.msTouchAction = "none";
+
         var ctx = c.getContext("2d");
         ctx.lineWidth = 2.2;
         ctx.lineCap = "round";
@@ -19,7 +27,11 @@ window.signaturePad = {
                 y: (t.clientY - r.top) * (c.height / r.height)
             };
         }
-        function down(e) { drawing = true; last = pos(e); e.preventDefault(); }
+        function down(e) {
+            drawing = true;
+            last = pos(e);
+            if (e.cancelable) e.preventDefault();
+        }
         function move(e) {
             if (!drawing) return;
             var p = pos(e);
@@ -29,13 +41,28 @@ window.signaturePad = {
             ctx.stroke();
             last = p;
             c.dataset.dirty = "1";
-            e.preventDefault();
+            if (e.cancelable) e.preventDefault();
         }
         function up() { drawing = false; }
 
-        c.addEventListener("pointerdown", down);
-        c.addEventListener("pointermove", move);
-        window.addEventListener("pointerup", up);
+        // Maus (Desktop)
+        c.addEventListener("mousedown", down);
+        c.addEventListener("mousemove", move);
+        window.addEventListener("mouseup", up);
+
+        // Touch (Tablets, inkl. alte iPads). passive:false, damit preventDefault
+        // das Scrollen stoppt. Fallback fuer sehr alte Browser ohne Options-Objekt.
+        var opts = false;
+        try {
+            var probe = Object.defineProperty({}, "passive", { get: function () { opts = { passive: false }; } });
+            window.addEventListener("x-probe", null, probe);
+            window.removeEventListener("x-probe", null, probe);
+        } catch (e) { }
+
+        c.addEventListener("touchstart", down, opts);
+        c.addEventListener("touchmove", move, opts);
+        c.addEventListener("touchend", up);
+        c.addEventListener("touchcancel", up);
     },
     clear: function (id) {
         var c = document.getElementById(id);
