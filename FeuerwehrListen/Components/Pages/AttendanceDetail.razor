@@ -593,7 +593,7 @@
             var token = TokenService.CreateToken(path);
             var baseUri = Navigation.BaseUri.TrimEnd('/');
             var url = $"{baseUri}/api/export/attendance/{_list.Id}/pdf?token={Uri.EscapeDataString(token)}";
-            await JS.InvokeVoidAsync("open", url, "_blank");
+            await JS.InvokeVoidAsync("openPdf", url);
         }
         catch (Exception)
         {

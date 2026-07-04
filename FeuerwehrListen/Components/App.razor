@@ -44,6 +44,22 @@
             } catch(e) {}
         };
 
+        // PDF/Datei robust oeffnen - window.open('_blank') wird auf altem iOS-Safari
+        // aus async-Handlern vom Popup-Blocker geblockt. Ein Anker-Klick (gleiche Seite)
+        // navigiert bzw. laedt herunter und wird NICHT geblockt.
+        window.openPdf = function(url) {
+            try {
+                var a = document.createElement('a');
+                a.href = url;
+                a.rel = 'noopener';
+                document.body.appendChild(a);
+                a.click();
+                setTimeout(function() { try { document.body.removeChild(a); } catch(e) {} }, 100);
+            } catch(e) {
+                try { window.location.href = url; } catch(e2) {}
+            }
+        };
+
         // Custom Blazor start with reconnect handling
         (function() {
             var maxRetries = 30;

@@ -351,7 +351,7 @@
         var token = TokenService.CreateToken(path);
         var baseUri = Navigation.BaseUri.TrimEnd('/');
         var url = $"{baseUri}/api/export/members/pdf?token={Uri.EscapeDataString(token)}";
-        await JS.InvokeVoidAsync("open", url, "_blank");
+        await JS.InvokeVoidAsync("openPdf", url);
     }
 
     private async Task OnCsvFileSelected(InputFileChangeEventArgs e)

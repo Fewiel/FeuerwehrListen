@@ -373,7 +373,7 @@ public class PdfExportService
 
             DrawHeader(gfx, "EINSATZLISTE", titleFont, left, top, contentWidth);
             double yPosition = top + 36;
-            gfx.DrawString($"Einsatznummer: {list.OperationNumber ?? string.Empty}", font, XBrushes.Black, new XRect(left, yPosition, contentWidth, 16), XStringFormats.TopLeft); yPosition += 16;
+            gfx.DrawString($"Einsatznummer: {NextcloudService.StripLeadingYear(list.OperationNumber, list.AlertTime.Year)}", font, XBrushes.Black, new XRect(left, yPosition, contentWidth, 16), XStringFormats.TopLeft); yPosition += 16;
             gfx.DrawString($"Stichwort: {list.Keyword ?? string.Empty}", font, XBrushes.Black, new XRect(left, yPosition, contentWidth, 16), XStringFormats.TopLeft); yPosition += 16;
             
             // Personal Requirements Status
@@ -667,7 +667,7 @@ public class PdfExportService
             string CB(bool v) => v ? "[X]" : "[ ]";
 
             // --- Kopf ---
-            KeyVal("Einsatznummer", list.OperationNumber);
+            KeyVal("Einsatznummer", NextcloudService.StripLeadingYear(list.OperationNumber, list.AlertTime.Year));
             KeyVal("Alarmstichwort", list.Keyword);
             KeyVal("Alarmierungszeit", $"{list.AlertTime:dd.MM.yyyy · HH:mm} Uhr");
             KeyVal("Ort, Ortsteil", report.OrtOrtsteil);

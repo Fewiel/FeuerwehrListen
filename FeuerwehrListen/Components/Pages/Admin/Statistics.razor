@@ -771,7 +771,7 @@
             if (_filter.To.HasValue)
                 query += $"&to={Uri.EscapeDataString(_filter.To.Value.ToString("o"))}";
             var url = $"{baseUri}{path}{query}";
-            await JSRuntime.InvokeVoidAsync("open", url, "_blank");
+            await JSRuntime.InvokeVoidAsync("openPdf", url);
         }
         catch (Exception)
         {

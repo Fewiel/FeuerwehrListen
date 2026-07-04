@@ -54,12 +54,19 @@ public class NextcloudService
     {
         var basePath = BasePath.Trim('/');
         var yy = (year % 100).ToString("D2");
-        var num = (operationNumber ?? "").Trim();
-        // Falls die Nummer doch mit dem vollen Jahr beginnt (z. B. "2026-000999"),
-        // das führende Jahr entfernen -> Ordner ist immer "26<Nummer>", nie doppeltes Jahr.
-        var m = System.Text.RegularExpressions.Regex.Match(num, $@"^{year}\s*-?\s*(.+)$");
-        if (m.Success) num = m.Groups[1].Value.Trim();
+        var num = StripLeadingYear(operationNumber, year);
         return $"{basePath}/{year}/{yy}{num}";
+    }
+
+    /// <summary>
+    /// Entfernt ein führendes volles Jahr (optional mit „-") aus der Einsatznummer,
+    /// z. B. „2026-000999" -> „000999". Nummern ohne Jahr bleiben unverändert.
+    /// </summary>
+    public static string StripLeadingYear(string? operationNumber, int year)
+    {
+        var num = (operationNumber ?? "").Trim();
+        var m = System.Text.RegularExpressions.Regex.Match(num, $@"^{year}\s*-?\s*(.+)$");
+        return m.Success ? m.Groups[1].Value.Trim() : num;
     }
 
     /// <summary>Prüft die Verbindung (PROPFIND auf das Stammverzeichnis).</summary>
