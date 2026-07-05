@@ -714,16 +714,7 @@ public class PdfExportService
                 Line($"     {CB(report.FehlGutenGlauben)} im guten Glauben    {CB(report.FehlBoeswillig)} böswillig    {CB(report.FehlBrandmeldeanlage)} durch Brandmeldeanlage", font);
             }
 
-            // --- Lagebericht (immer auf eigener Seite) ---
-            ForceNewPage();
-            Section("Lagebericht / eingesetzte Mittel");
-            Wrapped(string.Empty, report.Lagebericht);
-            ForceNewPage();
-
-            // --- Kostenpflichtig ---
-            Section("Kostenpflichtiger Einsatz");
-            Line($"Kostenpflichtig: {report.KostenpflichtStatus}", font);
-
+            // --- Kostenpflichtiger Einsatz (auf Seite 1 direkt unter Einsatzart) ---
             static string PersonLine(string? name, string? anschrift, string? geb, string? kfz, string? fahrer)
             {
                 var parts = new List<string>();
@@ -734,11 +725,18 @@ public class PdfExportService
                 if (!string.IsNullOrWhiteSpace(fahrer)) parts.Add($"Fahrer {fahrer}");
                 return parts.Count > 0 ? string.Join("  |  ", parts) : "—";
             }
-
+            Section("Kostenpflichtiger Einsatz");
+            Line($"Kostenpflichtig: {report.KostenpflichtStatus}", font);
             Line("Verursacher / Fahrzeughalter:", headerBold);
             Wrapped("     ", PersonLine(report.VerursacherName, report.VerursacherAnschrift, report.VerursacherGeburtsdatum, report.VerursacherKfz, report.VerursacherFahrer));
             Line("Geschädigter / Fahrzeughalter:", headerBold);
             Wrapped("     ", PersonLine(report.GeschaedigterName, report.GeschaedigterAnschrift, report.GeschaedigterGeburtsdatum, report.GeschaedigterKfz, report.GeschaedigterFahrer));
+
+            // --- Lagebericht (immer auf eigener Seite) ---
+            ForceNewPage();
+            Section("Lagebericht / eingesetzte Mittel");
+            Wrapped(string.Empty, report.Lagebericht);
+            ForceNewPage();
 
             // --- Dienststellen ---
             Section("Dienststellen / Funktionen vor Ort");
@@ -838,9 +836,9 @@ public class PdfExportService
             DrawSignature(left + sigW + sigGap, y, sigW, "Unterschrift Einsatzleiter", report.UnterschriftEinsatzleiter, report.UnterschriftEinsatzleiterImage);
             y += 88;
 
-            // --- Eingesetzte Mittel: eigene letzte Seite, IuK-Unterschrift darunter ---
+            // --- Mittel / Verbrauchsmaterialien: eigene letzte Seite, IuK-Unterschrift darunter ---
             ForceNewPage();
-            Section("Eingesetzte Mittel");
+            Section("Mittel / Verbrauchsmaterialien");
             if (mittel.Count == 0)
             {
                 Line("Keine erfasst.", font);
