@@ -738,6 +738,80 @@ app.MapGet("/client-api/operation/{id:int}", async (int id, OperationListReposit
     });
 });
 
+// Einsatzbericht: laden (angemeldet)
+app.MapGet("/client-api/operation/{id:int}/report", async (int id, OperationListRepository opRepo, OperationReportRepository repo, OperationEntryRepository entryRepo, OperationEntryFunctionRepository efRepo, VehicleRepository vRepo, NextcloudService nc) =>
+{
+    var list = await opRepo.GetByIdAsync(id);
+    if (list == null) return Results.NotFound();
+    var report = await repo.GetOrCreateAsync(id);
+    if (string.IsNullOrWhiteSpace(report.Strasse) && !string.IsNullOrWhiteSpace(list.Address)) report.Strasse = list.Address;
+    var entries = await entryRepo.GetByListIdAsync(id);
+    var funcMap = await efRepo.GetFunctionsForEntriesAsync(entries.Select(e => e.Id).ToList());
+    var extForces = await repo.GetExternalForcesAsync(report.Id);
+    var mittel = await repo.GetMittelAsync(report.Id);
+    var vehicles = (await vRepo.GetActiveAsync()).Where(v => !StrengthCalc.IsNoVehicle(v.Name)).ToList();
+    var strengths = await repo.GetVehicleStrengthsAsync(report.Id);
+    var gesamt = StrengthCalc.CombinedTotal(entries, funcMap, strengths.Select(v => (v.VehicleName, v.Staerke)), extForces.Select(e => e.Staerke));
+    return Results.Json(new
+    {
+        report,
+        externalForces = extForces.Select(f => new { id = f.Id, rufname = f.Rufname, staerke = f.Staerke }),
+        mittel = mittel.Select(m => new { name = m.Name, anzahl = m.Anzahl, dauer = m.Dauer, isCustom = m.IsCustom }),
+        vehicleStrengths = vehicles.Select(v => new { vehicleName = v.Name, staerke = strengths.FirstOrDefault(s => s.VehicleName == v.Name)?.Staerke }),
+        entries = entries.Where(e => !StrengthCalc.IsNoVehicle(e.Vehicle)).Select(e => new { name = e.NameOrId, vehicle = e.Vehicle, functions = funcMap.TryGetValue(e.Id, out var fl) ? fl.Select(f => f.Name).ToArray() : new[] { e.Function.ToString() }, breathing = e.WithBreathingApparatus }),
+        gesamtStaerke = gesamt,
+        nextcloud = new { configured = nc.IsConfigured, folder = nc.IsConfigured ? nc.BuildOperationFolder(list.AlertTime.Year, list.OperationNumber) : "" }
+    });
+}).RequireAuthorization().DisableAntiforgery();
+
+// Einsatzbericht: speichern (Report + externe Kräfte + Mittel + Fahrzeug-Stärken)
+app.MapPost("/client-api/operation/{id:int}/report", async (int id, OperationReportRepository repo, ReportSaveRequest req) =>
+{
+    var existing = await repo.GetOrCreateAsync(id);
+    var r = req.Report;
+    r.Id = existing.Id; r.OperationListId = id; r.CreatedAt = existing.CreatedAt; r.UpdatedAt = DateTime.Now;
+    await repo.UpdateAsync(r);
+
+    var oldForces = await repo.GetExternalForcesAsync(existing.Id);
+    foreach (var f in oldForces) await repo.DeleteExternalForceAsync(f.Id);
+    foreach (var f in req.ExternalForces ?? new())
+        await repo.InsertExternalForceAsync(new OperationReportExternalForce { OperationReportId = existing.Id, Rufname = f.Rufname, Staerke = f.Staerke });
+
+    await repo.ReplaceMittelAsync(existing.Id, (req.Mittel ?? new()).Select(m => new OperationReportMittel { Name = m.Name, Anzahl = m.Anzahl, Dauer = m.Dauer, IsCustom = m.IsCustom }));
+    await repo.ReplaceVehicleStrengthsAsync(existing.Id, (req.VehicleStrengths ?? new()).Select(v => new OperationReportVehicleStrength { VehicleName = v.VehicleName, Staerke = v.Staerke }));
+    return Results.Ok();
+}).RequireAuthorization().DisableAntiforgery();
+
+// Einsatzbericht: Bildanzahl (Nextcloud)
+app.MapGet("/client-api/operation/{id:int}/report/image-count", async (int id, OperationListRepository opRepo, NextcloudService nc) =>
+{
+    var list = await opRepo.GetByIdAsync(id);
+    if (list == null || !nc.IsConfigured) return Results.Json(new { count = 0 });
+    var folder = nc.BuildOperationFolder(list.AlertTime.Year, list.OperationNumber);
+    var count = await nc.CountFilesAsync(folder);
+    return Results.Json(new { count = count >= 0 ? count : 0 });
+}).RequireAuthorization().DisableAntiforgery();
+
+// Einsatzbericht: Bilder hochladen (Nextcloud)
+app.MapPost("/client-api/operation/{id:int}/report/images", async (int id, HttpRequest http, OperationListRepository opRepo, NextcloudService nc) =>
+{
+    var list = await opRepo.GetByIdAsync(id);
+    if (list == null || !nc.IsConfigured) return Results.BadRequest();
+    var folder = nc.BuildOperationFolder(list.AlertTime.Year, list.OperationNumber);
+    var existing = await nc.GetExistingFileNamesAsync(folder);
+    var form = await http.ReadFormAsync();
+    int ok = 0, skipped = 0; var errors = new List<string>();
+    foreach (var f in form.Files)
+    {
+        var name = string.Join("_", f.FileName.Split(Path.GetInvalidFileNameChars()));
+        if (existing.Contains(name)) { skipped++; continue; }
+        try { using var ms = new MemoryStream(); await f.CopyToAsync(ms); await nc.UploadAsync(folder, name, ms.ToArray(), f.ContentType); ok++; }
+        catch (Exception ex) { errors.Add($"{f.FileName}: {ex.Message}"); }
+    }
+    var count = await nc.CountFilesAsync(folder);
+    return Results.Json(new { ok, skipped, errors, count = count >= 0 ? count : ok });
+}).RequireAuthorization().DisableAntiforgery();
+
 // Einsatz-Eintrag loeschen (Bearbeiten-Seite, angemeldet)
 app.MapDelete("/client-api/operation/{id:int}/entry/{entryId:int}", async (int entryId, OperationEntryRepository repo) =>
 { await repo.DeleteAsync(entryId); return Results.Ok(); }).RequireAuthorization().DisableAntiforgery();
@@ -1034,6 +1108,10 @@ public record CreateOperationRequest(string OperationNumber, string Keyword, Dat
 public record AttendanceAddRequest(string? Code, int? MemberId, int? TargetListId);
 public record OperationResolveRequest(string? Code);
 public record OperationAddRequest(int MemberId, int? VehicleId, bool NoVehicle, bool BreathingApparatus, List<int>? FunctionIds);
+public record ReportSaveRequest(OperationReport Report, List<ExtForceReq>? ExternalForces, List<MittelReq>? Mittel, List<VsReq>? VehicleStrengths);
+public record ExtForceReq(string? Rufname, string? Staerke);
+public record MittelReq(string? Name, int Anzahl, string? Dauer, bool IsCustom);
+public record VsReq(string? VehicleName, string? Staerke);
 public record FswRegisterRequest(int RequirementId, string? Code, int? MemberId);
 public record FswReqItem(int FunctionDefId, int Amount, int? VehicleId);
 public record FswCreateRequest(string Name, string Location, DateTime EventTime, List<FswReqItem>? Requirements);

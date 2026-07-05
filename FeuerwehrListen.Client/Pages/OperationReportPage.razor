@@ -1,0 +1,386 @@
+@page "/operation/{OperationListId:int}/bericht"
+@rendermode InteractiveWebAssembly
+@layout MainLayout
+@using System.Net.Http
+@using System.Net.Http.Json
+@using System.Net.Http.Headers
+@using Microsoft.AspNetCore.Components.Forms
+@using FeuerwehrListen.Client.Models
+@inject HttpClient Http
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<PageTitle>Einsatzbericht</PageTitle>
+
+<AuthGuard>
+    <div class="container mt-4 mb-5">
+        @if (_b is null) { <div class="d-flex justify-content-center py-5"><div class="spinner-border" role="status"></div></div> }
+        else
+        {
+            var r = _b.Report;
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                <h1 class="mb-0">Einsatzbericht</h1>
+                <button class="btn btn-outline-danger" @onclick="ExportPdf"><i class="bi bi-file-earmark-pdf me-1"></i>PDF</button>
+            </div>
+
+            <div class="card mb-4"><div class="card-header"><h5 class="mb-0">Allgemein</h5></div><div class="card-body row g-3">
+                <div class="col-md-4"><label class="form-label">Ort/Ortsteil</label><input class="form-control" @bind="r.OrtOrtsteil" /></div>
+                <div class="col-md-4"><label class="form-label">Straße</label><input class="form-control" @bind="r.Strasse" /></div>
+                <div class="col-md-4"><label class="form-label">Einsatzleiter</label><input class="form-control" @bind="r.Einsatzleiter" /></div>
+            </div></div>
+
+            <div class="card mb-4"><div class="card-header"><h5 class="mb-0">Einsatzart</h5></div><div class="card-body">
+                <div class="btn-group mb-3 flex-wrap" role="group">
+                    <button class="btn @(Kat() == 0 ? "btn-secondary" : "btn-outline-secondary")" @onclick="() => SetKat(0)">Keine</button>
+                    <button class="btn @(Kat() == 1 ? "btn-danger" : "btn-outline-danger")" @onclick="() => SetKat(1)">Brand</button>
+                    <button class="btn @(Kat() == 2 ? "btn-primary" : "btn-outline-primary")" @onclick="() => SetKat(2)">TH/ABC/Öl</button>
+                    <button class="btn @(Kat() == 3 ? "btn-warning" : "btn-outline-warning")" @onclick="() => SetKat(3)">Fehlalarm</button>
+                </div>
+                @if (r.IsBrandeinsatz)
+                {
+                    <div class="row g-1 mb-2">
+                        @Chk(() => r.BrandKleinbrandA, v => r.BrandKleinbrandA = v, "Kleinbrand A")
+                        @Chk(() => r.BrandKleinbrandB, v => r.BrandKleinbrandB = v, "Kleinbrand B")
+                        @Chk(() => r.BrandMittelbrand, v => r.BrandMittelbrand = v, "Mittelbrand")
+                        @Chk(() => r.BrandGrossbrand, v => r.BrandGrossbrand = v, "Großbrand")
+                    </div>
+                    <div class="row g-2">
+                        <div class="col-md-4"><label class="form-label">Art des Brandobjektes</label><input class="form-control" @bind="r.BrandArtObjekt" /></div>
+                        <div class="col-md-4"><label class="form-label">Ausbruchstelle</label><input class="form-control" @bind="r.BrandAusbruchstelle" /></div>
+                        <div class="col-md-4"><label class="form-label">Brandursache</label><input class="form-control" @bind="r.BrandUrsache" /></div>
+                    </div>
+                }
+                else if (r.IsThAbcOel)
+                {
+                    <div class="row g-1">
+                        @Chk(() => r.ThVuMitEingekl, v => r.ThVuMitEingekl = v, "VU mit eingekl. Person")
+                        @Chk(() => r.ThVuOhneEingekl, v => r.ThVuOhneEingekl = v, "VU ohne eingekl. Person")
+                        @Chk(() => r.ThZugunfall, v => r.ThZugunfall = v, "Zugunfall")
+                        @Chk(() => r.ThFlugzeugunfall, v => r.ThFlugzeugunfall = v, "Flugzeugunfall")
+                        @Chk(() => r.ThExplosion, v => r.ThExplosion = v, "Explosion")
+                        @Chk(() => r.ThGasgeruch, v => r.ThGasgeruch = v, "Gasgeruch")
+                        @Chk(() => r.ThSonstigerAbc, v => r.ThSonstigerAbc = v, "Sonstiger ABC-Einsatz")
+                        @Chk(() => r.ThWasserEisrettung, v => r.ThWasserEisrettung = v, "Wasser-/Eisrettung")
+                        @Chk(() => r.ThMenschenNotlage, v => r.ThMenschenNotlage = v, "Menschen in Notlage")
+                        @Chk(() => r.ThTiereNotlage, v => r.ThTiereNotlage = v, "Tiere in Notlage")
+                        @Chk(() => r.ThVerkehrshindernis, v => r.ThVerkehrshindernis = v, "Verkehrshindernis")
+                        @Chk(() => r.ThWasserSturmschaden, v => r.ThWasserSturmschaden = v, "Wasser-/Sturmschaden")
+                        @Chk(() => r.ThGefahrFallenderGegenstand, v => r.ThGefahrFallenderGegenstand = v, "Fallender Gegenstand")
+                        @Chk(() => r.ThAuslaufendeGuelle, v => r.ThAuslaufendeGuelle = v, "Auslaufende Gülle")
+                        @Chk(() => r.ThOeleinsatz, v => r.ThOeleinsatz = v, "Öleinsatz")
+                        @Chk(() => r.ThSonstigeHilfeleistung, v => r.ThSonstigeHilfeleistung = v, "Sonstige Hilfeleistung")
+                    </div>
+                }
+                else if (r.IsFehlalarm)
+                {
+                    <div class="row g-1">
+                        @Chk(() => r.FehlGutenGlauben, v => r.FehlGutenGlauben = v, "Im guten Glauben (blinder Alarm)")
+                        @Chk(() => r.FehlBoeswillig, v => r.FehlBoeswillig = v, "Böswillige Alarmierung")
+                        @Chk(() => r.FehlBrandmeldeanlage, v => r.FehlBrandmeldeanlage = v, "Durch Brandmeldeanlage")
+                    </div>
+                }
+            </div></div>
+
+            <div class="card mb-4"><div class="card-header"><h5 class="mb-0">Lagebericht / Kostenpflicht</h5></div><div class="card-body">
+                <textarea class="form-control mb-3" rows="4" @bind="r.Lagebericht"></textarea>
+                <label class="form-label d-block">Kostenpflichtiger Einsatz?</label>
+                <div class="btn-group mb-3" role="group">
+                    <button class="btn @(r.KostenpflichtStatus == 1 ? "btn-success" : "btn-outline-success")" @onclick="() => r.KostenpflichtStatus = 1">Ja</button>
+                    <button class="btn @(r.KostenpflichtStatus == 2 ? "btn-secondary" : "btn-outline-secondary")" @onclick="() => r.KostenpflichtStatus = 2">Nein</button>
+                    <button class="btn @(r.KostenpflichtStatus == 0 ? "btn-warning" : "btn-outline-warning")" @onclick="() => r.KostenpflichtStatus = 0">Unbekannt</button>
+                </div>
+                <div class="row g-3">
+                    <div class="col-md-6"><h6>Verursacher</h6>
+                        <input class="form-control mb-2" placeholder="Name, Vorname" @bind="r.VerursacherName" />
+                        <input class="form-control mb-2" placeholder="Anschrift" @bind="r.VerursacherAnschrift" />
+                        <input class="form-control mb-2" placeholder="Geburtsdatum" @bind="r.VerursacherGeburtsdatum" />
+                        <input class="form-control mb-2" placeholder="Kfz-Kennzeichen" @bind="r.VerursacherKfz" />
+                        <input class="form-control" placeholder="Name des Fahrers" @bind="r.VerursacherFahrer" />
+                    </div>
+                    <div class="col-md-6"><h6>Geschädigter</h6>
+                        <input class="form-control mb-2" placeholder="Name, Vorname" @bind="r.GeschaedigterName" />
+                        <input class="form-control mb-2" placeholder="Anschrift" @bind="r.GeschaedigterAnschrift" />
+                        <input class="form-control mb-2" placeholder="Geburtsdatum" @bind="r.GeschaedigterGeburtsdatum" />
+                        <input class="form-control mb-2" placeholder="Kfz-Kennzeichen" @bind="r.GeschaedigterKfz" />
+                        <input class="form-control" placeholder="Name des Fahrers" @bind="r.GeschaedigterFahrer" />
+                    </div>
+                </div>
+            </div></div>
+
+            <div class="card mb-4"><div class="card-header"><h5 class="mb-0">Dienststellen / Kräfte vor Ort</h5></div><div class="card-body">
+                <div class="p-3 rounded mb-3" style="background:#F5F6F8">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <strong>Externe Kräfte</strong>
+                        <button class="btn btn-sm btn-outline-primary" @onclick="() => _showExtForm = !_showExtForm">Erfassen</button>
+                    </div>
+                    @if (_showExtForm)
+                    {
+                        <div class="row g-2 align-items-end mb-2">
+                            <div class="col-md-6"><input class="form-control" placeholder="Rufname" @bind="_newRuf" /></div>
+                            <div class="col-md-4"><input class="form-control" placeholder="Stärke z.B. 1/8" @bind="_newStk" /></div>
+                            <div class="col-md-2"><button class="btn btn-success w-100" @onclick="AddExt">Eintragen</button></div>
+                        </div>
+                    }
+                    @if (_b.ExternalForces.Count > 0)
+                    {
+                        <table class="table table-sm mb-0"><tbody>
+                            @foreach (var f in _b.ExternalForces)
+                            {
+                                <tr>
+                                    <td><input class="form-control form-control-sm" @bind="f.Rufname" /></td>
+                                    <td style="width:30%"><input class="form-control form-control-sm" @bind="f.Staerke" /></td>
+                                    <td style="width:1%"><button class="btn btn-sm btn-outline-danger" @onclick="() => _b.ExternalForces.Remove(f)"><i class="bi bi-trash"></i></button></td>
+                                </tr>
+                            }
+                        </tbody></table>
+                    }
+                    else { <p class="text-muted small mb-0">Noch keine externen Kräfte.</p> }
+                </div>
+                <div class="mb-3"><label class="form-label">weitere Fw / LZ</label><textarea class="form-control" rows="2" @bind="r.WeitereFwLz"></textarea></div>
+                <div class="row g-3 mb-3">
+                    <div class="col-6 col-md-3"><label class="form-label">Anzahl KTW</label><input type="number" min="0" class="form-control" @bind="r.AnzahlKtw" /></div>
+                    <div class="col-6 col-md-3"><label class="form-label">Anzahl RTW</label><input type="number" min="0" class="form-control" @bind="r.AnzahlRtw" /></div>
+                    <div class="col-6 col-md-3"><label class="form-label">Anzahl NA</label><input type="number" min="0" class="form-control" @bind="r.AnzahlNa" /></div>
+                    <div class="col-6 col-md-3"><label class="form-label">Anzahl RTH</label><input type="number" min="0" class="form-control" @bind="r.AnzahlRth" /></div>
+                </div>
+                <div class="row g-1">
+                    @Chk(() => r.OrgLRd, v => r.OrgLRd = v, "OrgL RD")
+                    @Chk(() => r.Lna, v => r.Lna = v, "LNA")
+                    @Chk(() => r.DrkErsthelfer, v => r.DrkErsthelfer = v, "DRK Ersthelfer")
+                    @Chk(() => r.PolizeiKripo, v => r.PolizeiKripo = v, "Polizei/Kripo")
+                    @Chk(() => r.StadtBillerbeck, v => r.StadtBillerbeck = v, "Stadt Billerbeck")
+                    @Chk(() => r.Kbm, v => r.Kbm = v, "KBM")
+                    @Chk(() => r.Schornsteinfeger, v => r.Schornsteinfeger = v, "Schornsteinfeger")
+                    @Chk(() => r.UntereWasserbehoerde, v => r.UntereWasserbehoerde = v, "Untere Wasserbehörde")
+                    @Chk(() => r.Veterinaer, v => r.Veterinaer = v, "Veterinär")
+                    @Chk(() => r.Thw, v => r.Thw = v, "THW")
+                    @Chk(() => r.Objektbetreiber, v => r.Objektbetreiber = v, "Objektbetreiber")
+                </div>
+                <div class="mt-3"><label class="form-label">Sonst. Einheiten</label><input class="form-control" @bind="r.SonstEinheiten" /></div>
+            </div></div>
+
+            <div class="card mb-4"><div class="card-header d-flex justify-content-between align-items-center"><h5 class="mb-0">Eingesetzte Mittel (@_b.Mittel.Count)</h5><button class="btn btn-sm btn-outline-primary" @onclick="OpenMittel">Auswählen</button></div><div class="card-body">
+                @if (_b.Mittel.Count == 0) { <p class="text-muted mb-0">Noch keine Mittel.</p> }
+                else { <div class="d-flex flex-wrap gap-2">@foreach (var m in _b.Mittel) { <span class="badge rounded-pill bg-primary">@m.Name@(m.Anzahl > 0 ? $" · {m.Anzahl}" : "")@(string.IsNullOrWhiteSpace(m.Dauer) ? "" : $" · {m.Dauer}")</span> }</div> }
+            </div></div>
+
+            <div class="card mb-4"><div class="card-header"><h5 class="mb-0">Personenschäden &amp; Schadenshöhe</h5></div><div class="card-body">
+                <label class="form-label d-block">Menschenrettung durchgeführt?</label>
+                <div class="btn-group mb-3" role="group">
+                    <button class="btn @(r.HatMenschenrettung ? "btn-success" : "btn-outline-success")" @onclick="() => r.HatMenschenrettung = true">Ja</button>
+                    <button class="btn @(!r.HatMenschenrettung ? "btn-secondary" : "btn-outline-secondary")" @onclick="() => r.HatMenschenrettung = false">Nein</button>
+                </div>
+                @if (r.HatMenschenrettung)
+                {
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6"><label class="form-label">Dauer</label><input class="form-control" @bind="r.MenschenrettungDauer" /></div>
+                        <div class="col-md-6"><label class="form-label">Personalaufwand</label><input class="form-control" @bind="r.MenschenrettungPersonalaufwand" /></div>
+                    </div>
+                }
+                <div class="row g-3">
+                    <div class="col-6 col-md-4"><label class="form-label">Verletzte</label><input type="number" min="0" class="form-control" @bind="r.AnzahlVerletzte" /></div>
+                    <div class="col-6 col-md-4"><label class="form-label">Tote</label><input type="number" min="0" class="form-control" @bind="r.AnzahlTote" /></div>
+                    <div class="col-6 col-md-4"><label class="form-label">Verletzte FM (SB)</label><input type="number" min="0" class="form-control" @bind="r.AnzahlVerletzteFm" /></div>
+                    <div class="col-md-6"><label class="form-label">Sachschaden (€)</label><input class="form-control" @bind="r.SchadenSachschaden" /></div>
+                    <div class="col-md-6"><label class="form-label">Erhaltene Werte (€)</label><input class="form-control" @bind="r.SchadenErhalteneWerte" /></div>
+                </div>
+            </div></div>
+
+            <div class="card mb-4"><div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <h5 class="mb-0">Eingesetzte Kräfte · Eigene (@_b.Entries.Count)</h5>
+                <div class="d-flex align-items-center gap-2"><span class="badge bg-danger">Stärke @_b.GesamtStaerke</span><button class="btn btn-sm btn-outline-primary" @onclick="() => _showVsModal = true">Stärken je Fahrzeug</button></div>
+            </div><div class="card-body">
+                @if (_b.VehicleStrengths.Any(v => !string.IsNullOrWhiteSpace(v.Staerke))) { <div class="mb-3 d-flex flex-wrap gap-2">@foreach (var vs in _b.VehicleStrengths.Where(v => !string.IsNullOrWhiteSpace(v.Staerke))) { <span class="badge rounded-pill bg-secondary">@vs.VehicleName: @vs.Staerke</span> }</div> }
+                @if (_b.Entries.Count == 0) { <p class="text-muted mb-0">Keine Kräfte mit Fahrzeug.</p> }
+                else
+                {
+                    <div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th>#</th><th>Name/ID</th><th>Fahrzeug</th><th>Funktionen</th><th>AGT</th></tr></thead><tbody>
+                        @{ var i = 1; }
+                        @foreach (var e in _b.Entries) { <tr><td>@(i++)</td><td>@e.Name</td><td>@e.Vehicle</td><td>@string.Join(", ", e.Functions)</td><td>@(e.Breathing ? "Ja" : "Nein")</td></tr> }
+                    </tbody></table></div>
+                }
+            </div></div>
+
+            @if (_b.Nextcloud.Configured)
+            {
+                <div class="card mb-4"><div class="card-header d-flex justify-content-between align-items-center"><h5 class="mb-0">Einsatzbilder</h5>
+                    @if (_ncCount > 0) { <span class="badge bg-success">@_ncCount Bild(er)</span> } else { <span class="badge bg-warning text-dark">Noch keine</span> }
+                </div><div class="card-body">
+                    <p class="text-muted small">Upload nach <code>@_b.Nextcloud.Folder</code>.</p>
+                    <InputFile OnChange="OnImages" multiple accept="image/*" class="form-control mb-2" />
+                    @if (_images.Count > 0) { <button class="btn btn-primary" @onclick="Upload" disabled="@_uploading">@(_uploading ? "Lädt…" : $"{_images.Count} Bild(er) hochladen")</button> }
+                    @if (_ncMsg is not null) { <div class="mt-2 @(_ncErr ? "text-danger" : "text-success")">@_ncMsg</div> }
+                </div></div>
+            }
+
+            <div class="card mb-4"><div class="card-header"><h5 class="mb-0">Unterschriften</h5></div><div class="card-body row g-4">
+                <div class="col-md-6"><label class="form-label">Unterschrift IuK</label><SignaturePad @ref="_sigIuk" Initial="@r.UnterschriftIukImage" /><input class="form-control mt-2" placeholder="Name (Druckbuchstaben)" @bind="r.UnterschriftIuk" /></div>
+                <div class="col-md-6"><label class="form-label">Unterschrift Einsatzleiter</label><SignaturePad @ref="_sigEl" Initial="@r.UnterschriftEinsatzleiterImage" /><input class="form-control mt-2" placeholder="Name (Druckbuchstaben)" @bind="r.UnterschriftEinsatzleiter" /></div>
+            </div></div>
+
+            <div class="d-flex align-items-center gap-2 flex-wrap mb-5">
+                <button class="btn btn-primary" @onclick="Save" disabled="@_saving">@(_saving ? "Speichert…" : "Bericht speichern")</button>
+                <a class="btn btn-outline-secondary" href="/operation/@OperationListId">Zurück zum Einsatz</a>
+                @if (_savedMsg is not null) { <span class="@(_savedErr ? "text-danger" : "text-success")">@_savedMsg</span> }
+            </div>
+
+            @if (_showMittel)
+            {
+                <div class="modal fade show d-block" style="background:rgba(0,0,0,.5)"><div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable"><div class="modal-content">
+                    <div class="modal-header"><h5 class="modal-title">Mittel auswählen</h5><button class="btn-close" @onclick="() => _showMittel = false"></button></div>
+                    <div class="modal-body">
+                        @foreach (var it in _mittelEdit)
+                        {
+                            <div class="d-flex align-items-center gap-2 py-2 border-bottom">
+                                <input class="form-check-input mt-0" type="checkbox" @bind="it.Active" />
+                                <label class="flex-grow-1 mb-0">@it.Name</label>
+                                <input type="number" min="0" class="form-control form-control-sm" style="width:75px" @bind="it.Anzahl" disabled="@(!it.Active)" />
+                                <input class="form-control form-control-sm" style="width:110px" placeholder="Dauer" @bind="it.Dauer" disabled="@(!it.Active)" />
+                            </div>
+                        }
+                        <h6 class="mt-3">Sonstiges</h6>
+                        @for (var k = 0; k < _customMittel.Count; k++) { var ix = k;
+                            <div class="d-flex align-items-center gap-2 mb-2">
+                                <input class="form-control form-control-sm" placeholder="Bezeichnung" @bind="_customMittel[ix].Name" />
+                                <input type="number" min="0" class="form-control form-control-sm" style="width:75px" @bind="_customMittel[ix].Anzahl" />
+                                <input class="form-control form-control-sm" style="width:110px" placeholder="Dauer" @bind="_customMittel[ix].Dauer" />
+                                <button class="btn btn-sm btn-outline-danger" @onclick="() => _customMittel.RemoveAt(ix)"><i class="bi bi-trash"></i></button>
+                            </div>
+                        }
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => _customMittel.Add(new() { Active = true })">Sonstiges hinzufügen</button>
+                    </div>
+                    <div class="modal-footer"><button class="btn btn-secondary" @onclick="() => _showMittel = false">Abbrechen</button><button class="btn btn-primary" @onclick="ApplyMittel">Übernehmen</button></div>
+                </div></div></div>
+            }
+
+            @if (_showVsModal)
+            {
+                <div class="modal fade show d-block" style="background:rgba(0,0,0,.5)"><div class="modal-dialog modal-dialog-centered modal-dialog-scrollable"><div class="modal-content">
+                    <div class="modal-header"><h5 class="modal-title">Stärken je Fahrzeug</h5><button class="btn-close" @onclick="() => _showVsModal = false"></button></div>
+                    <div class="modal-body">
+                        <p class="text-muted small">Format <code>Führer/Mannschaft</code> (z.B. 1/8).</p>
+                        @if (_b.VehicleStrengths.Count == 0) { <p class="text-muted mb-0">Keine Fahrzeuge.</p> }
+                        else { @foreach (var vs in _b.VehicleStrengths) { <div class="d-flex align-items-center gap-3 py-2 border-bottom"><label class="flex-grow-1 mb-0 fw-semibold">@vs.VehicleName</label><input class="form-control form-control-sm" style="width:120px" placeholder="1/8" @bind="vs.Staerke" /></div> } }
+                    </div>
+                    <div class="modal-footer"><button class="btn btn-primary" @onclick="() => _showVsModal = false">Fertig</button></div>
+                </div></div></div>
+            }
+        }
+    </div>
+</AuthGuard>
+
+@code {
+    [Parameter] public int OperationListId { get; set; }
+    private ReportBundle? _b;
+    private SignaturePad? _sigIuk, _sigEl;
+    private bool _saving; private string? _savedMsg; private bool _savedErr;
+
+    private bool _showExtForm; private string? _newRuf, _newStk;
+
+    private static readonly string[] Predefined = {
+        "Lastkraftwagen bis 7,5 t","Lastkraftwagen über 7,5 t","Tragkraftspritze","Schmutzwasserpumpe","Notstromaggregat","Motorsäge",
+        "Industriesauger","Schaumwasserwerfer","Atemschutzgerät","Rettungsschere einschl. Aggregat","Spreizer einschl. Aggregat",
+        "Be- und Entlüftungsgerät","Wärmebildkamera","Löschmittel (Liter)","Ölbindemittel (Sack/Kanister)","Mess- und Prüfröhrchen (Stück)"
+    };
+    private bool _showMittel; private List<MEdit> _mittelEdit = new(); private List<MEdit> _customMittel = new();
+    private bool _showVsModal;
+
+    private int _ncCount;
+    private List<IBrowserFile> _images = new(); private bool _uploading, _ncErr; private string? _ncMsg;
+
+    protected override async Task OnParametersSetAsync() => await Load();
+    private async Task Load() { try { _b = await Http.GetFromJsonAsync<ReportBundle>($"client-api/operation/{OperationListId}/report"); } catch { _b = null; } }
+
+    protected override async Task OnAfterRenderAsync(bool first)
+    {
+        if (first && _b?.Nextcloud.Configured == true)
+        {
+            try { var c = await Http.GetFromJsonAsync<CountDto>($"client-api/operation/{OperationListId}/report/image-count"); _ncCount = c?.Count ?? 0; StateHasChanged(); } catch { }
+        }
+    }
+
+    private int Kat() => _b!.Report.IsBrandeinsatz ? 1 : _b.Report.IsThAbcOel ? 2 : _b.Report.IsFehlalarm ? 3 : 0;
+    private void SetKat(int k) { var r = _b!.Report; r.IsBrandeinsatz = k == 1; r.IsThAbcOel = k == 2; r.IsFehlalarm = k == 3; }
+
+    private RenderFragment Chk(Func<bool> get, Action<bool> set, string label) =>@<div class="col-6 col-md-4"><label class="rb-check"><input class="form-check-input" type="checkbox" checked="@get()" @onchange="e => set((bool)e.Value!)" /><span>@label</span></label></div>;
+
+    private void AddExt()
+    {
+        if (string.IsNullOrWhiteSpace(_newRuf) && string.IsNullOrWhiteSpace(_newStk)) return;
+        _b!.ExternalForces.Add(new ExtForce { Rufname = _newRuf?.Trim(), Staerke = _newStk?.Trim() });
+        _newRuf = ""; _newStk = "";
+    }
+
+    private void OpenMittel()
+    {
+        _mittelEdit = Predefined.Select(n => { var ex = _b!.Mittel.FirstOrDefault(m => !m.IsCustom && m.Name == n); return new MEdit { Name = n, Active = ex != null, Anzahl = ex?.Anzahl ?? 0, Dauer = ex?.Dauer }; }).ToList();
+        _customMittel = _b!.Mittel.Where(m => m.IsCustom).Select(m => new MEdit { Name = m.Name ?? "", Active = true, Anzahl = m.Anzahl, Dauer = m.Dauer }).ToList();
+        _showMittel = true;
+    }
+    private void ApplyMittel()
+    {
+        var res = new List<Mittel>();
+        foreach (var e in _mittelEdit.Where(e => e.Active)) res.Add(new Mittel { Name = e.Name, Anzahl = e.Anzahl, Dauer = e.Dauer?.Trim(), IsCustom = false });
+        foreach (var c in _customMittel.Where(c => !string.IsNullOrWhiteSpace(c.Name))) res.Add(new Mittel { Name = c.Name!.Trim(), Anzahl = c.Anzahl, Dauer = c.Dauer?.Trim(), IsCustom = true });
+        _b!.Mittel.Clear(); _b.Mittel.AddRange(res);
+        _showMittel = false;
+    }
+
+    private void OnImages(InputFileChangeEventArgs e) { _images = e.GetMultipleFiles(50).ToList(); _ncMsg = null; _ncErr = false; }
+    private async Task Upload()
+    {
+        if (_images.Count == 0) return;
+        _uploading = true; _ncMsg = null; _ncErr = false;
+        try
+        {
+            using var content = new MultipartFormDataContent();
+            foreach (var f in _images)
+            {
+                var sc = new StreamContent(f.OpenReadStream(20 * 1024 * 1024));
+                sc.Headers.ContentType = new MediaTypeHeaderValue(string.IsNullOrEmpty(f.ContentType) ? "application/octet-stream" : f.ContentType);
+                content.Add(sc, "files", f.Name);
+            }
+            var resp = await Http.PostAsync($"client-api/operation/{OperationListId}/report/images", content);
+            var r = await resp.Content.ReadFromJsonAsync<UploadResult>();
+            _ncCount = r?.Count ?? _ncCount;
+            _ncMsg = $"{r?.Ok} hochgeladen" + (r?.Skipped > 0 ? $", {r.Skipped} übersprungen" : "") + (r?.Errors?.Count > 0 ? $", {r.Errors.Count} fehlgeschlagen" : "") + ".";
+            _ncErr = r?.Errors?.Count > 0;
+            if (!_ncErr) _images = new();
+        }
+        catch { _ncErr = true; _ncMsg = "Upload fehlgeschlagen."; }
+        finally { _uploading = false; }
+    }
+
+    private async Task Save()
+    {
+        if (_b is null) return;
+        _saving = true; _savedMsg = null;
+        try
+        {
+            if (_sigIuk != null) _b.Report.UnterschriftIukImage = await _sigIuk.GetDataUrlAsync();
+            if (_sigEl != null) _b.Report.UnterschriftEinsatzleiterImage = await _sigEl.GetDataUrlAsync();
+            var resp = await Http.PostAsJsonAsync($"client-api/operation/{OperationListId}/report",
+                new { Report = _b.Report, ExternalForces = _b.ExternalForces, Mittel = _b.Mittel, VehicleStrengths = _b.VehicleStrengths });
+            if (resp.IsSuccessStatusCode) { _savedErr = false; _savedMsg = "Gespeichert"; await Load(); }
+            else { _savedErr = true; _savedMsg = "Fehler beim Speichern"; }
+        }
+        catch { _savedErr = true; _savedMsg = "Fehler beim Speichern"; }
+        finally { _saving = false; }
+    }
+
+    private async Task ExportPdf()
+    {
+        try
+        {
+            var path = $"/api/export/operation-report/{OperationListId}/pdf";
+            var token = await Http.GetStringAsync($"token?path={Uri.EscapeDataString(path)}");
+            var url = $"{Nav.BaseUri.TrimEnd('/')}{path}?token={Uri.EscapeDataString(token)}";
+            await JS.InvokeVoidAsync("openPdf", url);
+        }
+        catch { }
+    }
+
+    private class MEdit { public string Name { get; set; } = ""; public bool Active { get; set; } public int Anzahl { get; set; } public string? Dauer { get; set; } }
+    private record CountDto(int Count);
+    private record UploadResult(int Ok, int Skipped, List<string> Errors, int Count);
+}
