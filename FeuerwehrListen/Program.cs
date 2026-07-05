@@ -435,6 +435,15 @@ admin.MapPut("/keywords/{id:int}", async (int id, KeywordRepository repo, Keywor
     k.Name = r.Name.Trim(); k.Description = r.Description; await repo.UpdateAsync(k); return Results.Ok();
 });
 admin.MapDelete("/keywords/{id:int}", async (int id, KeywordRepository repo) => { await repo.DeleteAsync(id); return Results.Ok(); });
+admin.MapGet("/keywords/{id:int}/requirements", async (int id, PersonalRequirementRepository repo) =>
+    Results.Json((await repo.GetByKeywordIdAsync(id)).Select(r => new { functionDefId = r.FunctionDefId, minimumCount = r.MinimumCount, isRequired = r.IsRequired })));
+admin.MapPost("/keywords/{id:int}/requirements", async (int id, PersonalRequirementRepository repo, List<ReqItem> body) =>
+{
+    await repo.DeleteByKeywordIdAsync(id);
+    foreach (var r in body.Where(x => x.MinimumCount > 0 || x.IsRequired))
+        await repo.CreateAsync(new PersonalRequirement { KeywordId = id, FunctionDefId = r.FunctionDefId, MinimumCount = r.MinimumCount, IsRequired = r.IsRequired, CreatedAt = DateTime.Now });
+    return Results.Ok();
+});
 
 // --- Funktionen ---
 admin.MapGet("/functions", async (OperationFunctionRepository repo) =>
@@ -835,6 +844,7 @@ static async Task SignInUser(HttpContext ctx, User user)
 public record VehicleReq(string Name, string CallSign, string Type, bool IsActive);
 public record KeywordReq(string Name, string? Description);
 public record FunctionReq(string Name, bool IsDefault);
+public record ReqItem(int FunctionDefId, int MinimumCount, bool IsRequired);
 public record ApiKeyReq(string? Description);
 public record UserReq(string Username, string? FirstName, string? LastName, string Role, string? Password, string? QrAuthCode, string? AdminPin);
 public record ScheduledReq(string Type, string? Title, string? Unit, string? Description, int? UnitNumber, string? OperationNumber, string? Keyword, DateTime EventTime, int MinutesBefore);

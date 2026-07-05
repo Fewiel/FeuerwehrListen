@@ -1,0 +1,130 @@
+@page "/admin/keywords"
+@rendermode InteractiveWebAssembly
+@layout MainLayout
+@using System.Net.Http.Json
+@inject HttpClient Http
+
+<PageTitle>Stichwörter - Admin</PageTitle>
+
+<AuthGuard RequireAdmin="true">
+    <div class="container mt-4">
+        <div class="row mb-4">
+            <div class="col"><h1>Stichwörter &amp; Requirements</h1></div>
+            <div class="col-auto"><button class="btn btn-primary" @onclick="ShowAdd"><i class="bi bi-plus-circle"></i> Neues Stichwort</button></div>
+        </div>
+
+        @if (_showForm)
+        {
+            <div class="card mb-4"><div class="card-body">
+                <h5 class="card-title">@(_editId is null ? "Neues Stichwort" : "Stichwort bearbeiten")</h5>
+                <div class="mb-3"><label class="form-label">Name</label><input class="form-control" @bind="_name" /></div>
+                <div class="mb-3"><label class="form-label">Beschreibung</label><textarea class="form-control" rows="2" @bind="_desc"></textarea></div>
+                <button class="btn btn-primary me-2" @onclick="Save" disabled="@_saving">Speichern</button>
+                <button class="btn btn-secondary" @onclick="() => _showForm = false">Abbrechen</button>
+            </div></div>
+        }
+
+        @if (_items is null) { <p><em>Lade…</em></p> }
+        else
+        {
+            <div class="row">
+                @foreach (var k in _items)
+                {
+                    <div class="col-md-6 col-lg-4 mb-3"><div class="card h-100">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <strong>@k.Name</strong>
+                            <div>
+                                <button class="btn btn-sm btn-outline-primary" @onclick="() => Edit(k)"><i class="bi bi-pencil"></i></button>
+                                <button class="btn btn-sm btn-outline-danger" @onclick="() => Delete(k.Id)"><i class="bi bi-trash"></i></button>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            @if (!string.IsNullOrEmpty(k.Description)) { <p class="text-muted small">@k.Description</p> }
+                            <button class="btn btn-sm btn-outline-secondary w-100" @onclick="() => OpenReq(k)"><i class="bi bi-gear"></i> Requirements</button>
+                        </div>
+                    </div></div>
+                }
+            </div>
+        }
+    </div>
+
+    @if (_reqKeyword is not null)
+    {
+        <div class="modal fade show d-block" tabindex="-1" style="background:rgba(0,0,0,.5)">
+            <div class="modal-dialog modal-lg modal-dialog-centered"><div class="modal-content">
+                <div class="modal-header"><h5 class="modal-title">Requirements: @_reqKeyword.Name</h5><button class="btn-close" @onclick="() => _reqKeyword = null"></button></div>
+                <div class="modal-body"><div class="row">
+                    @foreach (var f in _functions)
+                    {
+                        var r = _reqEdit.FirstOrDefault(x => x.FunctionDefId == f.Id);
+                        <div class="col-md-6 mb-3"><div class="card"><div class="card-body">
+                            <h6>@f.Name</h6>
+                            <div class="row">
+                                <div class="col-6"><label class="form-label small">Mindestanzahl</label>
+                                    <input type="number" min="0" class="form-control form-control-sm" value="@(r?.MinimumCount ?? 0)" @onchange="e => SetCount(f.Id, int.TryParse(e.Value?.ToString(), out var n) ? n : 0)" /></div>
+                                <div class="col-6"><div class="form-check mt-4">
+                                    <input class="form-check-input" type="checkbox" checked="@(r?.IsRequired ?? false)" @onchange="e => SetRequired(f.Id, (bool)e.Value!)" />
+                                    <label class="form-check-label small">Erforderlich</label></div></div>
+                            </div>
+                        </div></div></div>
+                    }
+                </div></div>
+                <div class="modal-footer"><button class="btn btn-secondary" @onclick="() => _reqKeyword = null">Abbrechen</button><button class="btn btn-primary" @onclick="SaveReq">Speichern</button></div>
+            </div></div>
+        </div>
+    }
+</AuthGuard>
+
+@code {
+    private List<KwDto>? _items;
+    private List<FuncDto> _functions = new();
+    private bool _showForm, _saving;
+    private int? _editId;
+    private string _name = "", _desc = "";
+
+    private KwDto? _reqKeyword;
+    private List<ReqDto> _reqEdit = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try { _functions = await Http.GetFromJsonAsync<List<FuncDto>>("client-api/admin/functions") ?? new(); } catch { }
+        await Load();
+    }
+    private async Task Load() { try { _items = await Http.GetFromJsonAsync<List<KwDto>>("client-api/admin/keywords"); } catch { _items = new(); } }
+
+    private void ShowAdd() { _editId = null; _name = ""; _desc = ""; _showForm = true; }
+    private void Edit(KwDto k) { _editId = k.Id; _name = k.Name; _desc = k.Description ?? ""; _showForm = true; }
+    private async Task Save()
+    {
+        if (string.IsNullOrWhiteSpace(_name)) return;
+        _saving = true;
+        try
+        {
+            var body = new { Name = _name, Description = _desc };
+            if (_editId is int id) await Http.PutAsJsonAsync($"client-api/admin/keywords/{id}", body);
+            else await Http.PostAsJsonAsync("client-api/admin/keywords", body);
+            _showForm = false; await Load();
+        }
+        finally { _saving = false; }
+    }
+    private async Task Delete(int id) { await Http.DeleteAsync($"client-api/admin/keywords/{id}"); await Load(); }
+
+    private async Task OpenReq(KwDto k)
+    {
+        _reqKeyword = k;
+        try { _reqEdit = await Http.GetFromJsonAsync<List<ReqDto>>($"client-api/admin/keywords/{k.Id}/requirements") ?? new(); }
+        catch { _reqEdit = new(); }
+    }
+    private void SetCount(int fid, int c) { var r = _reqEdit.FirstOrDefault(x => x.FunctionDefId == fid); if (r != null) _reqEdit.Remove(r); _reqEdit.Add(new ReqDto(fid, c, r?.IsRequired ?? false)); }
+    private void SetRequired(int fid, bool req) { var r = _reqEdit.FirstOrDefault(x => x.FunctionDefId == fid); if (r != null) _reqEdit.Remove(r); _reqEdit.Add(new ReqDto(fid, r?.MinimumCount ?? 0, req)); }
+    private async Task SaveReq()
+    {
+        if (_reqKeyword is null) return;
+        await Http.PostAsJsonAsync($"client-api/admin/keywords/{_reqKeyword.Id}/requirements", _reqEdit);
+        _reqKeyword = null;
+    }
+
+    private record KwDto(int Id, string Name, string? Description);
+    private record FuncDto(int Id, string Name, bool IsDefault);
+    private record ReqDto(int FunctionDefId, int MinimumCount, bool IsRequired);
+}
