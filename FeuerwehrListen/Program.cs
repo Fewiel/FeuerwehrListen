@@ -430,6 +430,90 @@ app.MapPost("/client-api/attendance/{id:int}/add", async (int id, AttendanceList
     return Results.Json(new { status = targetListId == id ? "added" : "redirected", name, listId = targetListId });
 }).DisableAntiforgery();
 
+// Einsatzliste: Detail + Fahrzeuge + Funktionen + Eintraege
+app.MapGet("/client-api/operation/{id:int}", async (int id, OperationListRepository repo, OperationEntryRepository entryRepo, OperationEntryFunctionRepository efRepo, VehicleRepository vehicleRepo, OperationFunctionRepository funcRepo) =>
+{
+    var list = await repo.GetByIdAsync(id);
+    if (list == null) return Results.NotFound();
+    var entries = await entryRepo.GetByListIdAsync(id);
+    var funcMap = await efRepo.GetFunctionsForEntriesAsync(entries.Select(e => e.Id).ToList());
+    var vehicles = await vehicleRepo.GetActiveAsync();
+    var funcs = await funcRepo.GetAllAsync();
+    return Results.Json(new
+    {
+        id = list.Id,
+        number = NextcloudService.StripLeadingYear(list.OperationNumber, list.AlertTime.Year),
+        keyword = list.Keyword,
+        address = list.Address,
+        isOpen = list.Status == ListStatus.Open,
+        entries = entries.Select(e => new
+        {
+            id = e.Id,
+            name = e.NameOrId,
+            vehicle = e.Vehicle,
+            breathing = e.WithBreathingApparatus,
+            functions = funcMap.TryGetValue(e.Id, out var fl) ? fl.Select(f => f.Name).ToArray() : Array.Empty<string>()
+        }),
+        vehicles = vehicles.Select(v => new { id = v.Id, name = v.Name }),
+        functions = funcs.Select(f => new { id = f.Id, name = f.Name })
+    });
+});
+
+// Mitglied fuer Einsatz-Eintrag aufloesen (danach waehlt der Client Fahrzeug + Funktionen)
+app.MapPost("/client-api/operation/{id:int}/resolve", async (int id, MemberRepository memberRepo, OperationResolveRequest req) =>
+{
+    var input = (req.Code ?? "").Trim();
+    if (input.Length == 0) return Results.Json(new { status = "notfound" });
+    var o = input.LastIndexOf('('); var c = input.LastIndexOf(')');
+    if (o >= 0 && c > o)
+    {
+        var inside = input.Substring(o + 1, c - o - 1).Trim();
+        if (inside.Length > 0 && await memberRepo.GetByMemberNumberAsync(inside) != null) input = inside;
+    }
+    Member? member = null;
+    if (int.TryParse(input, out _)) member = await memberRepo.GetByMemberNumberAsync(input);
+    if (member == null)
+    {
+        var found = await memberRepo.SearchAsync(input);
+        if (found.Count == 1) member = found[0];
+        else if (found.Count > 1)
+            return Results.Json(new { status = "choose-member", members = found.Select(m => new { id = m.Id, name = $"{m.FirstName} {m.LastName}", number = m.MemberNumber }) });
+    }
+    if (member == null) return Results.Json(new { status = "notfound" });
+    return Results.Json(new { status = "found", member = new { id = member.Id, name = $"{member.FirstName} {member.LastName}", number = member.MemberNumber } });
+}).DisableAntiforgery();
+
+// Einsatz-Eintrag speichern (mit Fahrzeug + Funktionen)
+app.MapPost("/client-api/operation/{id:int}/add", async (int id, OperationListRepository repo, OperationEntryRepository entryRepo, OperationEntryFunctionRepository efRepo, MemberRepository memberRepo, VehicleRepository vehicleRepo, OperationAddRequest req) =>
+{
+    var list = await repo.GetByIdAsync(id);
+    if (list == null) return Results.NotFound();
+    var member = await memberRepo.GetByIdAsync(req.MemberId);
+    if (member == null) return Results.Json(new { status = "notfound" });
+
+    var entries = await entryRepo.GetByListIdAsync(id);
+    if (entries.Any(e => e.NameOrId.Contains($"({member.MemberNumber})")))
+        return Results.Json(new { status = "duplicate", name = $"{member.FirstName} {member.LastName}" });
+
+    var vehicleName = "Ohne Fahrzeug";
+    if (!req.NoVehicle && req.VehicleId is int vid)
+        vehicleName = (await vehicleRepo.GetByIdAsync(vid))?.Name ?? "Ohne Fahrzeug";
+
+    var entryId = await entryRepo.CreateAsync(new OperationEntry
+    {
+        OperationListId = id,
+        NameOrId = $"{member.FirstName} {member.LastName} ({member.MemberNumber})",
+        Vehicle = vehicleName,
+        Function = OperationFunction.Trupp,
+        WithBreathingApparatus = req.BreathingApparatus,
+        EnteredAt = DateTime.Now
+    });
+    if (req.FunctionIds is { Count: > 0 })
+        await efRepo.SetFunctionsForEntryAsync(entryId, req.FunctionIds);
+
+    return Results.Json(new { status = "added", name = $"{member.FirstName} {member.LastName}" });
+}).DisableAntiforgery();
+
 // Brandsicherheitswachen-Liste
 app.MapGet("/client-api/firesafetywatches", async (FireSafetyWatchRepository repo) =>
     Results.Json((await repo.GetAllWithStatusAsync())
@@ -540,5 +624,7 @@ public record FeedbackRequest(int OperationId, string? Text);
 public record CreateAttendanceRequest(string Title, string Unit, string? Description, int? UnitNumber);
 public record CreateOperationRequest(string OperationNumber, string Keyword, DateTime AlertTime, string? Address);
 public record AttendanceAddRequest(string? Code, int? MemberId, int? TargetListId);
+public record OperationResolveRequest(string? Code);
+public record OperationAddRequest(int MemberId, int? VehicleId, bool NoVehicle, bool BreathingApparatus, List<int>? FunctionIds);
 
 public partial class Program { }

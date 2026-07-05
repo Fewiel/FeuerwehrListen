@@ -1,0 +1,249 @@
+@page "/operation/{Id:int}"
+@rendermode InteractiveWebAssembly
+@layout MainLayout
+@using System.Net.Http.Json
+@inject HttpClient Http
+@inject IJSRuntime JS
+
+<PageTitle>Einsatzliste@(_data is null ? "" : " - " + _data.Number)</PageTitle>
+
+@if (_data is null)
+{
+    <div class="container mt-4"><p><em>Lade…</em></p></div>
+}
+else
+{
+    <div class="container mt-4">
+        <div class="mb-4">
+            <h1>Einsatz @_data.Number</h1>
+            <p class="lead">Stichwort: @_data.Keyword</p>
+            @if (!string.IsNullOrWhiteSpace(_data.Address)) { <p class="text-muted">@_data.Address</p> }
+            @if (!_data.IsOpen) { <div class="mt-2"><span class="badge bg-secondary fs-5">Abgeschlossen</span></div> }
+        </div>
+
+        @if (_data.IsOpen)
+        {
+            @if (_step == "scan")
+            {
+                <QrScanner IsActive="true" OnCodeScanned="Resolve" OnManualEntryRequested="() => _showManual = !_showManual" />
+                @if (_showManual)
+                {
+                    <div class="input-group mb-3">
+                        <input class="form-control" placeholder="Mitgliedsnummer oder Name" @bind="_manual" @bind:event="oninput"
+                               @onkeyup="@(async e => { if (e.Key == "Enter") await Resolve(_manual); })" />
+                        <button class="btn btn-success" @onclick="() => Resolve(_manual)">Weiter</button>
+                    </div>
+                }
+
+                @if (_chooseMembers is not null)
+                {
+                    <div class="card mb-3">
+                        <div class="card-header">Mehrere Treffer – bitte wählen</div>
+                        <div class="list-group list-group-flush">
+                            @foreach (var m in _chooseMembers)
+                            {
+                                <button class="list-group-item list-group-item-action" @onclick="() => PickMember(m.Id, m.Name)">@m.Name (@m.Number)</button>
+                            }
+                        </div>
+                    </div>
+                }
+            }
+            else if (_step == "vehicle")
+            {
+                <div class="card mb-3">
+                    <div class="card-header"><strong>@_memberName</strong> – Fahrzeug wählen</div>
+                    <div class="list-group list-group-flush">
+                        @foreach (var v in _data.Vehicles)
+                        {
+                            <button class="list-group-item list-group-item-action" @onclick="() => PickVehicle(v.Id, v.Name)">@v.Name</button>
+                        }
+                        <button class="list-group-item list-group-item-action text-muted" @onclick="() => PickVehicle(null, null)">Ohne Fahrzeug</button>
+                    </div>
+                    <div class="card-footer"><button class="btn btn-sm btn-secondary" @onclick="ResetFlow">Abbrechen</button></div>
+                </div>
+            }
+            else if (_step == "functions")
+            {
+                <div class="card mb-3">
+                    <div class="card-header"><strong>@_memberName</strong> – @(_vehicleName ?? "Ohne Fahrzeug") – Funktionen</div>
+                    <div class="card-body">
+                        @foreach (var f in _data.Functions)
+                        {
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="f@(f.Id)"
+                                       checked="@_selectedFunctions.Contains(f.Id)"
+                                       @onchange="e => ToggleFunction(f.Id, (bool)e.Value!)" />
+                                <label class="form-check-label" for="f@(f.Id)">@f.Name</label>
+                            </div>
+                        }
+                        <div class="form-check form-switch mt-2">
+                            <input class="form-check-input" type="checkbox" id="agt" @bind="_breathing" />
+                            <label class="form-check-label" for="agt">Unter Atemschutz (AGT)</label>
+                        </div>
+                    </div>
+                    <div class="card-footer d-flex gap-2">
+                        <button class="btn btn-secondary" @onclick="ResetFlow">Abbrechen</button>
+                        <button class="btn btn-danger flex-grow-1" @onclick="Submit" disabled="@_saving">
+                            @if (_saving) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                            Eintragen
+                        </button>
+                    </div>
+                </div>
+            }
+        }
+
+        @if (_confirmationVisible)
+        {
+            <div class="entry-confirmation-overlay"><i class="bi bi-check-circle-fill"></i><div class="entry-confirmation-name">@_confirmationName</div><small class="text-muted">eingetragen</small></div>
+        }
+        @if (!string.IsNullOrWhiteSpace(_error)) { <div class="alert alert-danger mt-2">@_error</div> }
+
+        <div class="card mt-3">
+            <div class="card-header"><h5 class="mb-0">Eingetragene Einsatzkräfte (@_data.Entries.Count)</h5></div>
+            <div class="card-body">
+                @if (_data.Entries.Count == 0)
+                {
+                    <p class="text-muted">Noch keine Einträge</p>
+                }
+                else
+                {
+                    @foreach (var grp in _data.Entries.GroupBy(e => string.IsNullOrWhiteSpace(e.Vehicle) ? "Ohne Fahrzeug" : e.Vehicle))
+                    {
+                        <h6 class="mt-2"><i class="bi bi-truck me-1"></i>@grp.Key (@grp.Count())</h6>
+                        <ul class="list-group mb-2">
+                            @foreach (var e in grp)
+                            {
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    <span>
+                                        <strong>@e.Name</strong>
+                                        @if (e.Breathing) { <span class="badge bg-info ms-1">AGT</span> }
+                                        @foreach (var fn in e.Functions) { <span class="badge bg-secondary ms-1">@fn</span> }
+                                    </span>
+                                </li>
+                            }
+                        </ul>
+                    }
+                }
+            </div>
+        </div>
+
+        <div class="mt-3 mb-4"><a class="btn btn-secondary" href="/">Zurück zur Übersicht</a></div>
+    </div>
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private OpDto? _data;
+    private string _step = "scan";
+    private bool _showManual;
+    private string _manual = "";
+    private string _error = "";
+
+    private int _memberId;
+    private string _memberName = "";
+    private int? _vehicleId;
+    private string? _vehicleName;
+    private bool _noVehicle;
+    private readonly HashSet<int> _selectedFunctions = new();
+    private bool _breathing;
+    private bool _saving;
+
+    private List<MemberChoice>? _chooseMembers;
+    private bool _confirmationVisible;
+    private string _confirmationName = "";
+
+    protected override async Task OnParametersSetAsync() => await Load();
+
+    private async Task Load()
+    {
+        try { _data = await Http.GetFromJsonAsync<OpDto>($"client-api/operation/{Id}"); }
+        catch { _data = null; }
+    }
+
+    private async Task Resolve(string code)
+    {
+        _error = ""; _chooseMembers = null;
+        if (string.IsNullOrWhiteSpace(code)) return;
+        try
+        {
+            var resp = await Http.PostAsJsonAsync($"client-api/operation/{Id}/resolve", new { Code = code.Trim() });
+            var r = await resp.Content.ReadFromJsonAsync<ResolveResult>();
+            switch (r?.Status)
+            {
+                case "found": PickMember(r.Member!.Id, r.Member.Name); break;
+                case "choose-member": _chooseMembers = r.Members; break;
+                case "notfound": _error = "Mitglied nicht gefunden!"; await Sound("error"); break;
+            }
+        }
+        catch { _error = "Fehler beim Suchen."; }
+        _manual = "";
+    }
+
+    private void PickMember(int id, string name)
+    {
+        _memberId = id; _memberName = name;
+        _chooseMembers = null;
+        _selectedFunctions.Clear(); _breathing = false; _vehicleId = null; _vehicleName = null; _noVehicle = false;
+        _step = "vehicle";
+    }
+
+    private void PickVehicle(int? id, string? name)
+    {
+        _vehicleId = id; _vehicleName = name; _noVehicle = id is null;
+        _step = "functions";
+    }
+
+    private void ToggleFunction(int id, bool on)
+    {
+        if (on) _selectedFunctions.Add(id); else _selectedFunctions.Remove(id);
+    }
+
+    private async Task Submit()
+    {
+        _saving = true; _error = "";
+        try
+        {
+            var resp = await Http.PostAsJsonAsync($"client-api/operation/{Id}/add", new
+            {
+                MemberId = _memberId,
+                VehicleId = _vehicleId,
+                NoVehicle = _noVehicle,
+                BreathingApparatus = _breathing,
+                FunctionIds = _selectedFunctions.ToList()
+            });
+            var r = await resp.Content.ReadFromJsonAsync<AddResult>();
+            if (r?.Status == "added") { await Confirm(r.Name); ResetFlow(); await Load(); }
+            else if (r?.Status == "duplicate") { _error = $"{r.Name} ist bereits eingetragen!"; await Sound("error"); ResetFlow(); }
+            else { _error = "Eintragen fehlgeschlagen."; }
+        }
+        catch { _error = "Eintragen fehlgeschlagen."; }
+        finally { _saving = false; }
+    }
+
+    private void ResetFlow()
+    {
+        _step = "scan"; _chooseMembers = null;
+        _selectedFunctions.Clear(); _breathing = false; _vehicleId = null; _vehicleName = null; _noVehicle = false;
+    }
+
+    private async Task Confirm(string? name)
+    {
+        await Sound("success");
+        _confirmationName = name ?? "";
+        _confirmationVisible = true;
+        StateHasChanged();
+        _ = Task.Run(async () => { await Task.Delay(2000); await InvokeAsync(() => { _confirmationVisible = false; StateHasChanged(); }); });
+    }
+
+    private async Task Sound(string type) { try { await JS.InvokeVoidAsync("playSound", type); } catch { } }
+
+    private record OpDto(int Id, string Number, string Keyword, string? Address, bool IsOpen, List<EntryDto> Entries, List<VehicleDto> Vehicles, List<FuncDto> Functions);
+    private record EntryDto(int Id, string Name, string? Vehicle, bool Breathing, List<string> Functions);
+    private record VehicleDto(int Id, string Name);
+    private record FuncDto(int Id, string Name);
+    private record MemberChoice(int Id, string Name, string Number);
+    private record MemberInfo(int Id, string Name, string Number);
+    private record ResolveResult(string Status, MemberInfo? Member, List<MemberChoice>? Members);
+    private record AddResult(string Status, string? Name);
+}
