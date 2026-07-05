@@ -494,6 +494,32 @@ admin.MapPut("/users/{id:int}", async (int id, UserRepository repo, UserReq r) =
 });
 admin.MapDelete("/users/{id:int}", async (int id, UserRepository repo) => { await repo.DeleteAsync(id); return Results.Ok(); });
 
+// --- Einstellungen (Key-Value) ---
+admin.MapGet("/settings", async (SettingsService settings) =>
+    Results.Json(await settings.GetAllSettingsAsync()));
+admin.MapPost("/settings", async (SettingsService settings, IWebHostEnvironment env, Dictionary<string, string> body) =>
+{
+    foreach (var kv in body)
+        await settings.UpdateSettingAsync(kv.Key, kv.Value ?? "");
+    // manifest.json App-Name aktualisieren
+    if (body.TryGetValue(SettingKeys.BrandingAppName, out var appName))
+    {
+        try
+        {
+            var path = Path.Combine(env.WebRootPath, "manifest.json");
+            if (File.Exists(path))
+            {
+                var json = await File.ReadAllTextAsync(path);
+                json = System.Text.RegularExpressions.Regex.Replace(json, "\"name\":\\s*\"[^\"]*\"",
+                    $"\"name\": \"{(string.IsNullOrWhiteSpace(appName) ? "Feuerwehr Listen" : appName)}\"");
+                await File.WriteAllTextAsync(path, json);
+            }
+        }
+        catch { }
+    }
+    return Results.Ok();
+});
+
 // --- Geplante Listen ---
 admin.MapGet("/scheduled", async (ScheduledListRepository repo) =>
     Results.Json((await repo.GetAllAsync()).OrderBy(s => s.ScheduledEventTime).Select(s => new
