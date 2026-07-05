@@ -72,7 +72,9 @@ public class EmailSenderService
             {
                 From = new MailAddress(from),
                 Subject = subject,
-                Body = body
+                Body = body,
+                SubjectEncoding = System.Text.Encoding.UTF8,
+                BodyEncoding = System.Text.Encoding.UTF8
             };
 
             foreach (var recipient in normalizedRecipients)

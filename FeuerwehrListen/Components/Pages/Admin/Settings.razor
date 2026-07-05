@@ -362,6 +362,24 @@
 
         <div class="row mb-4">
             <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-chat-left-text me-2"></i>Einsatz-Feedback</h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted mb-3">Empf&auml;nger f&uuml;r Feedback zu Eins&auml;tzen (&uuml;ber den Feedback-Button auf der &Uuml;bersicht). Mehrere Adressen mit Komma, Semikolon oder Zeilenumbruch trennen.</p>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="feedbackRec"><i class="bi bi-envelope me-1"></i>Feedback-Empf&auml;nger</label>
+                            <input type="text" class="form-control" id="feedbackRec" @bind="_feedbackRecipients" placeholder="feedback@feuerwehr.de, leitung@feuerwehr.de" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mb-4">
+            <div class="col-md-8">
                 <button class="btn btn-primary" @onclick="SaveSettings" disabled="@_isSaving">
                     @if (_isSaving)
                     {
@@ -394,6 +412,7 @@
     private string _operationRecipients = string.Empty;
     private string _fireSafetyWatchRecipients = string.Empty;
     private string _defectRecipients = string.Empty;
+    private string _feedbackRecipients = string.Empty;
     private bool _skipEmptyLists = true;
     private bool _showUnitRecipients;
     private bool _soundEnabled = true;
@@ -443,6 +462,7 @@
         _operationRecipients = GetString(settings, SettingKeys.NotificationOperationRecipients, string.Empty);
         _fireSafetyWatchRecipients = GetString(settings, SettingKeys.NotificationFireSafetyWatchRecipients, string.Empty);
         _defectRecipients = GetString(settings, SettingKeys.NotificationDefectRecipients, string.Empty);
+        _feedbackRecipients = GetString(settings, SettingKeys.NotificationFeedbackRecipients, string.Empty);
         _skipEmptyLists = GetBool(settings, SettingKeys.NotificationSkipEmptyLists, true);
 
         _soundEnabled = GetBool(settings, SettingKeys.SoundEnabled, true);
@@ -510,6 +530,7 @@
             await SettingsService.UpdateSettingAsync(SettingKeys.NotificationOperationRecipients, _operationRecipients.Trim());
             await SettingsService.UpdateSettingAsync(SettingKeys.NotificationFireSafetyWatchRecipients, _fireSafetyWatchRecipients.Trim());
             await SettingsService.UpdateSettingAsync(SettingKeys.NotificationDefectRecipients, _defectRecipients.Trim());
+            await SettingsService.UpdateSettingAsync(SettingKeys.NotificationFeedbackRecipients, _feedbackRecipients.Trim());
             await SettingsService.UpdateSettingAsync(SettingKeys.NotificationSkipEmptyLists, _skipEmptyLists.ToString().ToLower());
 
             await SettingsService.UpdateSettingAsync(SettingKeys.SoundEnabled, _soundEnabled.ToString().ToLower());

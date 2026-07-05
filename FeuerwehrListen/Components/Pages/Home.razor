@@ -11,6 +11,7 @@
 @inject NavigationManager Navigation
 @inject SettingsService SettingsService
 @inject AuthenticationService AuthService
+@inject FeedbackService FeedbackService
 
 <PageTitle>Übersicht - Feuerwehr Listen</PageTitle>
 
@@ -51,6 +52,31 @@
     .st-run { background: var(--tw-red-bg); color: var(--tw-red-d); }
     .st-open { background: var(--tw-blue-bg); color: var(--tw-blue-d); }
     .st-plan { background: var(--tw-amber-bg); color: var(--tw-amber-d); }
+
+    .dash-feedback { margin-left: auto; align-self: center; height: 44px; margin-bottom: 10px; }
+
+    /* Feedback-Modal */
+    .fb-backdrop { position: fixed; inset: 0; background: rgba(15,20,28,.45); z-index: 1050; }
+    .fb-modal { position: fixed; z-index: 1055; top: 50%; left: 50%; transform: translate(-50%, -50%);
+        width: min(560px, calc(100vw - 24px)); max-height: calc(100vh - 48px); display: flex; flex-direction: column;
+        background: var(--tw-surface); border: 1px solid var(--tw-line); border-radius: 16px; box-shadow: 0 24px 60px rgba(15,20,28,.28); overflow: hidden; }
+    .fb-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px; border-bottom: 1px solid var(--tw-line); }
+    .fb-head h5 { font-size: 16px; font-weight: 600; }
+    .fb-x { border: none; background: none; color: var(--tw-mut); font-size: 18px; line-height: 1; padding: 4px; cursor: pointer; }
+    .fb-x:hover { color: var(--tw-ink); }
+    .fb-body { padding: 16px 18px; overflow-y: auto; }
+    .fb-list { display: flex; flex-direction: column; gap: 8px; }
+    .fb-item { text-align: left; width: 100%; background: var(--tw-bg); border: 1px solid var(--tw-line); border-radius: 11px; padding: 11px 13px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
+    .fb-item:hover { border-color: var(--tw-line-strong); background: var(--tw-surface-2); }
+    .fb-item-kw { font-weight: 600; font-size: 14.5px; color: var(--tw-ink); overflow-wrap: anywhere; }
+    .fb-item-addr { font-size: 13px; color: var(--tw-ink); overflow-wrap: anywhere; }
+    .fb-item-meta { font-size: 12px; color: var(--tw-mut); font-family: ui-monospace, Consolas, monospace; }
+    .fb-selected { background: var(--tw-bg); border: 1px solid var(--tw-line); border-radius: 11px; padding: 11px 13px; margin-bottom: 14px; }
+    .fb-sel-kw { font-weight: 600; font-size: 15px; }
+    .fb-sel-meta { font-size: 12.5px; color: var(--tw-mut); margin-top: 2px; overflow-wrap: anywhere; }
+    .fb-change { margin-top: 8px; border: none; background: none; color: var(--tw-blue-d); font-size: 12.5px; padding: 0; cursor: pointer; }
+    .fb-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 18px; border-top: 1px solid var(--tw-line); }
+    .fb-toast { position: fixed; z-index: 1060; bottom: 22px; left: 50%; transform: translateX(-50%); background: #1E7B34; color: #fff; padding: 12px 18px; border-radius: 12px; box-shadow: 0 12px 30px rgba(15,20,28,.28); font-size: 14px; font-weight: 500; }
 </style>
 
 <div class="container mt-4">
@@ -97,6 +123,12 @@
         @if (SettingsService.IsModuleVisible(SettingKeys.VisibilityDefects) && _openDefectsCount > 0)
         {
             <a class="dash-stat" href="/defects" style="text-decoration:none;color:inherit"><span class="d" style="background:#6B7480"></span><span class="n">@_openDefectsCount</span><span class="l">Mängel<br>offen</span></a>
+        }
+        @if (SettingsService.IsModuleVisible(SettingKeys.VisibilityOperations))
+        {
+            <button class="btn btn-success dash-feedback" @onclick="OpenFeedback">
+                <i class="bi bi-chat-left-text me-1"></i> Feedback
+            </button>
         }
     </div>
 
@@ -161,12 +193,181 @@
     }
 </div>
 
+@if (_showFeedback)
+{
+    <div class="fb-backdrop" @onclick="CloseFeedback"></div>
+    <div class="fb-modal" role="dialog" aria-modal="true">
+        <div class="fb-head">
+            <h5 class="mb-0"><i class="bi bi-chat-left-text me-2"></i>Feedback zu einem Einsatz</h5>
+            <button type="button" class="fb-x" @onclick="CloseFeedback" aria-label="Schließen"><i class="bi bi-x-lg"></i></button>
+        </div>
+        <div class="fb-body">
+            @if (_fbStep == 1)
+            {
+                <p class="text-muted" style="font-size:13.5px;margin-bottom:12px">Einsatz ausw&auml;hlen &ndash; die letzten 5 werden angezeigt, oder nach Adresse / Stichwort suchen.</p>
+                <div class="mb-3">
+                    <input class="form-control" placeholder="Nach Adresse oder Stichwort suchen…" @bind="_fbSearch" @bind:event="oninput" />
+                </div>
+                @if (FilteredOps().Count == 0)
+                {
+                    <p class="text-muted text-center my-4">Keine Eins&auml;tze gefunden.</p>
+                }
+                else
+                {
+                    <div class="fb-list">
+                        @foreach (var op in FilteredOps())
+                        {
+                            <button type="button" class="fb-item" @onclick="() => SelectOp(op)">
+                                <span class="fb-item-kw">@(string.IsNullOrWhiteSpace(op.Keyword) ? "(ohne Stichwort)" : op.Keyword)</span>
+                                <span class="fb-item-addr">@(string.IsNullOrWhiteSpace(op.Address) ? "— keine Adresse —" : op.Address)</span>
+                                <span class="fb-item-meta">Einsatz @OpNumber(op) · @op.AlertTime.ToString("dd.MM.yyyy HH:mm") Uhr</span>
+                            </button>
+                        }
+                    </div>
+                }
+            }
+            else if (_fbStep == 2 && _selectedOp != null)
+            {
+                <div class="fb-selected">
+                    <div class="fb-sel-kw">@(string.IsNullOrWhiteSpace(_selectedOp.Keyword) ? "(ohne Stichwort)" : _selectedOp.Keyword)</div>
+                    <div class="fb-sel-meta">Einsatz @OpNumber(_selectedOp) · @(string.IsNullOrWhiteSpace(_selectedOp.Address) ? "— keine Adresse —" : _selectedOp.Address) · @_selectedOp.AlertTime.ToString("dd.MM.yyyy HH:mm") Uhr</div>
+                    <button type="button" class="fb-change" @onclick="BackToList"><i class="bi bi-arrow-left"></i> Anderen Einsatz w&auml;hlen</button>
+                </div>
+                <div class="mb-1">
+                    <label class="form-label">Dein Feedback</label>
+                    <textarea class="form-control" rows="6" @bind="_feedbackText" @bind:event="oninput" placeholder="Feedback zum Einsatz…"></textarea>
+                </div>
+                @if (_fbError != null)
+                {
+                    <div class="alert alert-danger py-2 my-2 mb-0">@_fbError</div>
+                }
+            }
+        </div>
+        @if (_fbStep == 2)
+        {
+            <div class="fb-foot">
+                <button type="button" class="btn btn-secondary" @onclick="BackToList" disabled="@_fbSending">Zur&uuml;ck</button>
+                <button type="button" class="btn btn-success" @onclick="SendFeedback" disabled="@(_fbSending || string.IsNullOrWhiteSpace(_feedbackText))">
+                    @if (_fbSending) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                    <i class="bi bi-send me-1"></i> Absenden
+                </button>
+            </div>
+        }
+    </div>
+}
+
+@if (_fbToast)
+{
+    <div class="fb-toast"><i class="bi bi-check-circle-fill me-1"></i> Feedback wurde gesendet. Danke!</div>
+}
+
 @code {
     private List<AttendanceList> _attendanceLists = new();
     private List<OperationList> _operationLists = new();
     private List<FireSafetyWatch> _fireSafetyWatches = new();
     private int _openDefectsCount;
     private System.Threading.Timer? _refreshTimer;
+
+    // Feedback
+    private bool _showFeedback;
+    private int _fbStep = 1;
+    private List<OperationList> _feedbackOps = new();
+    private string _fbSearch = string.Empty;
+    private OperationList? _selectedOp;
+    private string _feedbackText = string.Empty;
+    private bool _fbSending;
+    private string? _fbError;
+    private bool _fbToast;
+
+    private static string OpNumber(OperationList op) => NextcloudService.StripLeadingYear(op.OperationNumber, op.AlertTime.Year);
+
+    private async Task OpenFeedback()
+    {
+        _fbStep = 1;
+        _fbSearch = string.Empty;
+        _selectedOp = null;
+        _feedbackText = string.Empty;
+        _fbError = null;
+        _feedbackOps = await OperationRepo.GetForFeedbackAsync();
+        _showFeedback = true;
+    }
+
+    private void CloseFeedback()
+    {
+        _showFeedback = false;
+    }
+
+    private List<OperationList> FilteredOps()
+    {
+        if (string.IsNullOrWhiteSpace(_fbSearch))
+            return _feedbackOps.Take(5).ToList();
+
+        var q = _fbSearch.Trim();
+        return _feedbackOps
+            .Where(o => (o.Address ?? "").Contains(q, StringComparison.OrdinalIgnoreCase)
+                     || (o.Keyword ?? "").Contains(q, StringComparison.OrdinalIgnoreCase)
+                     || (o.OperationNumber ?? "").Contains(q, StringComparison.OrdinalIgnoreCase))
+            .Take(25)
+            .ToList();
+    }
+
+    private void SelectOp(OperationList op)
+    {
+        _selectedOp = op;
+        _fbError = null;
+        _fbStep = 2;
+    }
+
+    private void BackToList()
+    {
+        _fbStep = 1;
+        _fbError = null;
+    }
+
+    private async Task SendFeedback()
+    {
+        if (_selectedOp == null || string.IsNullOrWhiteSpace(_feedbackText))
+            return;
+
+        _fbSending = true;
+        _fbError = null;
+        try
+        {
+            var result = await FeedbackService.SendFeedbackAsync(_selectedOp, _feedbackText);
+            switch (result)
+            {
+                case FeedbackService.FeedbackResult.Sent:
+                    _showFeedback = false;
+                    _fbToast = true;
+                    _ = HideToastAfterDelay();
+                    break;
+                case FeedbackService.FeedbackResult.NoRecipients:
+                    _fbError = "Es ist keine Feedback-Empfängeradresse hinterlegt. Bitte in den Einstellungen eintragen.";
+                    break;
+                default:
+                    _fbError = "Feedback konnte nicht gesendet werden. Bitte SMTP-Einstellungen prüfen.";
+                    break;
+            }
+        }
+        catch (Exception)
+        {
+            _fbError = "Feedback konnte nicht gesendet werden. Bitte später erneut versuchen.";
+        }
+        finally
+        {
+            _fbSending = false;
+        }
+    }
+
+    private async Task HideToastAfterDelay()
+    {
+        await Task.Delay(4000);
+        await InvokeAsync(() =>
+        {
+            _fbToast = false;
+            StateHasChanged();
+        });
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {

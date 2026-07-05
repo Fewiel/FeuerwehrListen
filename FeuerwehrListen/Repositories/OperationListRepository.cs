@@ -39,6 +39,15 @@ public class OperationListRepository
             .ToListAsync();
     }
 
+    /// <summary>Nicht archivierte Einsätze, neueste zuerst (für Feedback-Auswahl &amp; Suche).</summary>
+    public async Task<List<OperationList>> GetForFeedbackAsync()
+    {
+        return await _db.OperationLists
+            .Where(x => !x.IsArchived)
+            .OrderByDescending(x => x.AlertTime)
+            .ToListAsync();
+    }
+
     public async Task<OperationList?> GetByIdAsync(int id)
     {
         return await _db.OperationLists

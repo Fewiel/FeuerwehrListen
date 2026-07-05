@@ -17,6 +17,9 @@ public static class SettingKeys
     public const string VisibilityDefects = "ModuleVisibility.Defects";
     public const string NotificationDefectRecipients = "Notifications.DefectRecipients";
 
+    /// <summary>Empfänger für Einsatz-Feedback (eine oder mehrere Adressen).</summary>
+    public const string NotificationFeedbackRecipients = "Notifications.FeedbackRecipients";
+
     /// <summary>
     /// Wenn "true": Abgeschlossene Listen ohne Einträge werden NICHT per Mail versendet.
     /// Standard (nicht gesetzt) = true.
