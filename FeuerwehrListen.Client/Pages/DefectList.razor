@@ -1,0 +1,159 @@
+@page "/defects"
+@rendermode InteractiveWebAssembly
+@layout MainLayout
+@using System.Net.Http.Json
+@inject HttpClient Http
+
+<PageTitle>Mängelliste</PageTitle>
+
+<div class="container mt-4">
+    <div class="row mb-3">
+        <div class="col"><h1>Mängelliste</h1></div>
+        <div class="col-auto"><button class="btn btn-primary" @onclick="ShowReport"><i class="bi bi-plus-circle"></i> Neuer Mangel</button></div>
+    </div>
+
+    <div class="btn-group mb-3">
+        <button class="btn @(_filter is null ? "btn-primary" : "btn-outline-primary")" @onclick="() => _filter = null">Alle</button>
+        <button class="btn @(_filter == "Open" ? "btn-danger" : "btn-outline-danger")" @onclick="@(() => _filter = "Open")">Offen</button>
+        <button class="btn @(_filter == "InProgress" ? "btn-warning" : "btn-outline-warning")" @onclick="@(() => _filter = "InProgress")">In Arbeit</button>
+        <button class="btn @(_filter == "Done" ? "btn-success" : "btn-outline-success")" @onclick="@(() => _filter = "Done")">Erledigt</button>
+    </div>
+
+    <div class="card"><div class="card-body">
+        @if (_items is null) { <p><em>Lade…</em></p> }
+        else
+        {
+            var list = _filter is null ? _items : _items.Where(d => d.Status == _filter).ToList();
+            @if (list.Count == 0) { <p class="text-muted">Keine Mängel.</p> }
+            else
+            {
+                <div class="table-responsive"><table class="table table-hover">
+                    <thead><tr><th>Eingetragen</th><th>Durch</th><th>Fahrzeug</th><th>Beschreibung</th><th>Status</th></tr></thead>
+                    <tbody>
+                        @foreach (var d in list)
+                        {
+                            <tr style="cursor:pointer" @onclick="() => OpenDetail(d)">
+                                <td class="text-nowrap">@d.ReportedAt.ToString("dd.MM.yyyy HH:mm")</td>
+                                <td>@d.ReportedByName</td><td>@d.Vehicle</td><td>@d.Description</td>
+                                <td>@Badge(d.Status)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table></div>
+            }
+        }
+    </div></div>
+</div>
+
+@if (_showReport)
+{
+    <div class="modal fade show d-block" style="background:rgba(0,0,0,.5)"><div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+        <div class="modal-header"><h5 class="modal-title">Neuer Mangel</h5><button class="btn-close" @onclick="() => _showReport = false"></button></div>
+        <div class="modal-body">
+            <div class="mb-3"><label class="form-label">Beschreibung</label><textarea class="form-control" rows="3" @bind="_rDesc"></textarea></div>
+            <div class="mb-3"><label class="form-label">Fahrzeug</label>
+                <select class="form-select" @bind="_rVehicleId"><option value="0">— Anderes/Freitext —</option>@foreach (var v in _vehicles) { <option value="@v.Id">@v.Name</option> }</select>
+            </div>
+            @if (_rVehicleId == 0) { <div class="mb-3"><label class="form-label">Fahrzeug (Freitext)</label><input class="form-control" @bind="_rCustom" /></div> }
+            <div class="mb-3"><label class="form-label">Deine Mitgliedsnummer</label><input class="form-control" @bind="_rNumber" /></div>
+            @if (_rError is not null) { <div class="alert alert-danger py-2">@_rError</div> }
+        </div>
+        <div class="modal-footer"><button class="btn btn-secondary" @onclick="() => _showReport = false">Abbrechen</button><button class="btn btn-primary" @onclick="Report" disabled="@_saving">Melden</button></div>
+    </div></div></div>
+}
+
+@if (_detail is not null)
+{
+    <div class="modal fade show d-block" style="background:rgba(0,0,0,.5)"><div class="modal-dialog modal-lg modal-dialog-centered"><div class="modal-content">
+        <div class="modal-header"><h5 class="modal-title">Mangel-Detail</h5><button class="btn-close" @onclick="() => _detail = null"></button></div>
+        <div class="modal-body">
+            <p><strong>@_detail.Vehicle</strong> — @Badge(_detail.Status)</p>
+            <p>@_detail.Description</p>
+            <p class="text-muted small">Gemeldet @_detail.ReportedAt.ToString("dd.MM.yyyy HH:mm") von @_detail.ReportedByName</p>
+            <hr />
+            <h6>Verlauf</h6>
+            @if (_history.Count == 0) { <p class="text-muted small">Keine Statusänderungen.</p> }
+            else { <ul class="list-group mb-3">@foreach (var h in _history) { <li class="list-group-item small">@h.ChangedAt.ToString("dd.MM.yyyy HH:mm"): @StatusLabel(h.NewStatus) — @h.ChangedByName @(string.IsNullOrEmpty(h.Comment) ? "" : "· " + h.Comment)</li> }</ul> }
+            @if (_detail.Status != "Done")
+            {
+                <hr />
+                <h6>Status ändern</h6>
+                <div class="mb-2"><select class="form-select" @bind="_newStatus"><option value="InProgress">In Arbeit</option><option value="Done">Erledigt</option></select></div>
+                <div class="mb-2"><input class="form-control" placeholder="Kommentar (optional)" @bind="_comment" /></div>
+                <div class="mb-2"><input class="form-control" placeholder="Deine Mitgliedsnummer" @bind="_scNumber" /></div>
+                @if (_scError is not null) { <div class="alert alert-danger py-2">@_scError</div> }
+                <button class="btn btn-primary" @onclick="ChangeStatus">Speichern</button>
+            }
+        </div>
+    </div></div></div>
+}
+
+@code {
+    private List<DefectDto>? _items;
+    private List<VehDto> _vehicles = new();
+    private string? _filter;
+
+    private bool _showReport, _saving;
+    private string _rDesc = "", _rCustom = "", _rNumber = "";
+    private int _rVehicleId;
+    private string? _rError;
+
+    private DefectDto? _detail;
+    private List<HistDto> _history = new();
+    private string _newStatus = "InProgress", _comment = "", _scNumber = "";
+    private string? _scError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try { _vehicles = await Http.GetFromJsonAsync<List<VehDto>>("client-api/vehicles-active") ?? new(); } catch { }
+        await Load();
+    }
+    private async Task Load() { try { _items = await Http.GetFromJsonAsync<List<DefectDto>>("client-api/defects"); } catch { _items = new(); } }
+
+    private void ShowReport() { _rDesc = ""; _rCustom = ""; _rNumber = ""; _rVehicleId = 0; _rError = null; _showReport = true; }
+    private async Task Report()
+    {
+        _rError = null;
+        if (string.IsNullOrWhiteSpace(_rDesc)) { _rError = "Beschreibung erforderlich."; return; }
+        if (string.IsNullOrWhiteSpace(_rNumber)) { _rError = "Mitgliedsnummer erforderlich."; return; }
+        _saving = true;
+        try
+        {
+            var resp = await Http.PostAsJsonAsync("client-api/defects", new { Description = _rDesc, VehicleId = _rVehicleId, CustomVehicle = _rCustom, ReporterNumber = _rNumber });
+            var r = await resp.Content.ReadFromJsonAsync<StatusDto>();
+            if (r?.Status == "ok") { _showReport = false; await Load(); }
+            else _rError = "Mitglied nicht gefunden.";
+        }
+        catch { _rError = "Melden fehlgeschlagen."; }
+        finally { _saving = false; }
+    }
+
+    private async Task OpenDetail(DefectDto d)
+    {
+        _detail = d; _newStatus = d.Status == "Open" ? "InProgress" : "Done"; _comment = ""; _scNumber = ""; _scError = null;
+        try { _history = await Http.GetFromJsonAsync<List<HistDto>>($"client-api/defects/{d.Id}/history") ?? new(); } catch { _history = new(); }
+    }
+
+    private async Task ChangeStatus()
+    {
+        _scError = null;
+        if (_detail is null) return;
+        if (string.IsNullOrWhiteSpace(_scNumber)) { _scError = "Mitgliedsnummer erforderlich."; return; }
+        try
+        {
+            var resp = await Http.PostAsJsonAsync($"client-api/defects/{_detail.Id}/status", new { NewStatus = _newStatus, Comment = _comment, MemberNumber = _scNumber });
+            var r = await resp.Content.ReadFromJsonAsync<StatusDto>();
+            if (r?.Status == "ok") { _detail = null; await Load(); }
+            else _scError = "Mitglied nicht gefunden.";
+        }
+        catch { _scError = "Speichern fehlgeschlagen."; }
+    }
+
+    private string StatusLabel(string s) => s switch { "Open" => "Offen", "InProgress" => "In Arbeit", "Done" => "Erledigt", _ => s };
+    private RenderFragment Badge(string s) =>@<span class="badge @(s == "Open" ? "bg-danger" : s == "InProgress" ? "bg-warning" : "bg-success")">@StatusLabel(s)</span>;
+
+    private record DefectDto(int Id, string Description, string Vehicle, string Status, string ReportedByName, DateTime ReportedAt, string? ResolvedByName, DateTime? ResolvedAt);
+    private record VehDto(int Id, string Name);
+    private record HistDto(string OldStatus, string NewStatus, string ChangedByName, DateTime ChangedAt, string? Comment);
+    private record StatusDto(string Status);
+}

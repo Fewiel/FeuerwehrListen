@@ -793,6 +793,57 @@ app.MapPost("/client-api/operation/{id:int}/add", async (int id, OperationListRe
     return Results.Json(new { status = "added", name = $"{member.FirstName} {member.LastName}" });
 }).DisableAntiforgery();
 
+// Aktive Fahrzeuge (öffentlich, z. B. für Mangel-Meldung)
+app.MapGet("/client-api/vehicles-active", async (VehicleRepository repo) =>
+    Results.Json((await repo.GetActiveAsync()).Select(v => new { id = v.Id, name = $"{v.Name} ({v.CallSign})" })));
+
+// Mängelliste (öffentlich, mitgliedsnummer-basiert)
+app.MapGet("/client-api/defects", async (DefectRepository repo) =>
+    Results.Json((await repo.GetPagedAsync(1, 2000, null)).Select(d => new
+    {
+        id = d.Id, description = d.Description,
+        vehicle = string.IsNullOrWhiteSpace(d.CustomVehicle) ? (d.VehicleName ?? "—") : d.CustomVehicle,
+        status = d.Status.ToString(), reportedByName = d.ReportedByName, reportedAt = d.ReportedAt,
+        resolvedByName = d.ResolvedByName, resolvedAt = d.ResolvedAt
+    })));
+app.MapPost("/client-api/defects", async (DefectRepository repo, VehicleRepository vRepo, MemberRepository mRepo, EmailSenderService email, SettingsService settings, DefectReportRequest r) =>
+{
+    var member = await mRepo.GetByMemberNumberAsync((r.ReporterNumber ?? "").Trim());
+    if (member == null) return Results.Json(new { status = "notfound" });
+    int? vehicleId = null; string? vehicleName = null; string? custom = null;
+    if (!string.IsNullOrWhiteSpace(r.CustomVehicle)) custom = r.CustomVehicle.Trim();
+    else if (r.VehicleId is int vid && vid > 0) { var v = await vRepo.GetByIdAsync(vid); vehicleId = vid; vehicleName = v != null ? $"{v.Name} ({v.CallSign})" : "Unbekannt"; }
+    var defect = new Defect { Description = r.Description.Trim(), VehicleId = vehicleId, VehicleName = vehicleName, CustomVehicle = custom, Status = DefectStatus.Open, ReportedByMemberId = member.Id, ReportedByName = $"{member.FirstName} {member.LastName} ({member.MemberNumber})", ReportedAt = DateTime.Now };
+    await repo.CreateAsync(defect);
+    try
+    {
+        var recipients = settings.GetSetting(SettingKeys.NotificationDefectRecipients);
+        if (!string.IsNullOrWhiteSpace(recipients))
+        {
+            var disp = custom ?? vehicleName ?? "—";
+            await email.SendAsync(new[] { recipients }, $"Neuer Mangel: {disp} - Feuerwehr Listen",
+                $"Neuer Mangel gemeldet\n\nEingetragen am: {defect.ReportedAt:dd.MM.yyyy HH:mm}\nDurch: {defect.ReportedByName}\nFahrzeug: {disp}\n\nBeschreibung:\n{defect.Description}");
+        }
+    }
+    catch { }
+    return Results.Json(new { status = "ok" });
+}).DisableAntiforgery();
+app.MapGet("/client-api/defects/{id:int}/history", async (int id, DefectRepository repo) =>
+    Results.Json((await repo.GetStatusChangesAsync(id)).Select(c => new { oldStatus = c.OldStatus.ToString(), newStatus = c.NewStatus.ToString(), changedByName = c.ChangedByName, changedAt = c.ChangedAt, comment = c.Comment })));
+app.MapPost("/client-api/defects/{id:int}/status", async (int id, DefectRepository repo, MemberRepository mRepo, DefectStatusRequest r) =>
+{
+    var d = await repo.GetByIdAsync(id); if (d == null) return Results.NotFound();
+    var member = await mRepo.GetByMemberNumberAsync((r.MemberNumber ?? "").Trim());
+    if (member == null) return Results.Json(new { status = "notfound" });
+    if (!Enum.TryParse<DefectStatus>(r.NewStatus, out var ns)) return Results.BadRequest();
+    var disp = $"{member.FirstName} {member.LastName} ({member.MemberNumber})";
+    await repo.AddStatusChangeAsync(new DefectStatusChange { DefectId = id, OldStatus = d.Status, NewStatus = ns, ChangedByName = disp, ChangedAt = DateTime.Now, Comment = string.IsNullOrWhiteSpace(r.Comment) ? null : r.Comment.Trim() });
+    d.Status = ns;
+    if (ns == DefectStatus.Done) { d.ResolvedAt = DateTime.Now; d.ResolvedByMemberId = member.Id; d.ResolvedByName = disp; }
+    await repo.UpdateAsync(d);
+    return Results.Json(new { status = "ok" });
+}).DisableAntiforgery();
+
 // Brandsicherheitswache: Detail (öffentlich) + Registrieren/Austragen/Abschließen
 app.MapGet("/client-api/firesafetywatch/{id:int}", async (int id, FireSafetyWatchRepository repo, FireSafetyWatchRequirementRepository reqRepo, FireSafetyWatchEntryRepository entryRepo) =>
 {
@@ -982,5 +1033,7 @@ public record OperationAddRequest(int MemberId, int? VehicleId, bool NoVehicle, 
 public record FswRegisterRequest(int RequirementId, string? Code, int? MemberId);
 public record FswReqItem(int FunctionDefId, int Amount, int? VehicleId);
 public record FswCreateRequest(string Name, string Location, DateTime EventTime, List<FswReqItem>? Requirements);
+public record DefectReportRequest(string Description, int? VehicleId, string? CustomVehicle, string? ReporterNumber);
+public record DefectStatusRequest(string NewStatus, string? Comment, string? MemberNumber);
 
 public partial class Program { }
