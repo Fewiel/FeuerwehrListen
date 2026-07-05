@@ -4,6 +4,10 @@
         <TargetFramework>net8.0</TargetFramework>
         <Nullable>enable</Nullable>
         <ImplicitUsings>enable</ImplicitUsings>
+        <!-- Trimming abschalten: der IL-Linker entfernte im Release-Build Konstruktoren/
+             Properties der DTO-records, wodurch die JSON-Deserialisierung leer zurueckkam
+             (Feedback leer, Login schlug fehl). Groesserer WASM-Download, aber korrekt. -->
+        <PublishTrimmed>false</PublishTrimmed>
     </PropertyGroup>
 
     <ItemGroup>
