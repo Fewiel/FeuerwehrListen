@@ -13,7 +13,9 @@
     <link rel="stylesheet" href="lib/bootstrap-icons/bootstrap-icons.min.css"/>
     <link rel="stylesheet" href="app.css"/>
     <link rel="stylesheet" href="FeuerwehrListen.styles.css"/>
-    <HeadOutlet @rendermode="InteractiveServer"/>
+    @* Statisch: sonst wuerde der HeadOutlet auch auf reinen WASM-Seiten einen
+       SignalR-Circuit oeffnen. Seitentitel werden beim (Pre-)Rendern gesetzt. *@
+    <HeadOutlet />
 </head>
 
 <body>

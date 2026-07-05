@@ -1,4 +1,5 @@
 using FeuerwehrListen.Components;
+using FeuerwehrListen.Models;
 using FeuerwehrListen.Data;
 using FeuerwehrListen.Services;
 using FeuerwehrListen.Repositories;
@@ -210,6 +211,7 @@ app.MapGet("/client-api/open-lists", async (
     AttendanceListRepository attRepo,
     OperationListRepository opRepo,
     FireSafetyWatchRepository fswRepo,
+    DefectRepository defectRepo,
     SettingsService settings) =>
 {
     var operations = (await opRepo.GetOpenAsync())
@@ -246,19 +248,81 @@ app.MapGet("/client-api/open-lists", async (
             href = $"/firesafetywatches/{w.Id}"
         });
 
+    var openDefects = settings.IsModuleVisible(SettingKeys.VisibilityDefects)
+        ? await defectRepo.GetCountAsync(DefectStatus.Open) + await defectRepo.GetCountAsync(DefectStatus.InProgress)
+        : 0;
+
     return Results.Json(new
     {
         serverTime = DateTime.Now,
         operations,
         attendance,
-        watches
+        watches,
+        openDefects
     });
 });
+
+// Layout-/Navigations-Kontext fuer den WASM-Client (Modul-Sichtbarkeit + Branding).
+app.MapGet("/client-api/app-context", (SettingsService settings) =>
+{
+    string? branding(string key)
+    {
+        var v = settings.GetSetting(key);
+        return string.IsNullOrWhiteSpace(v) ? null : v;
+    }
+    return Results.Json(new
+    {
+        appName = branding(SettingKeys.BrandingAppName) ?? "Feuerwehr Listen",
+        logoUrl = branding(SettingKeys.BrandingLogoUrl),
+        modules = new
+        {
+            attendance = settings.IsModuleVisible(SettingKeys.VisibilityAttendance),
+            operations = settings.IsModuleVisible(SettingKeys.VisibilityOperations),
+            fireSafety = settings.IsModuleVisible(SettingKeys.VisibilityFireSafetyWatch),
+            defects = settings.IsModuleVisible(SettingKeys.VisibilityDefects)
+        }
+    });
+});
+
+// Einsatz-Auswahl/-Suche fuer das Feedback (letzte 5 bzw. Suche nach Adresse/Stichwort/Nummer).
+app.MapGet("/client-api/operations/recent", async (OperationListRepository opRepo, string? q) =>
+{
+    var ops = await opRepo.GetForFeedbackAsync();
+    IEnumerable<OperationList> sel = ops;
+    if (!string.IsNullOrWhiteSpace(q))
+    {
+        var s = q.Trim();
+        sel = ops.Where(o => (o.Address ?? "").Contains(s, StringComparison.OrdinalIgnoreCase)
+                          || (o.Keyword ?? "").Contains(s, StringComparison.OrdinalIgnoreCase)
+                          || (o.OperationNumber ?? "").Contains(s, StringComparison.OrdinalIgnoreCase));
+    }
+    else sel = ops.Take(5);
+
+    return Results.Json(sel.Take(25).Select(o => new
+    {
+        id = o.Id,
+        keyword = o.Keyword,
+        address = o.Address ?? "",
+        number = NextcloudService.StripLeadingYear(o.OperationNumber, o.AlertTime.Year),
+        time = o.AlertTime
+    }));
+});
+
+// Feedback absenden (wie bisher: an in den Settings hinterlegte Empfaenger).
+app.MapPost("/client-api/feedback", async (OperationListRepository opRepo, FeedbackService feedback, FeedbackRequest req) =>
+{
+    var op = await opRepo.GetByIdAsync(req.OperationId);
+    if (op == null) return Results.NotFound();
+    var result = await feedback.SendFeedbackAsync(op, req.Text ?? "");
+    return Results.Json(new { result = result.ToString() });
+}).DisableAntiforgery();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode()
     .AddInteractiveWebAssemblyRenderMode()
     .AddAdditionalAssemblies(typeof(FeuerwehrListen.Client._Imports).Assembly);
 
 app.Run();
+
+public record FeedbackRequest(int OperationId, string? Text);
 
 public partial class Program { }

@@ -1,0 +1,326 @@
+@page "/"
+@rendermode InteractiveWebAssembly
+@layout MainLayout
+@using FeuerwehrListen.Client.Models
+@inject HttpClient Http
+@inject NavigationManager Nav
+@implements IDisposable
+
+<PageTitle>Übersicht - Feuerwehr Listen</PageTitle>
+
+<style>
+    .dash-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin-bottom: 1.25rem; }
+    .dash-head h1 { margin: 0; }
+    .dash-head .sub { margin: 4px 0 0; color: var(--tw-mut); font-size: 13.5px; }
+    .dash-actions { display: flex; flex-wrap: wrap; }
+    .dash-actions > .btn { margin: 0 8px 8px 0; }
+    .dash-stats { display: flex; flex-wrap: wrap; margin-bottom: 1.25rem; }
+    .dash-stat { background: var(--tw-surface); border: 1px solid var(--tw-line); border-radius: 12px; padding: 11px 15px; display: flex; align-items: center; min-width: 150px; margin: 0 10px 10px 0; }
+    .dash-stat .d { width: 9px; height: 9px; border-radius: 50%; flex: none; margin-right: 11px; }
+    .dash-stat .n { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; margin-right: 11px; }
+    .dash-stat .l { font-size: 12.5px; color: var(--tw-mut); line-height: 1.2; }
+    .dash-grid { display: grid; gap: 12px; grid-template-columns: 1fr; }
+    @@media (min-width: 520px) { .dash-grid { grid-template-columns: repeat(2, 1fr); } }
+    @@media (min-width: 720px) { .dash-grid { grid-template-columns: repeat(3, 1fr); } }
+    @@media (min-width: 1400px) { .dash-grid { grid-template-columns: repeat(4, 1fr); } }
+    .dash-card { background: var(--tw-surface); border: 1px solid var(--tw-line); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; }
+    .dash-card.hot { border-color: #F3B4BE; box-shadow: 0 0 0 3px rgba(228,0,43,.05); }
+    .dash-ch { display: flex; align-items: center; margin-bottom: 12px; }
+    .dash-chip { width: 40px; height: 40px; border-radius: 11px; display: flex; align-items: center; justify-content: center; flex: none; font-size: 1.2rem; margin-right: 11px; }
+    .dash-ch > div { min-width: 0; }
+    .dash-card h4 { margin: 0; font-size: 15.5px; font-weight: 600; overflow-wrap: anywhere; }
+    .dash-card .k { margin: 2px 0 0; font-size: 12px; color: var(--tw-mut); font-family: ui-monospace, Consolas, monospace; overflow-wrap: anywhere; }
+    .dash-mrow { display: flex; justify-content: space-between; align-items: center; font-size: 14px; padding: 8px 0; border-top: 1px solid var(--tw-line); }
+    .dash-mrow > span:first-child { color: var(--tw-mut); }
+    .dash-mrow .v { font-variant-numeric: tabular-nums; }
+    .dash-open { margin-top: 14px; height: 44px; border: 1px solid var(--tw-line-strong); background: var(--tw-bg); border-radius: 10px; font-size: 14px; font-weight: 500; color: var(--tw-ink); display: flex; align-items: center; justify-content: center; gap: 7px; text-decoration: none; }
+    .dash-empty { background: var(--tw-surface); border: 1px dashed var(--tw-line-strong); border-radius: 14px; padding: 48px 20px; text-align: center; color: var(--tw-mut); }
+    .dash-empty i { font-size: 2rem; color: var(--tw-faint); }
+    .st { font-size: 12px; font-weight: 600; padding: 4px 11px; border-radius: 999px; }
+    .st-run { background: var(--tw-red-bg); color: var(--tw-red-d); }
+    .st-open { background: var(--tw-blue-bg); color: var(--tw-blue-d); }
+    .st-plan { background: var(--tw-amber-bg); color: var(--tw-amber-d); }
+    .dash-feedback { margin-left: auto; align-self: center; height: 44px; margin-bottom: 10px; }
+    .fb-backdrop { position: fixed; inset: 0; background: rgba(15,20,28,.45); z-index: 1050; }
+    .fb-modal { position: fixed; z-index: 1055; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(560px, calc(100vw - 24px)); max-height: calc(100vh - 48px); display: flex; flex-direction: column; background: var(--tw-surface); border: 1px solid var(--tw-line); border-radius: 16px; box-shadow: 0 24px 60px rgba(15,20,28,.28); overflow: hidden; }
+    .fb-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px; border-bottom: 1px solid var(--tw-line); }
+    .fb-head h5 { font-size: 16px; font-weight: 600; margin: 0; }
+    .fb-x { border: none; background: none; color: var(--tw-mut); font-size: 18px; line-height: 1; padding: 4px; cursor: pointer; }
+    .fb-body { padding: 16px 18px; overflow-y: auto; }
+    .fb-list { display: flex; flex-direction: column; gap: 8px; }
+    .fb-item { text-align: left; width: 100%; background: var(--tw-bg); border: 1px solid var(--tw-line); border-radius: 11px; padding: 11px 13px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
+    .fb-item-kw { font-weight: 600; font-size: 14.5px; color: var(--tw-ink); overflow-wrap: anywhere; }
+    .fb-item-addr { font-size: 13px; color: var(--tw-ink); overflow-wrap: anywhere; }
+    .fb-item-meta { font-size: 12px; color: var(--tw-mut); font-family: ui-monospace, Consolas, monospace; }
+    .fb-selected { background: var(--tw-bg); border: 1px solid var(--tw-line); border-radius: 11px; padding: 11px 13px; margin-bottom: 14px; }
+    .fb-sel-kw { font-weight: 600; font-size: 15px; }
+    .fb-sel-meta { font-size: 12.5px; color: var(--tw-mut); margin-top: 2px; overflow-wrap: anywhere; }
+    .fb-change { margin-top: 8px; border: none; background: none; color: var(--tw-blue-d); font-size: 12.5px; padding: 0; cursor: pointer; }
+    .fb-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 18px; border-top: 1px solid var(--tw-line); }
+    .fb-toast { position: fixed; z-index: 1060; bottom: 22px; left: 50%; transform: translateX(-50%); background: #1E7B34; color: #fff; padding: 12px 18px; border-radius: 12px; box-shadow: 0 12px 30px rgba(15,20,28,.28); font-size: 14px; font-weight: 500; }
+</style>
+
+<div class="container mt-4">
+    <div class="dash-head">
+        <div>
+            <h1>Offene Listen</h1>
+            <p class="sub"><i class="bi bi-arrow-clockwise"></i> Automatische Aktualisierung alle 30&nbsp;Sekunden</p>
+        </div>
+        <div class="dash-actions">
+            @if (M.Attendance)
+            {
+                <a class="btn btn-primary" href="create-attendance"><i class="bi bi-plus-circle"></i> Neue Anwesenheitsliste</a>
+            }
+            @if (M.Operations)
+            {
+                <a class="btn btn-danger" href="create-operation"><i class="bi bi-plus-circle"></i> Neue Einsatzliste</a>
+            }
+        </div>
+    </div>
+
+    <div class="dash-stats">
+        @if (M.Operations)
+        {
+            <div class="dash-stat"><span class="d" style="background:var(--tw-red)"></span><span class="n">@Ops.Count</span><span class="l">Einsätze<br>laufend</span></div>
+        }
+        @if (M.Attendance)
+        {
+            <div class="dash-stat"><span class="d" style="background:var(--tw-blue)"></span><span class="n">@Att.Count</span><span class="l">Anwesenheits-<br>listen offen</span></div>
+        }
+        @if (M.FireSafety)
+        {
+            <div class="dash-stat"><span class="d" style="background:var(--tw-amber)"></span><span class="n">@Fsw.Count</span><span class="l">Wachen<br>geplant</span></div>
+        }
+        @if (M.Defects && (_data?.OpenDefects ?? 0) > 0)
+        {
+            <a class="dash-stat" href="/defects" style="text-decoration:none;color:inherit"><span class="d" style="background:#6B7480"></span><span class="n">@_data!.OpenDefects</span><span class="l">Mängel<br>offen</span></a>
+        }
+        @if (M.Operations)
+        {
+            <button class="btn btn-success dash-feedback" @onclick="OpenFeedback"><i class="bi bi-chat-left-text me-1"></i> Feedback</button>
+        }
+    </div>
+
+    @if (_data is null)
+    {
+        <div class="dash-empty"><i class="bi bi-hourglass-split"></i><p class="mb-0 mt-2">Lade&hellip;</p></div>
+    }
+    else if (Ops.Count == 0 && Att.Count == 0 && Fsw.Count == 0)
+    {
+        <div class="dash-empty"><i class="bi bi-check2-circle"></i><p class="mb-0 mt-2">Aktuell keine offenen Listen.</p></div>
+    }
+    else
+    {
+        <div class="dash-grid">
+            @foreach (var op in Ops)
+            {
+                <div class="dash-card hot">
+                    <div class="dash-ch">
+                        <div class="dash-chip" style="background:#FDE7EA;color:#E4002B"><i class="bi bi-truck"></i></div>
+                        <div><h4>@op.Title</h4><p class="k">@op.Sub</p></div>
+                    </div>
+                    <div class="dash-mrow"><span>Alarmiert</span><span class="v">@op.Time.ToString("dd.MM. HH:mm")</span></div>
+                    <div class="dash-mrow"><span>Status</span><span class="st st-run">läuft</span></div>
+                    <a class="dash-open" href="@op.Href">Öffnen <i class="bi bi-arrow-right"></i></a>
+                </div>
+            }
+            @foreach (var a in Att)
+            {
+                <div class="dash-card">
+                    <div class="dash-ch">
+                        <div class="dash-chip" style="background:#E7F0FE;color:#1F6FEB"><i class="bi bi-clipboard-check"></i></div>
+                        <div><h4>@a.Title</h4><p class="k">@a.Sub</p></div>
+                    </div>
+                    <div class="dash-mrow"><span>Erstellt</span><span class="v">@a.Time.ToString("dd.MM. HH:mm")</span></div>
+                    <div class="dash-mrow"><span>Status</span><span class="st st-open">offen</span></div>
+                    <a class="dash-open" href="@a.Href">Öffnen <i class="bi bi-arrow-right"></i></a>
+                </div>
+            }
+            @foreach (var w in Fsw)
+            {
+                <div class="dash-card">
+                    <div class="dash-ch">
+                        <div class="dash-chip" style="background:#FBEEDA;color:#C77700"><i class="bi bi-shield-check"></i></div>
+                        <div><h4>@w.Title</h4><p class="k">@w.Sub</p></div>
+                    </div>
+                    <div class="dash-mrow"><span>Beginn</span><span class="v">@w.Time.ToString("dd.MM. HH:mm")</span></div>
+                    <div class="dash-mrow"><span>Status</span><span class="st st-plan">geplant</span></div>
+                    <a class="dash-open" href="@w.Href">Öffnen <i class="bi bi-arrow-right"></i></a>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@if (_showFeedback)
+{
+    <div class="fb-backdrop" @onclick="() => _showFeedback = false"></div>
+    <div class="fb-modal" role="dialog" aria-modal="true">
+        <div class="fb-head">
+            <h5><i class="bi bi-chat-left-text me-2"></i>Feedback zu einem Einsatz</h5>
+            <button type="button" class="fb-x" @onclick="() => _showFeedback = false"><i class="bi bi-x-lg"></i></button>
+        </div>
+        <div class="fb-body">
+            @if (_selectedOp is null)
+            {
+                <p class="text-muted" style="font-size:13.5px;margin-bottom:12px">Einsatz auswählen – die letzten 5 werden angezeigt, oder nach Adresse / Stichwort suchen.</p>
+                <div class="mb-3">
+                    <input class="form-control" placeholder="Nach Adresse oder Stichwort suchen…" @bind="_search" @bind:event="oninput" @bind:after="SearchAsync" />
+                </div>
+                @if (_ops.Count == 0)
+                {
+                    <p class="text-muted text-center my-4">Keine Einsätze gefunden.</p>
+                }
+                else
+                {
+                    <div class="fb-list">
+                        @foreach (var op in _ops)
+                        {
+                            <button type="button" class="fb-item" @onclick="() => Select(op)">
+                                <span class="fb-item-kw">@(string.IsNullOrWhiteSpace(op.Keyword) ? "(ohne Stichwort)" : op.Keyword)</span>
+                                <span class="fb-item-addr">@(string.IsNullOrWhiteSpace(op.Address) ? "— keine Adresse —" : op.Address)</span>
+                                <span class="fb-item-meta">Einsatz @op.Number · @op.Time.ToString("dd.MM.yyyy HH:mm") Uhr</span>
+                            </button>
+                        }
+                    </div>
+                }
+            }
+            else
+            {
+                <div class="fb-selected">
+                    <div class="fb-sel-kw">@(string.IsNullOrWhiteSpace(_selectedOp.Keyword) ? "(ohne Stichwort)" : _selectedOp.Keyword)</div>
+                    <div class="fb-sel-meta">Einsatz @_selectedOp.Number · @(string.IsNullOrWhiteSpace(_selectedOp.Address) ? "— keine Adresse —" : _selectedOp.Address) · @_selectedOp.Time.ToString("dd.MM.yyyy HH:mm") Uhr</div>
+                    <button type="button" class="fb-change" @onclick="() => _selectedOp = null"><i class="bi bi-arrow-left"></i> Anderen Einsatz wählen</button>
+                </div>
+                <div class="mb-1">
+                    <label class="form-label">Dein Feedback</label>
+                    <textarea class="form-control" rows="6" @bind="_feedbackText" @bind:event="oninput" placeholder="Feedback zum Einsatz…"></textarea>
+                </div>
+                @if (_fbError is not null)
+                {
+                    <div class="alert alert-danger py-2 my-2 mb-0">@_fbError</div>
+                }
+            }
+        </div>
+        @if (_selectedOp is not null)
+        {
+            <div class="fb-foot">
+                <button type="button" class="btn btn-secondary" @onclick="() => _selectedOp = null" disabled="@_sending">Zurück</button>
+                <button type="button" class="btn btn-success" @onclick="SendFeedback" disabled="@(_sending || string.IsNullOrWhiteSpace(_feedbackText))">
+                    @if (_sending) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                    <i class="bi bi-send me-1"></i> Absenden
+                </button>
+            </div>
+        }
+    </div>
+}
+
+@if (_toast)
+{
+    <div class="fb-toast"><i class="bi bi-check-circle-fill me-1"></i> Feedback wurde gesendet. Danke!</div>
+}
+
+@code {
+    private OpenListsResponse? _data;
+    private AppContextDto? _ctx;
+    private System.Threading.Timer? _timer;
+
+    private ModuleFlags M => _ctx?.Modules ?? new ModuleFlags(true, true, true, true);
+    private List<ListItem> Ops => _data?.Operations ?? new();
+    private List<ListItem> Att => _data?.Attendance ?? new();
+    private List<ListItem> Fsw => _data?.Watches ?? new();
+
+    // Feedback
+    private bool _showFeedback;
+    private List<FeedbackOperationDto> _ops = new();
+    private string _search = string.Empty;
+    private FeedbackOperationDto? _selectedOp;
+    private string _feedbackText = string.Empty;
+    private bool _sending;
+    private string? _fbError;
+    private bool _toast;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try { _ctx = await Http.GetFromJsonAsync<AppContextDto>("client-api/app-context"); } catch { }
+        await LoadAsync();
+        _timer = new System.Threading.Timer(async _ => await InvokeAsync(LoadAsync), null,
+            TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+    }
+
+    private async Task LoadAsync()
+    {
+        try { _data = await Http.GetFromJsonAsync<OpenListsResponse>("client-api/open-lists"); } catch { }
+        StateHasChanged();
+    }
+
+    private async Task OpenFeedback()
+    {
+        _showFeedback = true;
+        _selectedOp = null;
+        _search = string.Empty;
+        _feedbackText = string.Empty;
+        _fbError = null;
+        await SearchAsync();
+    }
+
+    private async Task SearchAsync()
+    {
+        try
+        {
+            var url = string.IsNullOrWhiteSpace(_search)
+                ? "client-api/operations/recent"
+                : $"client-api/operations/recent?q={Uri.EscapeDataString(_search.Trim())}";
+            _ops = await Http.GetFromJsonAsync<List<FeedbackOperationDto>>(url) ?? new();
+        }
+        catch { _ops = new(); }
+    }
+
+    private void Select(FeedbackOperationDto op)
+    {
+        _selectedOp = op;
+        _fbError = null;
+    }
+
+    private async Task SendFeedback()
+    {
+        if (_selectedOp is null || string.IsNullOrWhiteSpace(_feedbackText)) return;
+        _sending = true;
+        _fbError = null;
+        try
+        {
+            var resp = await Http.PostAsJsonAsync("client-api/feedback", new { OperationId = _selectedOp.Id, Text = _feedbackText });
+            if (!resp.IsSuccessStatusCode) { _fbError = "Feedback konnte nicht gesendet werden."; }
+            else
+            {
+                var res = await resp.Content.ReadFromJsonAsync<FeedbackResult>();
+                switch (res?.Result)
+                {
+                    case "Sent":
+                        _showFeedback = false;
+                        _toast = true;
+                        _ = HideToast();
+                        break;
+                    case "NoRecipients":
+                        _fbError = "Es ist keine Feedback-Empfängeradresse hinterlegt. Bitte in den Einstellungen eintragen.";
+                        break;
+                    default:
+                        _fbError = "Feedback konnte nicht gesendet werden. Bitte SMTP-Einstellungen prüfen.";
+                        break;
+                }
+            }
+        }
+        catch { _fbError = "Feedback konnte nicht gesendet werden. Bitte später erneut versuchen."; }
+        finally { _sending = false; }
+    }
+
+    private async Task HideToast()
+    {
+        await Task.Delay(4000);
+        await InvokeAsync(() => { _toast = false; StateHasChanged(); });
+    }
+
+    private record FeedbackResult(string Result);
+
+    public void Dispose() => _timer?.Dispose();
+}

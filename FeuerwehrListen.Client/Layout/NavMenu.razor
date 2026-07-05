@@ -1,0 +1,101 @@
+@using FeuerwehrListen.Client.Models
+@inject HttpClient Http
+@inject NavigationManager Nav
+@implements IDisposable
+
+<header class="tw-appbar">
+    <a class="tw-brand" href="/">
+        @if (!string.IsNullOrWhiteSpace(_ctx?.LogoUrl))
+        {
+            <img src="@_ctx!.LogoUrl" alt="" />
+        }
+        <span>@(_ctx?.AppName ?? "Feuerwehr Listen")</span>
+    </a>
+
+    <nav class="tw-nav">
+        <a href="/" class="@Active("/")"><i class="bi bi-house"></i> Übersicht</a>
+        @if (M.Attendance)
+        {
+            <a href="create-attendance" class="@Active("create-attendance")"><i class="bi bi-clipboard-check"></i> Anwesenheit</a>
+        }
+        @if (M.Operations)
+        {
+            <a href="create-operation" class="@Active("create-operation")"><i class="bi bi-truck"></i> Einsatz</a>
+        }
+        @if (M.FireSafety)
+        {
+            <a href="firesafetywatches" class="@Active("firesafetywatches")"><i class="bi bi-shield-check"></i> Wachen</a>
+        }
+        @if (M.Defects)
+        {
+            <a href="defects" class="@Active("defects")"><i class="bi bi-tools"></i> Mängel</a>
+        }
+    </nav>
+
+    <div class="tw-right">
+        <a class="tw-login" href="login"><i class="bi bi-unlock"></i> Login</a>
+    </div>
+
+    <button class="tw-hamburger" @onclick="ToggleMobile" aria-label="Menü">
+        <i class="bi bi-list"></i>
+    </button>
+</header>
+
+@if (_mobileOpen)
+{
+    <div class="tw-backdrop" @onclick="() => _mobileOpen = false"></div>
+    <nav class="tw-mobile-menu">
+        <div class="mm-head">
+            <b>@(_ctx?.AppName ?? "Feuerwehr Listen")</b>
+            <button @onclick="() => _mobileOpen = false" aria-label="Schließen"><i class="bi bi-x"></i></button>
+        </div>
+        <a href="/"><i class="bi bi-house"></i> Übersicht</a>
+        @if (M.Attendance)
+        {
+            <a href="create-attendance"><i class="bi bi-clipboard-check"></i> Neue Anwesenheitsliste</a>
+        }
+        @if (M.Operations)
+        {
+            <a href="create-operation"><i class="bi bi-truck"></i> Neue Einsatzliste</a>
+        }
+        @if (M.FireSafety)
+        {
+            <a href="firesafetywatches"><i class="bi bi-shield-check"></i> Brandsicherheitswachen</a>
+        }
+        @if (M.Defects)
+        {
+            <a href="defects"><i class="bi bi-tools"></i> Mängelliste</a>
+        }
+        <div class="mm-sect">Konto</div>
+        <a href="login"><i class="bi bi-unlock"></i> Login</a>
+    </nav>
+}
+
+@code {
+    private AppContextDto? _ctx;
+    private bool _mobileOpen;
+    private ModuleFlags M => _ctx?.Modules ?? new ModuleFlags(true, true, true, true);
+
+    protected override async Task OnInitializedAsync()
+    {
+        try { _ctx = await Http.GetFromJsonAsync<AppContextDto>("client-api/app-context"); } catch { }
+        Nav.LocationChanged += OnLocationChanged;
+    }
+
+    private void OnLocationChanged(object? s, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        _mobileOpen = false;
+        StateHasChanged();
+    }
+
+    private void ToggleMobile() => _mobileOpen = !_mobileOpen;
+
+    private string Active(string path)
+    {
+        var rel = Nav.ToBaseRelativePath(Nav.Uri).TrimEnd('/');
+        var target = path.TrimStart('/').TrimEnd('/');
+        return rel.Equals(target, StringComparison.OrdinalIgnoreCase) ? "active" : "";
+    }
+
+    public void Dispose() => Nav.LocationChanged -= OnLocationChanged;
+}

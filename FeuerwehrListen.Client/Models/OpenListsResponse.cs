@@ -5,6 +5,7 @@ public record OpenListsResponse(
     DateTime ServerTime,
     List<ListItem> Operations,
     List<ListItem> Attendance,
-    List<ListItem> Watches);
+    List<ListItem> Watches,
+    int OpenDefects);
 
 public record ListItem(int Id, string Title, string? Sub, DateTime Time, string Href);
