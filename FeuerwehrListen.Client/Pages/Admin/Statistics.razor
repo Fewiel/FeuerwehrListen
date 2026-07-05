@@ -1,0 +1,67 @@
+@page "/admin/statistics"
+@rendermode InteractiveWebAssembly
+@layout MainLayout
+@using System.Net.Http.Json
+@inject HttpClient Http
+
+<PageTitle>Statistiken - Admin</PageTitle>
+
+<AuthGuard RequireAdmin="true">
+    <div class="container mt-4">
+        <h1 class="mb-4">Statistiken</h1>
+
+        @if (_d is null) { <p><em>Lade…</em></p> }
+        else
+        {
+            <div class="row mb-4">
+                @Stat("Listen gesamt", _d.List.TotalLists)
+                @Stat("Offen", _d.List.OpenLists)
+                @Stat("Abgeschlossen", _d.List.ClosedLists)
+                @Stat("Archiviert", _d.List.ArchivedLists)
+                @Stat("Ø Teilnehmer", Math.Round(_d.List.AverageParticipants, 1))
+                @Stat("Teilnahmen gesamt", _d.List.TotalParticipants)
+            </div>
+
+            <div class="card mb-4"><div class="card-header"><h5 class="mb-0">Top-Teilnehmer</h5></div><div class="card-body">
+                <div class="table-responsive"><table class="table table-sm table-hover">
+                    <thead><tr><th>#</th><th>Name</th><th>Nummer</th><th>Teilnahmen</th><th>Quote</th></tr></thead>
+                    <tbody>
+                        @{ var i = 1; }
+                        @foreach (var t in _d.Top)
+                        {
+                            <tr><td>@(i++)</td><td>@t.MemberName</td><td>@t.MemberNumber</td><td>@t.ParticipationCount</td><td>@Math.Round(t.Percentage, 1)%</td></tr>
+                        }
+                    </tbody>
+                </table></div>
+            </div></div>
+
+            <div class="card"><div class="card-header"><h5 class="mb-0">Mitglieder-Statistik</h5></div><div class="card-body">
+                <div class="table-responsive"><table class="table table-sm table-hover">
+                    <thead><tr><th>Name</th><th>Nummer</th><th>Anwesenheit</th><th>Einsätze</th><th>Quote</th></tr></thead>
+                    <tbody>
+                        @foreach (var m in _d.Members)
+                        {
+                            <tr><td>@m.MemberName</td><td>@m.MemberNumber</td><td>@m.TotalAttendance</td><td>@m.TotalOperations</td><td>@Math.Round(m.AttendancePercentage, 1)%</td></tr>
+                        }
+                    </tbody>
+                </table></div>
+            </div></div>
+        }
+    </div>
+</AuthGuard>
+
+@code {
+    private StatsDto? _d;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try { _d = await Http.GetFromJsonAsync<StatsDto>("client-api/admin/statistics"); } catch { }
+    }
+
+    private RenderFragment Stat(string label, object value) =>@<div class="col-6 col-md-2 mb-3"><div class="card text-center"><div class="card-body py-3"><div class="fs-4 fw-bold">@value</div><div class="small text-muted">@label</div></div></div></div>;
+
+    private record ListStat(int TotalLists, int OpenLists, int ClosedLists, int ArchivedLists, double AverageParticipants, int TotalParticipants);
+    private record TopP(string MemberName, string MemberNumber, int ParticipationCount, double Percentage);
+    private record MemberStat(string MemberName, string MemberNumber, int TotalAttendance, int TotalOperations, double AttendancePercentage);
+    private record StatsDto(ListStat List, List<TopP> Top, List<MemberStat> Members);
+}

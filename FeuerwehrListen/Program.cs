@@ -494,6 +494,20 @@ admin.MapPut("/users/{id:int}", async (int id, UserRepository repo, UserReq r) =
 });
 admin.MapDelete("/users/{id:int}", async (int id, UserRepository repo) => { await repo.DeleteAsync(id); return Results.Ok(); });
 
+// --- Statistik ---
+admin.MapGet("/statistics", async (StatisticsService stats) =>
+{
+    var list = await stats.GetListStatisticsAsync();
+    var top = await stats.GetTopParticipantsAsync(null, 10);
+    var members = await stats.GetMemberStatisticsAsync();
+    return Results.Json(new
+    {
+        list = new { list.TotalLists, list.OpenLists, list.ClosedLists, list.ArchivedLists, list.AverageParticipants, list.TotalParticipants },
+        top = top.Select(t => new { t.MemberName, t.MemberNumber, t.ParticipationCount, t.Percentage }),
+        members = members.Select(m => new { m.MemberName, m.MemberNumber, m.TotalAttendance, m.TotalOperations, m.AttendancePercentage })
+    });
+});
+
 // --- Einstellungen (Key-Value) ---
 admin.MapGet("/settings", async (SettingsService settings) =>
     Results.Json(await settings.GetAllSettingsAsync()));
