@@ -738,6 +738,10 @@ app.MapGet("/client-api/operation/{id:int}", async (int id, OperationListReposit
     });
 });
 
+// Einsatz-Eintrag loeschen (Bearbeiten-Seite, angemeldet)
+app.MapDelete("/client-api/operation/{id:int}/entry/{entryId:int}", async (int entryId, OperationEntryRepository repo) =>
+{ await repo.DeleteAsync(entryId); return Results.Ok(); }).RequireAuthorization().DisableAntiforgery();
+
 // Mitglied fuer Einsatz-Eintrag aufloesen (danach waehlt der Client Fahrzeug + Funktionen)
 app.MapPost("/client-api/operation/{id:int}/resolve", async (int id, MemberRepository memberRepo, OperationResolveRequest req) =>
 {
