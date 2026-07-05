@@ -1,0 +1,145 @@
+@page "/login"
+@rendermode InteractiveWebAssembly
+@layout MainLayout
+@using System.Net.Http.Json
+@inject HttpClient Http
+@inject NavigationManager Nav
+
+<PageTitle>Login - Feuerwehr Listen</PageTitle>
+
+<div class="login-container">
+    <div class="login-card">
+        <div class="login-header">
+            <h2>🚒 Feuerwehr Listen</h2>
+            <p class="text-muted">Admin-Bereich</p>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_error)) { <div class="alert alert-danger">@_error</div> }
+
+        <div class="login-form">
+            <div class="mb-3">
+                <label class="form-label">Benutzername</label>
+                <input type="text" class="form-control" @bind="_username" @bind:event="oninput"
+                       @onkeyup="@(async e => { if (e.Key == "Enter") await DoLogin(); })" />
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Passwort</label>
+                <input type="password" class="form-control" @bind="_password" @bind:event="oninput"
+                       @onkeyup="@(async e => { if (e.Key == "Enter") await DoLogin(); })" />
+            </div>
+            <div class="d-grid">
+                <button class="btn btn-primary btn-lg" @onclick="DoLogin" disabled="@_busy">@(_busy ? "Anmelden…" : "Anmelden")</button>
+            </div>
+        </div>
+
+        <div class="login-divider"><span>oder</span></div>
+
+        <div class="text-center mb-2">
+            <button class="btn btn-outline-info w-100" @onclick="() => _showQr = !_showQr">
+                <i class="bi bi-qr-code-scan me-2"></i>@(_showQr ? "QR-Login verbergen" : "Login per QR-Code")
+            </button>
+        </div>
+
+        @if (_showQr) { <div class="mt-3"><QrScanner IsActive="true" OnCodeScanned="HandleQr" /></div> }
+    </div>
+</div>
+
+@if (_showPin)
+{
+    <div class="modal fade show" style="display:block;background-color:rgba(0,0,0,0.7);">
+        <div class="modal-dialog modal-sm modal-dialog-centered">
+            <div class="modal-content bg-dark text-light border-secondary">
+                <div class="modal-header border-secondary">
+                    <h5 class="modal-title"><i class="bi bi-shield-lock me-2"></i>Admin-PIN</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CancelPin"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="numpad">
+                        <div class="numpad-display">@(new string('•', _pin.Length))</div>
+                        @foreach (var d in new[] { "1", "2", "3", "4", "5", "6", "7", "8", "9" })
+                        {
+                            <button type="button" class="numpad-btn" @onclick="() => _pin += d">@d</button>
+                        }
+                        <button type="button" class="numpad-btn numpad-btn-clear" @onclick="@(() => { if (_pin.Length > 0) _pin = _pin[..^1]; })"><i class="bi bi-arrow-left"></i></button>
+                        <button type="button" class="numpad-btn" @onclick="@(() => _pin += "0")">0</button>
+                        <button type="button" class="numpad-btn numpad-btn-submit" @onclick="SubmitPin"><i class="bi bi-check-lg"></i></button>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(_pinError)) { <div class="alert alert-danger mt-3 mb-0">@_pinError</div> }
+                </div>
+                <div class="modal-footer border-secondary"><button class="btn btn-secondary w-100" @onclick="CancelPin">Abbrechen</button></div>
+            </div>
+        </div>
+    </div>
+    <style>
+        .numpad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; }
+        .numpad-display { grid-column: span 3; background: #EDF0F3; color: #171B21; padding: 0.5rem; text-align: center; font-size: 2rem; letter-spacing: 0.5rem; border-radius: 8px; margin-bottom: 0.5rem; min-height: 60px; }
+        .numpad-btn { background: #FFFFFF; border: 1px solid #D6DBE1; color: #171B21; border-radius: 10px; font-size: 1.5rem; font-weight: 700; height: 60px; cursor: pointer; }
+        .numpad-btn-clear { color: #C77700; } .numpad-btn-submit { color: #1E874B; }
+    </style>
+}
+
+<style>
+    .login-container { min-height: 80vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+    .login-card { background: #FFFFFF; border: 1px solid #E4E8ED; border-radius: 16px; padding: 40px; width: 100%; max-width: 420px; box-shadow: 0 10px 30px rgba(21,25,30,0.08); }
+    .login-header { text-align: center; margin-bottom: 30px; }
+    .login-divider { display: flex; align-items: center; text-align: center; color: #8A929C; margin: 20px 0; }
+    .login-divider::before, .login-divider::after { content: ''; flex: 1; border-bottom: 1px solid #E4E8ED; }
+    .login-divider span { padding: 0 12px; font-size: 14px; }
+</style>
+
+@code {
+    private string _username = "", _password = "", _error = "";
+    private bool _busy, _showQr;
+    private bool _showPin;
+    private string _pin = "", _pinError = "", _pendingCode = "";
+
+    private async Task DoLogin()
+    {
+        if (_busy) return;
+        _error = "";
+        if (string.IsNullOrWhiteSpace(_username) || string.IsNullOrWhiteSpace(_password)) { _error = "Bitte alle Felder ausfüllen."; return; }
+        _busy = true;
+        try
+        {
+            var resp = await Http.PostAsJsonAsync("client-api/auth/login", new { Username = _username, Password = _password });
+            var r = await resp.Content.ReadFromJsonAsync<OkDto>();
+            if (r?.Ok == true) await SuccessAsync();
+            else { _error = "Ungültige Anmeldedaten."; _password = ""; }
+        }
+        catch { _error = "Login-Fehler."; }
+        finally { _busy = false; }
+    }
+
+    private async Task HandleQr(string code) { _error = ""; _pendingCode = code.Trim(); await PostQr(null); }
+
+    private async Task PostQr(string? pin)
+    {
+        try
+        {
+            var resp = await Http.PostAsJsonAsync("client-api/auth/qr", new { Code = _pendingCode, Pin = pin });
+            var r = await resp.Content.ReadFromJsonAsync<QrDto>();
+            switch (r?.Status)
+            {
+                case "ok": _showPin = false; await SuccessAsync(); break;
+                case "pin": _pin = ""; _pinError = ""; _showPin = true; break;
+                case "badpin": _pinError = "Falsche PIN."; _pin = ""; break;
+                case "invalid": _error = "Ungültiger QR-Code."; break;
+                default: _error = "Login-Fehler."; break;
+            }
+        }
+        catch { _error = "Login-Fehler."; }
+    }
+
+    private async Task SubmitPin() { if (string.IsNullOrWhiteSpace(_pin)) { _pinError = "Bitte PIN eingeben."; return; } await PostQr(_pin); }
+    private void CancelPin() { _showPin = false; _pin = ""; _pinError = ""; _pendingCode = ""; }
+
+    private async Task SuccessAsync()
+    {
+        // forceLoad: kompletter Reload -> Auth-Status wird ueberall frisch geladen.
+        await Task.CompletedTask;
+        Nav.NavigateTo("/", forceLoad: true);
+    }
+
+    private record OkDto(bool Ok);
+    private record QrDto(string Status);
+}

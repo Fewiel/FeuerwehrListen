@@ -17,11 +17,14 @@ public enum QrLoginResult
     InvalidPin
 }
 
-public class AuthenticationService : AuthenticationStateProvider
+public class AuthenticationService : AuthenticationStateProvider, IHostEnvironmentAuthenticationStateProvider
 {
     private User? _currentUser;
     private readonly IServiceProvider _serviceProvider;
     private readonly ProtectedLocalStorage _localStorage;
+
+    // Vom Framework beim (Pre-)Rendern mit der HttpContext-Identitaet (Cookie) gesetzt.
+    private Task<AuthenticationState>? _hostAuthStateTask;
 
     public AuthenticationService(IServiceProvider serviceProvider, ProtectedLocalStorage localStorage)
     {
@@ -33,9 +36,38 @@ public class AuthenticationService : AuthenticationStateProvider
     public bool IsAuthenticated => _currentUser != null;
     public bool IsAdmin => _currentUser?.Role == UserRole.Admin;
 
-    public override Task<AuthenticationState> GetAuthenticationStateAsync()
+    // IHostEnvironmentAuthenticationStateProvider: Cookie-Login (WASM /client-api/auth/*)
+    // wird so auch fuer die (noch) serverseitig gerenderten Admin-Seiten sichtbar.
+    public void SetAuthenticationState(Task<AuthenticationState> authenticationStateTask)
     {
-        return Task.FromResult(BuildAuthState());
+        _hostAuthStateTask = authenticationStateTask ?? throw new ArgumentNullException(nameof(authenticationStateTask));
+    }
+
+    public override async Task<AuthenticationState> GetAuthenticationStateAsync()
+    {
+        if (_currentUser == null && _hostAuthStateTask != null)
+        {
+            try
+            {
+                var hostState = await _hostAuthStateTask;
+                if (hostState.User.Identity?.IsAuthenticated == true)
+                    SeedFromPrincipal(hostState.User);
+            }
+            catch { }
+        }
+        return BuildAuthState();
+    }
+
+    private void SeedFromPrincipal(ClaimsPrincipal principal)
+    {
+        var roleStr = principal.FindFirst(ClaimTypes.Role)?.Value;
+        _currentUser = new User
+        {
+            Username = principal.Identity?.Name ?? string.Empty,
+            Role = Enum.TryParse<UserRole>(roleStr, out var role) ? role : UserRole.User,
+            FirstName = principal.FindFirst("FirstName")?.Value ?? string.Empty,
+            LastName = principal.FindFirst("LastName")?.Value ?? string.Empty
+        };
     }
 
     private AuthenticationState BuildAuthState()
@@ -60,6 +92,11 @@ public class AuthenticationService : AuthenticationStateProvider
     /// </summary>
     public async Task<bool> TryRestoreSessionAsync()
     {
+        if (_currentUser != null)
+            return true;
+
+        // Zuerst die Cookie-Session (WASM-Login) uebernehmen, falls vorhanden.
+        await GetAuthenticationStateAsync();
         if (_currentUser != null)
             return true;
 

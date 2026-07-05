@@ -1,0 +1,42 @@
+@using Microsoft.AspNetCore.Components.Authorization
+@inject NavigationManager Nav
+@inject AuthenticationStateProvider AuthProvider
+
+@if (_ready)
+{
+    @if (_ok)
+    {
+        @ChildContent
+    }
+    else
+    {
+        <div class="container mt-5 text-center">
+            <div class="alert alert-warning d-inline-block">
+                <i class="bi bi-shield-lock me-1"></i> Kein Zugriff. Bitte anmelden.
+            </div>
+            <div><a class="btn btn-primary mt-2" href="login">Zum Login</a></div>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public bool RequireAdmin { get; set; }
+
+    private bool _ready;
+    private bool _ok;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthProvider.GetAuthenticationStateAsync();
+        var u = state.User;
+        var authed = u.Identity?.IsAuthenticated == true;
+        _ok = authed && (!RequireAdmin || u.IsInRole("Admin"));
+        _ready = true;
+        if (!_ok && !authed)
+        {
+            // Nicht angemeldet -> direkt zum Login
+            Nav.NavigateTo("login", forceLoad: false);
+        }
+    }
+}

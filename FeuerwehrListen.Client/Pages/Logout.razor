@@ -1,0 +1,18 @@
+@page "/logout"
+@rendermode InteractiveWebAssembly
+@layout MainLayout
+@inject HttpClient Http
+@inject NavigationManager Nav
+
+<PageTitle>Abmelden</PageTitle>
+<div class="container mt-5 text-center"><p>Du wirst abgemeldet…</p></div>
+
+@code {
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try { await Http.PostAsync("client-api/auth/logout", null); } catch { }
+        // forceLoad: kompletter Reload -> Auth-Status ueberall frisch (abgemeldet).
+        Nav.NavigateTo("/", forceLoad: true);
+    }
+}

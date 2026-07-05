@@ -54,7 +54,10 @@ builder.Services.AddRazorComponents()
 builder.Services.AddScoped<FeuerwehrListen.Services.AuthenticationService>();
 builder.Services.AddScoped<AuthenticationStateProvider>(sp => sp.GetRequiredService<FeuerwehrListen.Services.AuthenticationService>());
 builder.Services.AddCascadingAuthenticationState();
-builder.Services.AddAuthorizationCore();
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("Admin", p => p.RequireRole("Admin"));
+});
 
 // Cookie-Auth fuer den WASM-Client (Admin-Bereich). Additiv - die bestehende
 // serverseitige AuthenticationService/QR-Anmeldung bleibt unangetastet.
