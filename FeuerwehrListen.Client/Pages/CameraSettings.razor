@@ -1,45 +1,36 @@
 @page "/camera-settings"
-@rendermode InteractiveServer
-@using Microsoft.JSInterop
+@rendermode InteractiveWebAssembly
+@layout MainLayout
 @inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<PageTitle>Kamera-Einstellungen</PageTitle>
 
 <div class="container">
     <div class="content">
         <h1><i class="bi bi-camera-video me-2"></i>Kamera-Einstellungen</h1>
-        <p class="text-muted">W&auml;hle die Kamera f&uuml;r den QR-Code-Scanner. Standard ist die <strong>Frontkamera</strong>. Die Auswahl wird auf diesem Ger&auml;t gespeichert und bleibt auch nach Updates erhalten.</p>
+        <p class="text-muted">Wähle die Kamera für den QR-Code-Scanner. Standard ist die <strong>Frontkamera</strong>. Die Auswahl wird auf diesem Gerät gespeichert und bleibt auch nach Updates erhalten.</p>
 
         <div class="row">
             <div class="col-md-6">
                 <div class="card">
-                    <div class="card-header">
-                        <h5>Kamera ausw&auml;hlen</h5>
-                    </div>
+                    <div class="card-header"><h5>Kamera auswählen</h5></div>
                     <div class="card-body">
                         <div class="mb-3">
                             <label class="form-label">Kamera</label>
                             <select class="form-select" value="@_facing" @onchange="OnCameraChanged">
                                 <option value="user">Frontkamera (Standard)</option>
-                                <option value="environment">R&uuml;ckkamera</option>
+                                <option value="environment">Rückkamera</option>
                             </select>
                         </div>
-
-                        <button class="btn btn-primary" @onclick="SaveSettings">
-                            <i class="bi bi-check-lg me-2"></i>Speichern
-                        </button>
-
-                        @if (_saved)
-                        {
-                            <span class="badge bg-success ms-2">Gespeichert!</span>
-                        }
+                        <button class="btn btn-primary" @onclick="SaveSettings"><i class="bi bi-check-lg me-2"></i>Speichern</button>
+                        @if (_saved) { <span class="badge bg-success ms-2">Gespeichert!</span> }
                     </div>
                 </div>
             </div>
-
             <div class="col-md-6">
                 <div class="card">
-                    <div class="card-header">
-                        <h5>Vorschau</h5>
-                    </div>
+                    <div class="card-header"><h5>Vorschau</h5></div>
                     <div class="card-body p-0">
                         <video id="@_previewVideoId" style="width: 100%; display: block; border-radius: 0 0 4px 4px;" autoplay muted playsinline></video>
                     </div>
@@ -48,8 +39,6 @@
         </div>
     </div>
 </div>
-
-@implements IAsyncDisposable
 
 @code {
     private string _facing = "user";
@@ -64,7 +53,6 @@
             {
                 _facing = await JS.InvokeAsync<string?>("qrScanner.loadFacing") ?? "user";
                 StateHasChanged();
-
                 await Task.Delay(100);
                 await StartPreview();
             }
@@ -98,10 +86,6 @@
 
     public async ValueTask DisposeAsync()
     {
-        try
-        {
-            await JS.InvokeVoidAsync("qrScanner.stopPreview", _previewVideoId);
-        }
-        catch { }
+        try { await JS.InvokeVoidAsync("qrScanner.stopPreview", _previewVideoId); } catch { }
     }
 }
