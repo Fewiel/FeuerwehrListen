@@ -347,6 +347,98 @@ app.MapGet("/client-api/auth/me", (HttpContext ctx) =>
     });
 });
 
+// ================== ADMIN-CRUD (Cookie-Auth, Rolle Admin) ==================
+var admin = app.MapGroup("/client-api/admin").RequireAuthorization("Admin").DisableAntiforgery();
+
+// --- Fahrzeuge ---
+admin.MapGet("/vehicles", async (VehicleRepository repo) =>
+    Results.Json((await repo.GetAllAsync()).Select(v => new { id = v.Id, name = v.Name, callSign = v.CallSign, type = v.Type.ToString(), isActive = v.IsActive, createdAt = v.CreatedAt })));
+admin.MapPost("/vehicles", async (VehicleRepository repo, VehicleReq r) =>
+{
+    var id = await repo.CreateAsync(new Vehicle { Name = r.Name.Trim(), CallSign = r.CallSign.Trim(), Type = Enum.TryParse<VehicleType>(r.Type, out var t) ? t : VehicleType.Sonstige, IsActive = r.IsActive, CreatedAt = DateTime.Now });
+    return Results.Json(new { id });
+});
+admin.MapPut("/vehicles/{id:int}", async (int id, VehicleRepository repo, VehicleReq r) =>
+{
+    var v = await repo.GetByIdAsync(id); if (v == null) return Results.NotFound();
+    v.Name = r.Name.Trim(); v.CallSign = r.CallSign.Trim(); v.Type = Enum.TryParse<VehicleType>(r.Type, out var t) ? t : v.Type; v.IsActive = r.IsActive;
+    await repo.UpdateAsync(v); return Results.Ok();
+});
+admin.MapDelete("/vehicles/{id:int}", async (int id, VehicleRepository repo) => { await repo.DeleteAsync(id); return Results.Ok(); });
+
+// --- Stichwoerter ---
+admin.MapGet("/keywords", async (KeywordRepository repo) =>
+    Results.Json((await repo.GetAllAsync()).Select(k => new { id = k.Id, name = k.Name, description = k.Description })));
+admin.MapPost("/keywords", async (KeywordRepository repo, KeywordReq r) =>
+{
+    var id = await repo.CreateAsync(new Keyword { Name = r.Name.Trim(), Description = r.Description, IsActive = true, CreatedAt = DateTime.Now });
+    return Results.Json(new { id });
+});
+admin.MapPut("/keywords/{id:int}", async (int id, KeywordRepository repo, KeywordReq r) =>
+{
+    var k = await repo.GetByIdAsync(id); if (k == null) return Results.NotFound();
+    k.Name = r.Name.Trim(); k.Description = r.Description; await repo.UpdateAsync(k); return Results.Ok();
+});
+admin.MapDelete("/keywords/{id:int}", async (int id, KeywordRepository repo) => { await repo.DeleteAsync(id); return Results.Ok(); });
+
+// --- Funktionen ---
+admin.MapGet("/functions", async (OperationFunctionRepository repo) =>
+    Results.Json((await repo.GetAllAsync()).Select(f => new { id = f.Id, name = f.Name, isDefault = f.IsDefault })));
+admin.MapPost("/functions", async (OperationFunctionRepository repo, FunctionReq r) =>
+{
+    var id = await repo.CreateAsync(new OperationFunctionDef { Name = r.Name.Trim(), IsDefault = r.IsDefault });
+    return Results.Json(new { id });
+});
+admin.MapPut("/functions/{id:int}", async (int id, OperationFunctionRepository repo, FunctionReq r) =>
+{
+    await repo.UpdateAsync(new OperationFunctionDef { Id = id, Name = r.Name.Trim(), IsDefault = r.IsDefault }); return Results.Ok();
+});
+admin.MapDelete("/functions/{id:int}", async (int id, OperationFunctionRepository repo) => { await repo.DeleteAsync(id); return Results.Ok(); });
+
+// --- API-Keys ---
+admin.MapGet("/apikeys", async (ApiKeyRepository repo) =>
+    Results.Json((await repo.GetAllAsync()).Select(k => new { id = k.Id, key = k.Key, description = k.Description, isActive = k.IsActive, createdAt = k.CreatedAt })));
+admin.MapPost("/apikeys", async (ApiKeyRepository repo, ApiKeyReq r) =>
+{
+    var key = Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=", "").Replace("+", "").Replace("/", "") + Convert.ToBase64String(Guid.NewGuid().ToByteArray()).Replace("=", "").Replace("+", "").Replace("/", "");
+    var id = await repo.CreateAsync(new ApiKey { Key = key, Description = r.Description?.Trim() ?? "", IsActive = true, CreatedAt = DateTime.Now });
+    return Results.Json(new { id, key });
+});
+admin.MapPost("/apikeys/{id:int}/toggle", async (int id, ApiKeyRepository repo) =>
+{
+    var k = await repo.GetByIdAsync(id); if (k == null) return Results.NotFound();
+    k.IsActive = !k.IsActive; await repo.UpdateAsync(k); return Results.Json(new { isActive = k.IsActive });
+});
+admin.MapDelete("/apikeys/{id:int}", async (int id, ApiKeyRepository repo) => { await repo.DeleteAsync(id); return Results.Ok(); });
+
+// --- Benutzer ---
+admin.MapGet("/users", async (UserRepository repo) =>
+    Results.Json((await repo.GetAllAsync()).Select(u => new { id = u.Id, username = u.Username, firstName = u.FirstName, lastName = u.LastName, role = u.Role.ToString(), hasQr = !string.IsNullOrEmpty(u.QrAuthCode), hasPin = !string.IsNullOrEmpty(u.AdminPin) })));
+admin.MapPost("/users", async (UserRepository repo, UserReq r) =>
+{
+    var id = await repo.CreateAsync(new User
+    {
+        Username = r.Username.Trim(),
+        FirstName = r.FirstName?.Trim() ?? "", LastName = r.LastName?.Trim() ?? "",
+        Role = Enum.TryParse<UserRole>(r.Role, out var role) ? role : UserRole.User,
+        PasswordHash = FeuerwehrListen.Services.AuthenticationService.HashPassword(r.Password ?? ""),
+        QrAuthCode = string.IsNullOrWhiteSpace(r.QrAuthCode) ? null : r.QrAuthCode.Trim(),
+        AdminPin = string.IsNullOrWhiteSpace(r.AdminPin) ? null : r.AdminPin.Trim()
+    });
+    return Results.Json(new { id });
+});
+admin.MapPut("/users/{id:int}", async (int id, UserRepository repo, UserReq r) =>
+{
+    var u = await repo.GetByIdAsync(id); if (u == null) return Results.NotFound();
+    u.Username = r.Username.Trim(); u.FirstName = r.FirstName?.Trim() ?? ""; u.LastName = r.LastName?.Trim() ?? "";
+    u.Role = Enum.TryParse<UserRole>(r.Role, out var role) ? role : u.Role;
+    if (!string.IsNullOrWhiteSpace(r.Password)) u.PasswordHash = FeuerwehrListen.Services.AuthenticationService.HashPassword(r.Password);
+    u.QrAuthCode = string.IsNullOrWhiteSpace(r.QrAuthCode) ? null : r.QrAuthCode.Trim();
+    u.AdminPin = string.IsNullOrWhiteSpace(r.AdminPin) ? null : r.AdminPin.Trim();
+    await repo.UpdateAsync(u); return Results.Ok();
+});
+admin.MapDelete("/users/{id:int}", async (int id, UserRepository repo) => { await repo.DeleteAsync(id); return Results.Ok(); });
+
 // Anwesenheitsliste: Detail + Eintraege
 app.MapGet("/client-api/attendance/{id:int}", async (int id, AttendanceListRepository repo, AttendanceEntryRepository entryRepo, SettingsService settings) =>
 {
@@ -621,6 +713,11 @@ static async Task SignInUser(HttpContext ctx, User user)
         new AuthenticationProperties { IsPersistent = true });
 }
 
+public record VehicleReq(string Name, string CallSign, string Type, bool IsActive);
+public record KeywordReq(string Name, string? Description);
+public record FunctionReq(string Name, bool IsDefault);
+public record ApiKeyReq(string? Description);
+public record UserReq(string Username, string? FirstName, string? LastName, string Role, string? Password, string? QrAuthCode, string? AdminPin);
 public record AuthLoginRequest(string? Username, string? Password);
 public record AuthQrRequest(string? Code, string? Pin);
 public record FeedbackRequest(int OperationId, string? Text);

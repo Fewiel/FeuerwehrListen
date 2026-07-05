@@ -1,0 +1,93 @@
+@page "/admin/vehicles"
+@rendermode InteractiveWebAssembly
+@layout MainLayout
+@using System.Net.Http.Json
+@inject HttpClient Http
+
+<PageTitle>Fahrzeuge - Admin</PageTitle>
+
+<AuthGuard RequireAdmin="true">
+    <div class="container mt-4">
+        <div class="row mb-4">
+            <div class="col"><h1>Fahrzeuge</h1></div>
+            <div class="col-auto"><button class="btn btn-primary" @onclick="ShowAdd"><i class="bi bi-plus-circle"></i> Neues Fahrzeug</button></div>
+        </div>
+
+        @if (_showForm)
+        {
+            <div class="row mb-4"><div class="col-md-8 offset-md-2"><div class="card"><div class="card-body">
+                <h5 class="card-title">@(_editId is null ? "Neues Fahrzeug" : "Fahrzeug bearbeiten")</h5>
+                <div class="mb-3"><label class="form-label">Name</label><input class="form-control" @bind="_name" placeholder="z.B. Löschfahrzeug 10" /></div>
+                <div class="mb-3"><label class="form-label">Funkrufname</label><input class="form-control" @bind="_callSign" placeholder="z.B. Florian Musterstadt 10/1" /></div>
+                <div class="mb-3"><label class="form-label">Typ</label>
+                    <select class="form-select" @bind="_type">
+                        <option value="LF">LF - Löschfahrzeug</option><option value="TLF">TLF - Tanklöschfahrzeug</option>
+                        <option value="DLK">DLK - Drehleiter</option><option value="RW">RW - Rüstwagen</option>
+                        <option value="MTW">MTW - Mannschaftstransportwagen</option><option value="KdoW">KdoW - Kommandowagen</option>
+                        <option value="Sonstige">Sonstige</option>
+                    </select>
+                </div>
+                <div class="mb-3"><div class="form-check"><input class="form-check-input" type="checkbox" id="act" @bind="_isActive" /><label class="form-check-label" for="act">Aktiv</label></div></div>
+                <button class="btn btn-primary me-2" @onclick="Save" disabled="@_saving">Speichern</button>
+                <button class="btn btn-secondary" @onclick="() => _showForm = false">Abbrechen</button>
+            </div></div></div></div>
+        }
+
+        <div class="card"><div class="card-body">
+            @if (_items is null) { <p><em>Lade…</em></p> }
+            else if (_items.Count == 0) { <p class="text-muted">Keine Fahrzeuge vorhanden</p> }
+            else
+            {
+                <div class="table-responsive"><table class="table table-hover">
+                    <thead><tr><th>Name</th><th>Funkrufname</th><th>Typ</th><th>Status</th><th>Aktionen</th></tr></thead>
+                    <tbody>
+                        @foreach (var v in _items)
+                        {
+                            <tr>
+                                <td><strong>@v.Name</strong></td><td>@v.CallSign</td><td>@v.Type</td>
+                                <td>@if (v.IsActive) { <span class="badge bg-success">Aktiv</span> } else { <span class="badge bg-secondary">Inaktiv</span> }</td>
+                                <td>
+                                    <button class="btn btn-sm btn-primary me-2" @onclick="() => Edit(v)">Bearbeiten</button>
+                                    <button class="btn btn-sm btn-danger" @onclick="() => Delete(v.Id)">Löschen</button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table></div>
+            }
+        </div></div>
+    </div>
+</AuthGuard>
+
+@code {
+    private List<VehicleDto>? _items;
+    private bool _showForm, _saving;
+    private int? _editId;
+    private string _name = "", _callSign = "", _type = "LF";
+    private bool _isActive = true;
+
+    protected override async Task OnInitializedAsync() => await Load();
+    private async Task Load() { try { _items = await Http.GetFromJsonAsync<List<VehicleDto>>("client-api/admin/vehicles"); } catch { _items = new(); } }
+
+    private void ShowAdd() { _editId = null; _name = ""; _callSign = ""; _type = "LF"; _isActive = true; _showForm = true; }
+    private void Edit(VehicleDto v) { _editId = v.Id; _name = v.Name; _callSign = v.CallSign; _type = v.Type; _isActive = v.IsActive; _showForm = true; }
+
+    private async Task Save()
+    {
+        if (string.IsNullOrWhiteSpace(_name) || string.IsNullOrWhiteSpace(_callSign)) return;
+        _saving = true;
+        try
+        {
+            var body = new { Name = _name, CallSign = _callSign, Type = _type, IsActive = _isActive };
+            if (_editId is int id) await Http.PutAsJsonAsync($"client-api/admin/vehicles/{id}", body);
+            else await Http.PostAsJsonAsync("client-api/admin/vehicles", body);
+            _showForm = false;
+            await Load();
+        }
+        finally { _saving = false; }
+    }
+
+    private async Task Delete(int id) { await Http.DeleteAsync($"client-api/admin/vehicles/{id}"); await Load(); }
+
+    private record VehicleDto(int Id, string Name, string CallSign, string Type, bool IsActive, DateTime CreatedAt);
+}

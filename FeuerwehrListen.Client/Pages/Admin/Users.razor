@@ -1,0 +1,97 @@
+@page "/admin/users"
+@rendermode InteractiveWebAssembly
+@layout MainLayout
+@using System.Net.Http.Json
+@inject HttpClient Http
+
+<PageTitle>Benutzer - Admin</PageTitle>
+
+<AuthGuard RequireAdmin="true">
+    <div class="container mt-4">
+        <div class="row mb-4">
+            <div class="col"><h1>Benutzer</h1></div>
+            <div class="col-auto"><button class="btn btn-primary" @onclick="ShowAdd"><i class="bi bi-plus-circle"></i> Neuer Benutzer</button></div>
+        </div>
+
+        @if (_showForm)
+        {
+            <div class="row mb-4"><div class="col-md-8 offset-md-2"><div class="card"><div class="card-body">
+                <h5 class="card-title">@(_editId is null ? "Neuer Benutzer" : "Benutzer bearbeiten")</h5>
+                <div class="row">
+                    <div class="col-md-6 mb-3"><label class="form-label">Benutzername</label><input class="form-control" @bind="_username" /></div>
+                    <div class="col-md-6 mb-3"><label class="form-label">Rolle</label>
+                        <select class="form-select" @bind="_role"><option value="User">Benutzer</option><option value="Admin">Admin</option></select>
+                    </div>
+                    <div class="col-md-6 mb-3"><label class="form-label">Vorname</label><input class="form-control" @bind="_firstName" /></div>
+                    <div class="col-md-6 mb-3"><label class="form-label">Nachname</label><input class="form-control" @bind="_lastName" /></div>
+                    <div class="col-md-6 mb-3"><label class="form-label">Passwort @(_editId is null ? "" : "(leer = unverändert)")</label><input type="password" class="form-control" @bind="_password" /></div>
+                    <div class="col-md-6 mb-3"><label class="form-label">QR-Code (optional)</label><input class="form-control" @bind="_qr" /></div>
+                    <div class="col-md-6 mb-3"><label class="form-label">Admin-PIN (optional)</label><input class="form-control" @bind="_pin" /></div>
+                </div>
+                @if (_error is not null) { <div class="alert alert-danger py-2">@_error</div> }
+                <button class="btn btn-primary me-2" @onclick="Save" disabled="@_saving">Speichern</button>
+                <button class="btn btn-secondary" @onclick="() => _showForm = false">Abbrechen</button>
+            </div></div></div></div>
+        }
+
+        <div class="card"><div class="card-body">
+            @if (_items is null) { <p><em>Lade…</em></p> }
+            else if (_items.Count == 0) { <p class="text-muted">Keine Benutzer vorhanden</p> }
+            else
+            {
+                <div class="table-responsive"><table class="table table-hover">
+                    <thead><tr><th>Benutzername</th><th>Name</th><th>Rolle</th><th>QR/PIN</th><th>Aktionen</th></tr></thead>
+                    <tbody>
+                        @foreach (var u in _items)
+                        {
+                            <tr>
+                                <td><strong>@u.Username</strong></td>
+                                <td>@u.FirstName @u.LastName</td>
+                                <td>@if (u.Role == "Admin") { <span class="badge bg-danger">Admin</span> } else { <span class="badge bg-secondary">Benutzer</span> }</td>
+                                <td>@if (u.HasQr) { <span class="badge bg-info me-1">QR</span> }@if (u.HasPin) { <span class="badge bg-warning">PIN</span> }</td>
+                                <td>
+                                    <button class="btn btn-sm btn-primary me-2" @onclick="() => Edit(u)">Bearbeiten</button>
+                                    <button class="btn btn-sm btn-danger" @onclick="() => Delete(u.Id)">Löschen</button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table></div>
+            }
+        </div></div>
+    </div>
+</AuthGuard>
+
+@code {
+    private List<UserDto>? _items;
+    private bool _showForm, _saving;
+    private int? _editId;
+    private string _username = "", _firstName = "", _lastName = "", _role = "User", _password = "", _qr = "", _pin = "";
+    private string? _error;
+
+    protected override async Task OnInitializedAsync() => await Load();
+    private async Task Load() { try { _items = await Http.GetFromJsonAsync<List<UserDto>>("client-api/admin/users"); } catch { _items = new(); } }
+
+    private void ShowAdd() { _editId = null; _username = ""; _firstName = ""; _lastName = ""; _role = "User"; _password = ""; _qr = ""; _pin = ""; _error = null; _showForm = true; }
+    private void Edit(UserDto u) { _editId = u.Id; _username = u.Username; _firstName = u.FirstName; _lastName = u.LastName; _role = u.Role; _password = ""; _qr = ""; _pin = ""; _error = null; _showForm = true; }
+
+    private async Task Save()
+    {
+        _error = null;
+        if (string.IsNullOrWhiteSpace(_username)) { _error = "Benutzername erforderlich."; return; }
+        if (_editId is null && string.IsNullOrWhiteSpace(_password)) { _error = "Passwort erforderlich."; return; }
+        _saving = true;
+        try
+        {
+            var body = new { Username = _username, FirstName = _firstName, LastName = _lastName, Role = _role, Password = _password, QrAuthCode = _qr, AdminPin = _pin };
+            var resp = _editId is int id ? await Http.PutAsJsonAsync($"client-api/admin/users/{id}", body) : await Http.PostAsJsonAsync("client-api/admin/users", body);
+            if (!resp.IsSuccessStatusCode) { _error = "Speichern fehlgeschlagen."; return; }
+            _showForm = false; await Load();
+        }
+        finally { _saving = false; }
+    }
+
+    private async Task Delete(int id) { await Http.DeleteAsync($"client-api/admin/users/{id}"); await Load(); }
+
+    private record UserDto(int Id, string Username, string FirstName, string LastName, string Role, bool HasQr, bool HasPin);
+}

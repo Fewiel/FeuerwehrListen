@@ -1,0 +1,87 @@
+@page "/admin/apikeys"
+@rendermode InteractiveWebAssembly
+@layout MainLayout
+@using System.Net.Http.Json
+@inject HttpClient Http
+
+<PageTitle>API Keys - Admin</PageTitle>
+
+<AuthGuard RequireAdmin="true">
+    <div class="container mt-4">
+        <div class="row mb-4">
+            <div class="col"><h1>API Keys</h1></div>
+            <div class="col-auto"><button class="btn btn-primary" @onclick="() => _showForm = true"><i class="bi bi-plus-circle"></i> Neuer API Key</button></div>
+        </div>
+
+        @if (_showForm)
+        {
+            <div class="row mb-4"><div class="col-md-8 offset-md-2"><div class="card"><div class="card-body">
+                <h5 class="card-title">Neuen API Key erstellen</h5>
+                <div class="mb-3"><label class="form-label">Beschreibung</label><input class="form-control" @bind="_desc" placeholder="z.B. Alarmmonitor" /></div>
+                <button class="btn btn-primary me-2" @onclick="Create" disabled="@_saving">Erstellen</button>
+                <button class="btn btn-secondary" @onclick="() => _showForm = false">Abbrechen</button>
+            </div></div></div></div>
+        }
+
+        @if (_newKey is not null)
+        {
+            <div class="alert alert-success"><strong>Neuer Key (nur jetzt sichtbar):</strong> <code>@_newKey</code></div>
+        }
+
+        <div class="card"><div class="card-body">
+            @if (_items is null) { <p><em>Lade…</em></p> }
+            else if (_items.Count == 0) { <p class="text-muted">Keine API Keys vorhanden</p> }
+            else
+            {
+                <div class="table-responsive"><table class="table table-hover">
+                    <thead><tr><th>Beschreibung</th><th>Key</th><th>Status</th><th>Erstellt</th><th>Aktionen</th></tr></thead>
+                    <tbody>
+                        @foreach (var k in _items)
+                        {
+                            <tr>
+                                <td>@k.Description</td>
+                                <td><code>@(k.Key.Length > 12 ? k.Key.Substring(0, 12) + "…" : k.Key)</code></td>
+                                <td>@if (k.IsActive) { <span class="badge bg-success">Aktiv</span> } else { <span class="badge bg-secondary">Inaktiv</span> }</td>
+                                <td>@k.CreatedAt.ToString("dd.MM.yyyy")</td>
+                                <td>
+                                    <button class="btn btn-sm btn-outline-secondary me-2" @onclick="() => Toggle(k.Id)">@(k.IsActive ? "Deaktivieren" : "Aktivieren")</button>
+                                    <button class="btn btn-sm btn-danger" @onclick="() => Delete(k.Id)">Löschen</button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table></div>
+            }
+        </div></div>
+    </div>
+</AuthGuard>
+
+@code {
+    private List<KeyDto>? _items;
+    private bool _showForm, _saving;
+    private string _desc = "";
+    private string? _newKey;
+
+    protected override async Task OnInitializedAsync() => await Load();
+    private async Task Load() { try { _items = await Http.GetFromJsonAsync<List<KeyDto>>("client-api/admin/apikeys"); } catch { _items = new(); } }
+
+    private async Task Create()
+    {
+        _saving = true;
+        try
+        {
+            var resp = await Http.PostAsJsonAsync("client-api/admin/apikeys", new { Description = _desc });
+            var r = await resp.Content.ReadFromJsonAsync<CreatedKey>();
+            _newKey = r?.Key;
+            _desc = ""; _showForm = false;
+            await Load();
+        }
+        finally { _saving = false; }
+    }
+
+    private async Task Toggle(int id) { await Http.PostAsync($"client-api/admin/apikeys/{id}/toggle", null); await Load(); }
+    private async Task Delete(int id) { await Http.DeleteAsync($"client-api/admin/apikeys/{id}"); await Load(); }
+
+    private record KeyDto(int Id, string Key, string Description, bool IsActive, DateTime CreatedAt);
+    private record CreatedKey(int Id, string Key);
+}

@@ -1,0 +1,83 @@
+@page "/admin/functions"
+@rendermode InteractiveWebAssembly
+@layout MainLayout
+@using System.Net.Http.Json
+@inject HttpClient Http
+
+<PageTitle>Funktionen - Admin</PageTitle>
+
+<AuthGuard RequireAdmin="true">
+    <div class="container mt-4">
+        <div class="row mb-4">
+            <div class="col"><h1>Funktionen</h1></div>
+            <div class="col-auto"><button class="btn btn-primary" @onclick="ShowAdd"><i class="bi bi-plus-circle"></i> Neue Funktion</button></div>
+        </div>
+
+        @if (_showForm)
+        {
+            <div class="row mb-4"><div class="col-md-8 offset-md-2"><div class="card"><div class="card-body">
+                <h5 class="card-title">@(_editId is null ? "Neue Funktion" : "Funktion bearbeiten")</h5>
+                <div class="mb-3"><label class="form-label">Name</label><input class="form-control" @bind="_name" /></div>
+                <div class="mb-3"><div class="form-check"><input class="form-check-input" type="checkbox" id="def" @bind="_isDefault" /><label class="form-check-label" for="def">Standard</label></div></div>
+                <button class="btn btn-primary me-2" @onclick="Save" disabled="@_saving">Speichern</button>
+                <button class="btn btn-secondary" @onclick="() => _showForm = false">Abbrechen</button>
+            </div></div></div></div>
+        }
+
+        <div class="card"><div class="card-body">
+            @if (_items is null) { <p><em>Lade…</em></p> }
+            else if (_items.Count == 0) { <p class="text-muted">Keine Funktionen vorhanden</p> }
+            else
+            {
+                <div class="table-responsive"><table class="table table-hover">
+                    <thead><tr><th>Name</th><th>Standard</th><th>Aktionen</th></tr></thead>
+                    <tbody>
+                        @foreach (var f in _items)
+                        {
+                            <tr>
+                                <td><strong>@f.Name</strong></td>
+                                <td>@if (f.IsDefault) { <span class="badge bg-primary">Standard</span> }</td>
+                                <td>
+                                    <button class="btn btn-sm btn-primary me-2" @onclick="() => Edit(f)">Bearbeiten</button>
+                                    <button class="btn btn-sm btn-danger" @onclick="() => Delete(f.Id)">Löschen</button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table></div>
+            }
+        </div></div>
+    </div>
+</AuthGuard>
+
+@code {
+    private List<FuncDto>? _items;
+    private bool _showForm, _saving;
+    private int? _editId;
+    private string _name = "";
+    private bool _isDefault;
+
+    protected override async Task OnInitializedAsync() => await Load();
+    private async Task Load() { try { _items = await Http.GetFromJsonAsync<List<FuncDto>>("client-api/admin/functions"); } catch { _items = new(); } }
+
+    private void ShowAdd() { _editId = null; _name = ""; _isDefault = false; _showForm = true; }
+    private void Edit(FuncDto f) { _editId = f.Id; _name = f.Name; _isDefault = f.IsDefault; _showForm = true; }
+
+    private async Task Save()
+    {
+        if (string.IsNullOrWhiteSpace(_name)) return;
+        _saving = true;
+        try
+        {
+            var body = new { Name = _name, IsDefault = _isDefault };
+            if (_editId is int id) await Http.PutAsJsonAsync($"client-api/admin/functions/{id}", body);
+            else await Http.PostAsJsonAsync("client-api/admin/functions", body);
+            _showForm = false; await Load();
+        }
+        finally { _saving = false; }
+    }
+
+    private async Task Delete(int id) { await Http.DeleteAsync($"client-api/admin/functions/{id}"); await Load(); }
+
+    private record FuncDto(int Id, string Name, bool IsDefault);
+}
