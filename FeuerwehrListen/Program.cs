@@ -9,6 +9,8 @@ using LinqToDB.AspNet;
 using LinqToDB.AspNet.Logging;
 using FluentMigrator.Runner;
 using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.AspNetCore.Authentication;
+using System.Security.Claims;
 using PdfSharp.Fonts;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -49,10 +51,25 @@ builder.Services.AddRazorComponents()
     // (Client laeuft im Browser, Daten ueber Fast-Endpoints - kein SignalR).
     .AddInteractiveWebAssemblyComponents();
 
-builder.Services.AddScoped<AuthenticationService>();
-builder.Services.AddScoped<AuthenticationStateProvider>(sp => sp.GetRequiredService<AuthenticationService>());
+builder.Services.AddScoped<FeuerwehrListen.Services.AuthenticationService>();
+builder.Services.AddScoped<AuthenticationStateProvider>(sp => sp.GetRequiredService<FeuerwehrListen.Services.AuthenticationService>());
 builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddAuthorizationCore();
+
+// Cookie-Auth fuer den WASM-Client (Admin-Bereich). Additiv - die bestehende
+// serverseitige AuthenticationService/QR-Anmeldung bleibt unangetastet.
+builder.Services.AddAuthentication("FwCookie")
+    .AddCookie("FwCookie", options =>
+    {
+        options.Cookie.Name = "fw_auth";
+        options.Cookie.HttpOnly = true;
+        options.Cookie.SameSite = SameSiteMode.Lax;
+        options.ExpireTimeSpan = TimeSpan.FromDays(30);
+        options.SlidingExpiration = true;
+        // API statt Redirects: 401/403 zurueckgeben.
+        options.Events.OnRedirectToLogin = ctx => { ctx.Response.StatusCode = 401; return Task.CompletedTask; };
+        options.Events.OnRedirectToAccessDenied = ctx => { ctx.Response.StatusCode = 403; return Task.CompletedTask; };
+    });
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
@@ -285,6 +302,48 @@ app.MapGet("/client-api/app-context", (SettingsService settings) =>
     });
 });
 
+// --- Auth (Cookie) fuer den WASM-Admin-Bereich ---
+app.MapPost("/client-api/auth/login", async (HttpContext ctx, UserRepository users, AuthLoginRequest req) =>
+{
+    var user = await users.GetByUsernameAsync(req.Username ?? "");
+    if (user == null || user.PasswordHash != FeuerwehrListen.Services.AuthenticationService.HashPassword(req.Password ?? ""))
+        return Results.Json(new { ok = false });
+    await SignInUser(ctx, user);
+    return Results.Json(new { ok = true });
+}).DisableAntiforgery();
+
+app.MapPost("/client-api/auth/qr", async (HttpContext ctx, UserRepository users, AuthQrRequest req) =>
+{
+    var user = await users.GetByQrAuthCodeAsync((req.Code ?? "").Trim());
+    if (user == null) return Results.Json(new { status = "invalid" });
+    if (user.Role == UserRole.Admin && !string.IsNullOrWhiteSpace(user.AdminPin))
+    {
+        if (string.IsNullOrWhiteSpace(req.Pin)) return Results.Json(new { status = "pin" });
+        if (user.AdminPin != req.Pin.Trim()) return Results.Json(new { status = "badpin" });
+    }
+    await SignInUser(ctx, user);
+    return Results.Json(new { status = "ok" });
+}).DisableAntiforgery();
+
+app.MapPost("/client-api/auth/logout", async (HttpContext ctx) =>
+{
+    await ctx.SignOutAsync("FwCookie");
+    return Results.Ok();
+}).DisableAntiforgery();
+
+app.MapGet("/client-api/auth/me", (HttpContext ctx) =>
+{
+    if (ctx.User?.Identity?.IsAuthenticated != true) return Results.Json(new { authenticated = false });
+    return Results.Json(new
+    {
+        authenticated = true,
+        username = ctx.User.Identity!.Name,
+        isAdmin = ctx.User.IsInRole("Admin"),
+        firstName = ctx.User.FindFirst("FirstName")?.Value,
+        lastName = ctx.User.FindFirst("LastName")?.Value
+    });
+});
+
 // Anwesenheitsliste: Detail + Eintraege
 app.MapGet("/client-api/attendance/{id:int}", async (int id, AttendanceListRepository repo, AttendanceEntryRepository entryRepo, SettingsService settings) =>
 {
@@ -461,6 +520,22 @@ app.MapRazorComponents<App>()
 
 app.Run();
 
+static async Task SignInUser(HttpContext ctx, User user)
+{
+    var claims = new List<Claim>
+    {
+        new(ClaimTypes.Name, user.Username),
+        new(ClaimTypes.Role, user.Role.ToString()),
+        new("FirstName", user.FirstName ?? ""),
+        new("LastName", user.LastName ?? "")
+    };
+    var identity = new ClaimsIdentity(claims, "FwCookie", ClaimTypes.Name, ClaimTypes.Role);
+    await ctx.SignInAsync("FwCookie", new ClaimsPrincipal(identity),
+        new AuthenticationProperties { IsPersistent = true });
+}
+
+public record AuthLoginRequest(string? Username, string? Password);
+public record AuthQrRequest(string? Code, string? Pin);
 public record FeedbackRequest(int OperationId, string? Text);
 public record CreateAttendanceRequest(string Title, string Unit, string? Description, int? UnitNumber);
 public record CreateOperationRequest(string OperationNumber, string Keyword, DateTime AlertTime, string? Address);

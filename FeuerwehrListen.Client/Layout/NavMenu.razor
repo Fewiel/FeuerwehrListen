@@ -1,6 +1,7 @@
 @using FeuerwehrListen.Client.Models
 @inject HttpClient Http
 @inject NavigationManager Nav
+@inject AuthenticationStateProvider AuthProvider
 @implements IDisposable
 
 <header class="tw-appbar">
@@ -14,88 +15,178 @@
 
     <nav class="tw-nav">
         <a href="/" class="@Active("/")"><i class="bi bi-house"></i> Übersicht</a>
-        @if (M.Attendance)
-        {
-            <a href="create-attendance" class="@Active("create-attendance")"><i class="bi bi-clipboard-check"></i> Anwesenheit</a>
-        }
-        @if (M.Operations)
-        {
-            <a href="create-operation" class="@Active("create-operation")"><i class="bi bi-truck"></i> Einsatz</a>
-        }
-        @if (M.FireSafety)
-        {
-            <a href="firesafetywatches" class="@Active("firesafetywatches")"><i class="bi bi-shield-check"></i> Wachen</a>
-        }
-        @if (M.Defects)
-        {
-            <a href="defects" class="@Active("defects")"><i class="bi bi-tools"></i> Mängel</a>
-        }
+        @if (M.Attendance) { <a href="create-attendance" class="@Active("create-attendance")"><i class="bi bi-clipboard-check"></i> Anwesenheit</a> }
+        @if (M.Operations) { <a href="create-operation" class="@Active("create-operation")"><i class="bi bi-truck"></i> Einsatz</a> }
+        @if (M.FireSafety) { <a href="firesafetywatches" class="@Active("firesafetywatches")"><i class="bi bi-shield-check"></i> Wachen</a> }
+        @if (M.Defects) { <a href="defects" class="@Active("defects")"><i class="bi bi-tools"></i> Mängel</a> }
     </nav>
 
     <div class="tw-right">
-        <a class="tw-login" href="login"><i class="bi bi-unlock"></i> Login</a>
+        @if (_authed)
+        {
+            <div class="tw-drop">
+                <button @onclick='() => Toggle("admin")'>
+                    <i class="bi bi-grid"></i> @(_isAdmin ? "Verwaltung" : "Listen") <i class="bi bi-chevron-down" style="font-size:.8rem"></i>
+                </button>
+            </div>
+            <div class="tw-drop">
+                <button @onclick='() => Toggle("user")'>
+                    <span class="tw-avatar">@Initials()</span> <i class="bi bi-chevron-down" style="font-size:.8rem"></i>
+                </button>
+            </div>
+        }
+        else
+        {
+            <a class="tw-login" href="login"><i class="bi bi-unlock"></i> Login</a>
+        }
     </div>
 
-    <button class="tw-hamburger" @onclick="ToggleMobile" aria-label="Menü">
-        <i class="bi bi-list"></i>
-    </button>
+    <button class="tw-hamburger" @onclick='() => Toggle("mobile")' aria-label="Menü"><i class="bi bi-list"></i></button>
 </header>
 
-@if (_mobileOpen)
+@if (_open is not null)
 {
-    <div class="tw-backdrop" @onclick="() => _mobileOpen = false"></div>
+    <div class="tw-backdrop" @onclick="Close"></div>
+}
+
+@if (_open == "admin")
+{
+    <div class="tw-drop-menu tw-menu-fixed">
+        <div class="tw-drop-head">Listen &amp; Daten</div>
+        <a href="admin/closed-lists"><i class="bi bi-check-circle"></i> Abgeschlossene Listen</a>
+        <a href="admin/archive"><i class="bi bi-archive"></i> Archiv</a>
+        <a href="admin/members"><i class="bi bi-person"></i> Mitglieder</a>
+        <a href="admin/scheduled"><i class="bi bi-calendar"></i> Geplante Listen</a>
+        @if (_isAdmin)
+        {
+            <hr />
+            <div class="tw-drop-head">Verwaltung</div>
+            <a href="admin/vehicles"><i class="bi bi-truck"></i> Fahrzeuge</a>
+            <a href="admin/functions"><i class="bi bi-puzzle"></i> Funktionen</a>
+            <a href="admin/keywords"><i class="bi bi-tags"></i> Stichwörter</a>
+            <a href="admin/users"><i class="bi bi-people"></i> Benutzer</a>
+            <a href="admin/apikeys"><i class="bi bi-key"></i> API Keys</a>
+            <a href="admin/statistics"><i class="bi bi-bar-chart"></i> Statistiken</a>
+            <a href="admin/service-status"><i class="bi bi-gear"></i> Service Status</a>
+            <a href="admin/settings"><i class="bi bi-sliders"></i> Einstellungen</a>
+        }
+    </div>
+}
+
+@if (_open == "user")
+{
+    <div class="tw-drop-menu tw-menu-fixed">
+        <div class="tw-drop-head">@_username</div>
+        <a href="camera-settings"><i class="bi bi-camera-video"></i> Kamera-Einstellungen</a>
+        <a href="change-password"><i class="bi bi-key"></i> Passwort ändern</a>
+        <hr />
+        <a href="logout"><i class="bi bi-box-arrow-right"></i> Logout</a>
+    </div>
+}
+
+@if (_open == "mobile")
+{
+    <div class="tw-backdrop" @onclick="Close"></div>
     <nav class="tw-mobile-menu">
         <div class="mm-head">
             <b>@(_ctx?.AppName ?? "Feuerwehr Listen")</b>
-            <button @onclick="() => _mobileOpen = false" aria-label="Schließen"><i class="bi bi-x"></i></button>
+            <button @onclick="Close" aria-label="Schließen"><i class="bi bi-x"></i></button>
         </div>
         <a href="/"><i class="bi bi-house"></i> Übersicht</a>
-        @if (M.Attendance)
+        @if (M.Attendance) { <a href="create-attendance"><i class="bi bi-clipboard-check"></i> Neue Anwesenheitsliste</a> }
+        @if (M.Operations) { <a href="create-operation"><i class="bi bi-truck"></i> Neue Einsatzliste</a> }
+        @if (M.FireSafety) { <a href="firesafetywatches"><i class="bi bi-shield-check"></i> Brandsicherheitswachen</a> }
+        @if (M.Defects) { <a href="defects"><i class="bi bi-tools"></i> Mängelliste</a> }
+
+        @if (_authed)
         {
-            <a href="create-attendance"><i class="bi bi-clipboard-check"></i> Neue Anwesenheitsliste</a>
+            <div class="mm-sect">Listen &amp; Daten</div>
+            <a href="admin/closed-lists"><i class="bi bi-check-circle"></i> Abgeschlossene Listen</a>
+            <a href="admin/archive"><i class="bi bi-archive"></i> Archiv</a>
+            <a href="admin/members"><i class="bi bi-person"></i> Mitglieder</a>
+            <a href="admin/scheduled"><i class="bi bi-calendar"></i> Geplante Listen</a>
+            @if (_isAdmin)
+            {
+                <div class="mm-sect">Verwaltung</div>
+                <a href="admin/vehicles"><i class="bi bi-truck"></i> Fahrzeuge</a>
+                <a href="admin/functions"><i class="bi bi-puzzle"></i> Funktionen</a>
+                <a href="admin/keywords"><i class="bi bi-tags"></i> Stichwörter</a>
+                <a href="admin/users"><i class="bi bi-people"></i> Benutzer</a>
+                <a href="admin/apikeys"><i class="bi bi-key"></i> API Keys</a>
+                <a href="admin/statistics"><i class="bi bi-bar-chart"></i> Statistiken</a>
+                <a href="admin/service-status"><i class="bi bi-gear"></i> Service Status</a>
+                <a href="admin/settings"><i class="bi bi-sliders"></i> Einstellungen</a>
+            }
+            <div class="mm-sect">Konto</div>
+            <a href="camera-settings"><i class="bi bi-camera-video"></i> Kamera-Einstellungen</a>
+            <a href="change-password"><i class="bi bi-key"></i> Passwort ändern</a>
+            <a href="logout"><i class="bi bi-box-arrow-right"></i> Logout</a>
         }
-        @if (M.Operations)
+        else
         {
-            <a href="create-operation"><i class="bi bi-truck"></i> Neue Einsatzliste</a>
+            <div class="mm-sect">Konto</div>
+            <a href="login"><i class="bi bi-unlock"></i> Login</a>
         }
-        @if (M.FireSafety)
-        {
-            <a href="firesafetywatches"><i class="bi bi-shield-check"></i> Brandsicherheitswachen</a>
-        }
-        @if (M.Defects)
-        {
-            <a href="defects"><i class="bi bi-tools"></i> Mängelliste</a>
-        }
-        <div class="mm-sect">Konto</div>
-        <a href="login"><i class="bi bi-unlock"></i> Login</a>
     </nav>
 }
 
 @code {
     private AppContextDto? _ctx;
-    private bool _mobileOpen;
+    private string? _open;
+    private bool _authed;
+    private bool _isAdmin;
+    private string _username = "";
+    private string _firstName = "";
+    private string _lastName = "";
+
     private ModuleFlags M => _ctx?.Modules ?? new ModuleFlags(true, true, true, true);
 
     protected override async Task OnInitializedAsync()
     {
         try { _ctx = await Http.GetFromJsonAsync<AppContextDto>("client-api/app-context"); } catch { }
+        AuthProvider.AuthenticationStateChanged += OnAuthChanged;
+        await RefreshAuth(await AuthProvider.GetAuthenticationStateAsync());
         Nav.LocationChanged += OnLocationChanged;
+    }
+
+    private void OnAuthChanged(Task<AuthenticationState> task) => _ = InvokeAsync(async () => await RefreshAuth(await task));
+
+    private async Task RefreshAuth(AuthenticationState state)
+    {
+        var u = state.User;
+        _authed = u.Identity?.IsAuthenticated == true;
+        _isAdmin = u.IsInRole("Admin");
+        _username = u.Identity?.Name ?? "";
+        _firstName = u.FindFirst("FirstName")?.Value ?? "";
+        _lastName = u.FindFirst("LastName")?.Value ?? "";
+        StateHasChanged();
+        await Task.CompletedTask;
     }
 
     private void OnLocationChanged(object? s, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
     {
-        _mobileOpen = false;
+        _open = null;
         StateHasChanged();
     }
 
-    private void ToggleMobile() => _mobileOpen = !_mobileOpen;
+    private void Toggle(string name) => _open = _open == name ? null : name;
+    private void Close() => _open = null;
+
+    private string Initials()
+    {
+        if (_firstName.Length > 0 && _lastName.Length > 0) return $"{char.ToUpper(_firstName[0])}{char.ToUpper(_lastName[0])}";
+        return _username.Length >= 2 ? _username[..2].ToUpper() : (_username.Length == 1 ? _username.ToUpper() : "?");
+    }
 
     private string Active(string path)
     {
         var rel = Nav.ToBaseRelativePath(Nav.Uri).TrimEnd('/');
-        var target = path.TrimStart('/').TrimEnd('/');
-        return rel.Equals(target, StringComparison.OrdinalIgnoreCase) ? "active" : "";
+        return rel.Equals(path.TrimStart('/').TrimEnd('/'), StringComparison.OrdinalIgnoreCase) ? "active" : "";
     }
 
-    public void Dispose() => Nav.LocationChanged -= OnLocationChanged;
+    public void Dispose()
+    {
+        AuthProvider.AuthenticationStateChanged -= OnAuthChanged;
+        Nav.LocationChanged -= OnLocationChanged;
+    }
 }
