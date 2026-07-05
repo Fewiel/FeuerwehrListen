@@ -1,0 +1,92 @@
+@page "/create-operation"
+@rendermode InteractiveWebAssembly
+@layout MainLayout
+@using FeuerwehrListen.Client.Models
+@inject HttpClient Http
+@inject NavigationManager Nav
+
+<PageTitle>Neue Einsatzliste</PageTitle>
+
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-8 offset-md-2">
+            <div class="card">
+                <div class="card-header"><h3>Neue Einsatzliste erstellen</h3></div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">Einsatznummer</label>
+                        <input type="text" class="form-control" @bind="_operationNumber" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Stichwort</label>
+                        <input type="text" class="form-control" list="keyword-suggestions" @bind="_keywordInput" placeholder="Stichwort eingeben oder auswählen" />
+                        <datalist id="keyword-suggestions">
+                            @foreach (var k in _keywords)
+                            {
+                                <option value="@k.Name">@k.Description</option>
+                            }
+                        </datalist>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Alarmierungszeit</label>
+                        <input type="datetime-local" class="form-control" @bind="_alertTime" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Adresse (optional)</label>
+                        <input type="text" class="form-control" @bind="_address" placeholder="Straße Hausnummer, PLZ Ort" />
+                    </div>
+                    @if (_error is not null)
+                    {
+                        <div class="alert alert-danger py-2">@_error</div>
+                    }
+                    <div class="d-grid gap-2">
+                        <button class="btn btn-danger btn-lg" @onclick="CreateList" disabled="@_saving">
+                            @if (_saving) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                            Liste erstellen
+                        </button>
+                        <a class="btn btn-secondary" href="/">Abbrechen</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string _operationNumber = string.Empty;
+    private string _keywordInput = string.Empty;
+    private DateTime _alertTime = DateTime.Now;
+    private string _address = string.Empty;
+    private List<KeywordDto> _keywords = new();
+    private bool _saving;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try { _keywords = await Http.GetFromJsonAsync<List<KeywordDto>>("client-api/keywords") ?? new(); }
+        catch { }
+    }
+
+    private async Task CreateList()
+    {
+        _error = null;
+        if (string.IsNullOrWhiteSpace(_operationNumber) || string.IsNullOrWhiteSpace(_keywordInput))
+        {
+            _error = "Bitte Einsatznummer und Stichwort ausfüllen.";
+            return;
+        }
+        _saving = true;
+        try
+        {
+            var resp = await Http.PostAsJsonAsync("client-api/operation/create",
+                new { OperationNumber = _operationNumber, Keyword = _keywordInput, AlertTime = _alertTime, Address = _address });
+            if (!resp.IsSuccessStatusCode) { _error = "Erstellen fehlgeschlagen."; return; }
+            var res = await resp.Content.ReadFromJsonAsync<CreatedDto>();
+            Nav.NavigateTo($"/operation/{res!.Id}", forceLoad: true);
+        }
+        catch { _error = "Erstellen fehlgeschlagen. Bitte erneut versuchen."; }
+        finally { _saving = false; }
+    }
+
+    private record CreatedDto(int Id);
+}

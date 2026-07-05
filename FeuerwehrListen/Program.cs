@@ -280,9 +280,54 @@ app.MapGet("/client-api/app-context", (SettingsService settings) =>
             operations = settings.IsModuleVisible(SettingKeys.VisibilityOperations),
             fireSafety = settings.IsModuleVisible(SettingKeys.VisibilityFireSafetyWatch),
             defects = settings.IsModuleVisible(SettingKeys.VisibilityDefects)
-        }
+        },
+        unitLabels = Enumerable.Range(1, 9).Select(i => new { number = i, label = settings.GetUnitLabel(i) })
     });
 });
+
+// Stichwoerter (fuer die Einsatzliste-Anlage)
+app.MapGet("/client-api/keywords", async (KeywordRepository kw) =>
+    Results.Json((await kw.GetAllAsync()).Select(k => new { name = k.Name, description = k.Description })));
+
+// Anwesenheitsliste anlegen
+app.MapPost("/client-api/attendance/create", async (AttendanceListRepository repo, CreateAttendanceRequest req) =>
+{
+    if (string.IsNullOrWhiteSpace(req.Title) || string.IsNullOrWhiteSpace(req.Unit)) return Results.BadRequest();
+    var id = await repo.CreateAsync(new AttendanceList
+    {
+        Title = req.Title.Trim(),
+        Unit = req.Unit.Trim(),
+        Description = req.Description ?? "",
+        UnitNumber = req.UnitNumber,
+        CreatedAt = DateTime.Now,
+        Status = ListStatus.Open
+    });
+    return Results.Json(new { id });
+}).DisableAntiforgery();
+
+// Einsatzliste anlegen (Stichwort anlegen falls neu)
+app.MapPost("/client-api/operation/create", async (OperationListRepository repo, KeywordRepository kw, CreateOperationRequest req) =>
+{
+    if (string.IsNullOrWhiteSpace(req.OperationNumber) || string.IsNullOrWhiteSpace(req.Keyword)) return Results.BadRequest();
+    var name = req.Keyword.Trim();
+    var all = await kw.GetAllAsync();
+    var existing = all.FirstOrDefault(k => k.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+    int keywordId;
+    if (existing != null) { keywordId = existing.Id; name = existing.Name; }
+    else keywordId = await kw.CreateAsync(new Keyword { Name = name, IsActive = true, CreatedAt = DateTime.Now });
+
+    var id = await repo.CreateAsync(new OperationList
+    {
+        OperationNumber = req.OperationNumber.Trim(),
+        Keyword = name,
+        KeywordId = keywordId,
+        AlertTime = req.AlertTime,
+        CreatedAt = DateTime.Now,
+        Status = ListStatus.Open,
+        Address = string.IsNullOrWhiteSpace(req.Address) ? null : req.Address!.Trim()
+    });
+    return Results.Json(new { id });
+}).DisableAntiforgery();
 
 // Einsatz-Auswahl/-Suche fuer das Feedback (letzte 5 bzw. Suche nach Adresse/Stichwort/Nummer).
 app.MapGet("/client-api/operations/recent", async (OperationListRepository opRepo, string? q) =>
@@ -324,5 +369,7 @@ app.MapRazorComponents<App>()
 app.Run();
 
 public record FeedbackRequest(int OperationId, string? Text);
+public record CreateAttendanceRequest(string Title, string Unit, string? Description, int? UnitNumber);
+public record CreateOperationRequest(string OperationNumber, string Keyword, DateTime AlertTime, string? Address);
 
 public partial class Program { }

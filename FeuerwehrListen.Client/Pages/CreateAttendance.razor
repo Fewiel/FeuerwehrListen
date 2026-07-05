@@ -1,0 +1,98 @@
+@page "/create-attendance"
+@rendermode InteractiveWebAssembly
+@layout MainLayout
+@using FeuerwehrListen.Client.Models
+@inject HttpClient Http
+@inject NavigationManager Nav
+
+<PageTitle>Neue Anwesenheitsliste</PageTitle>
+
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-8 offset-md-2">
+            <div class="card">
+                <div class="card-header"><h3>Neue Anwesenheitsliste erstellen</h3></div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">Titel</label>
+                        <input type="text" class="form-control" @bind="_title" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Einheit (z. B. Einsatzeinheit)</label>
+                        <input type="text" class="form-control" @bind="_unit" placeholder="z.B. Einsatz, IuK, Jugend, etc." />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Einheit-Nummer (optional)</label>
+                        <select class="form-select" @bind="_unitNumber" style="max-width: 260px;">
+                            <option value="">Keine Zuordnung</option>
+                            @foreach (var u in _unitLabels)
+                            {
+                                <option value="@u.Number">@u.Label</option>
+                            }
+                        </select>
+                        <small class="text-muted">Mitgliedsnummern 1000-1999 = Einheit 1, 2000-2999 = Einheit 2, usw.</small>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Beschreibung</label>
+                        <textarea class="form-control" rows="3" @bind="_description"></textarea>
+                    </div>
+                    @if (_error is not null)
+                    {
+                        <div class="alert alert-danger py-2">@_error</div>
+                    }
+                    <div class="d-grid gap-2">
+                        <button class="btn btn-primary btn-lg" @onclick="CreateList" disabled="@_saving">
+                            @if (_saving) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                            Liste erstellen
+                        </button>
+                        <a class="btn btn-secondary" href="/">Abbrechen</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string _title = string.Empty;
+    private string _unit = string.Empty;
+    private string _description = string.Empty;
+    private string? _unitNumber;
+    private List<UnitLabel> _unitLabels = new();
+    private bool _saving;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var ctx = await Http.GetFromJsonAsync<AppContextDto>("client-api/app-context");
+            _unitLabels = ctx?.UnitLabels ?? new();
+        }
+        catch { }
+    }
+
+    private async Task CreateList()
+    {
+        _error = null;
+        if (string.IsNullOrWhiteSpace(_title) || string.IsNullOrWhiteSpace(_unit))
+        {
+            _error = "Bitte Titel und Einheit ausfüllen.";
+            return;
+        }
+        _saving = true;
+        try
+        {
+            int? unitNum = int.TryParse(_unitNumber, out var n) ? n : null;
+            var resp = await Http.PostAsJsonAsync("client-api/attendance/create",
+                new { Title = _title, Unit = _unit, Description = _description, UnitNumber = unitNum });
+            if (!resp.IsSuccessStatusCode) { _error = "Erstellen fehlgeschlagen."; return; }
+            var res = await resp.Content.ReadFromJsonAsync<CreatedDto>();
+            Nav.NavigateTo($"/attendance/{res!.Id}", forceLoad: true);
+        }
+        catch { _error = "Erstellen fehlgeschlagen. Bitte erneut versuchen."; }
+        finally { _saving = false; }
+    }
+
+    private record CreatedDto(int Id);
+}
