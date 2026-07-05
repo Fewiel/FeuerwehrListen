@@ -163,6 +163,33 @@
             <div class="col-md-8">
                 <div class="card">
                     <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-tag me-2"></i>Einheiten-Aliase</h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted mb-3">Optionaler Name je Einheit (1&ndash;9). Die Nummer bleibt intern erhalten; der Name erscheint zus&auml;tzlich in Listen, Auswahlfeldern und Statistik. Leer lassen = nur „Einheit N".</p>
+                        <div class="table-responsive">
+                            <table class="table table-sm table-borderless mb-0">
+                                @for (var i = 1; i <= 9; i++)
+                                {
+                                    var idx = i;
+                                    <tr>
+                                        <td class="align-middle text-nowrap" style="width: 90px;">Einheit @idx</td>
+                                        <td>
+                                            <input type="text" class="form-control form-control-sm" placeholder="z. B. Jugendfeuerwehr" @bind="_unitAliases[idx]" />
+                                        </td>
+                                    </tr>
+                                }
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mb-4">
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header">
                         <h5 class="mb-0"><i class="bi bi-send-check me-2"></i>Empfänger für abgeschlossene Listen</h5>
                     </div>
                     <div class="card-body">
@@ -184,7 +211,7 @@
                                         {
                                             var idx = i;
                                             <tr>
-                                                <td class="align-middle text-nowrap" style="width: 90px;">Einheit @idx</td>
+                                                <td class="align-middle text-nowrap" style="width: 160px;">Einheit @idx@{ var _a = SettingsService.GetUnitAlias(idx); }@if (_a != null){<span class="text-muted"> · @_a</span>}</td>
                                                 <td>
                                                     <input type="text" class="form-control form-control-sm" id="attRec_@idx" placeholder="E-Mail-Adressen..." @bind="_attendanceRecipientsByUnit[idx]" />
                                                 </td>
@@ -363,6 +390,7 @@
     private string _smtpPassword = string.Empty;
     private bool _smtpUseSsl = true;
     private readonly string[] _attendanceRecipientsByUnit = new string[10];
+    private readonly string[] _unitAliases = new string[10];
     private string _operationRecipients = string.Empty;
     private string _fireSafetyWatchRecipients = string.Empty;
     private string _defectRecipients = string.Empty;
@@ -409,6 +437,7 @@
         for (var i = 1; i <= 9; i++)
         {
             _attendanceRecipientsByUnit[i] = GetString(settings, SettingKeys.GetAttendanceRecipientsKey(i), string.Empty);
+            _unitAliases[i] = GetString(settings, SettingKeys.GetUnitAliasKey(i), string.Empty);
         }
 
         _operationRecipients = GetString(settings, SettingKeys.NotificationOperationRecipients, string.Empty);
@@ -475,6 +504,7 @@
             for (var i = 1; i <= 9; i++)
             {
                 await SettingsService.UpdateSettingAsync(SettingKeys.GetAttendanceRecipientsKey(i), (_attendanceRecipientsByUnit[i] ?? "").Trim());
+                await SettingsService.UpdateSettingAsync(SettingKeys.GetUnitAliasKey(i), (_unitAliases[i] ?? "").Trim());
             }
 
             await SettingsService.UpdateSettingAsync(SettingKeys.NotificationOperationRecipients, _operationRecipients.Trim());

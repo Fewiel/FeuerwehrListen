@@ -25,7 +25,7 @@
             <p class="lead">@_list.Unit</p>
             @if (_list.UnitNumber.HasValue)
             {
-                <p><strong>Einheit:</strong> @_list.UnitNumber</p>
+                <p><strong>Einheit:</strong> @_list.UnitNumber@{ var _ua = SettingsService.GetUnitAlias(_list.UnitNumber.Value); }@if (_ua != null){<span> &ndash; @_ua</span>}</p>
             }
             <p>@_list.Description</p>
             <small class="text-muted">Erstellt: @_list.CreatedAt.ToString("dd.MM.yyyy HH:mm")</small>

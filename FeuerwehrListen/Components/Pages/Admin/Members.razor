@@ -9,6 +9,7 @@
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
 @inject DownloadTokenService TokenService
+@inject SettingsService SettingsService
 
 <PageTitle>Mitgliederverwaltung</PageTitle>
 
@@ -68,7 +69,7 @@
                                             <input class="form-check-input" type="checkbox" role="switch" id="@($"unit-{unit}")"
                                                    checked="@_editingUnits.Contains(unit)"
                                                    @onchange="@((ChangeEventArgs e) => ToggleEditingUnit(unit, (bool)(e.Value ?? false)))" />
-                                            <label class="form-check-label" for="@($"unit-{unit}")">Einheit @unit</label>
+                                            <label class="form-check-label" for="@($"unit-{unit}")">@SettingsService.GetUnitLabel(unit)</label>
                                         </div>
                                     }
                                 </div>
@@ -199,7 +200,7 @@
                                                     {
                                                         @foreach (var u in units)
                                                         {
-                                                            <span class="badge bg-primary me-1">Einheit @u</span>
+                                                            <span class="badge bg-primary me-1" title="@SettingsService.GetUnitLabel(u)">@SettingsService.GetUnitLabel(u, includeNumber: false)</span>
                                                         }
                                                     }
                                                 </td>

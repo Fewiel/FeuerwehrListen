@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using FeuerwehrListen.Data;
+using FeuerwehrListen.Models;
 using FeuerwehrListen.Repositories;
 
 namespace FeuerwehrListen.Services;
@@ -55,6 +56,22 @@ public class SettingsService
     public string? GetSetting(string key)
     {
         return _cache.TryGetValue(key, out var value) ? value : null;
+    }
+
+    /// <summary>Alias/Name einer Einheit (1-9) oder null, wenn keiner gesetzt ist.</summary>
+    public string? GetUnitAlias(int unitNumber)
+    {
+        var alias = GetSetting(SettingKeys.GetUnitAliasKey(unitNumber));
+        return string.IsNullOrWhiteSpace(alias) ? null : alias.Trim();
+    }
+
+    /// <summary>Anzeige-Label einer Einheit, z. B. "Einheit 3 – Jugendfeuerwehr" bzw. "Einheit 3".</summary>
+    public string GetUnitLabel(int unitNumber, bool includeNumber = true)
+    {
+        var alias = GetUnitAlias(unitNumber);
+        if (string.IsNullOrWhiteSpace(alias))
+            return $"Einheit {unitNumber}";
+        return includeNumber ? $"Einheit {unitNumber} – {alias}" : alias;
     }
 
     public int GetAutoCloseMinutes(string key)

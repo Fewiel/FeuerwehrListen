@@ -41,6 +41,12 @@ public static class SettingKeys
     public const string NextcloudAppPassword = "Nextcloud.AppPassword";
     public const string NextcloudBasePath = "Nextcloud.BasePath";
 
+    // Optionaler Alias/Name je Einheit 1-9 (z. B. "3" -> "Jugendfeuerwehr")
+    public const string UnitAliasPrefix = "Unit.Alias.";
+
     public static string GetAttendanceRecipientsKey(int unitNumber) =>
         $"{NotificationAttendanceRecipientsPrefix}{unitNumber}";
+
+    public static string GetUnitAliasKey(int unitNumber) =>
+        $"{UnitAliasPrefix}{unitNumber}";
 }

@@ -9,6 +9,7 @@
 @inject NavigationManager Navigation
 @inject IJSRuntime JSRuntime
 @inject DownloadTokenService TokenService
+@inject SettingsService SettingsService
 
 <PageTitle>Statistiken - Admin</PageTitle>
 
@@ -66,7 +67,7 @@
                         <option value="0">Alle Einheiten</option>
                         @for (int u = 1; u <= 9; u++)
                         {
-                            <option value="@u">Einheit @u</option>
+                            <option value="@u">@SettingsService.GetUnitLabel(u)</option>
                         }
                     </select>
                 </div>

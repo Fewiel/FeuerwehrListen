@@ -133,7 +133,7 @@
                         <div class="dash-chip" style="background:#E7F0FE;color:#1F6FEB"><i class="bi bi-clipboard-check"></i></div>
                         <div>
                             <h4>@att.Title</h4>
-                            <p class="k">@att.Unit@(att.UnitNumber.HasValue ? " · Einheit " + att.UnitNumber : "")</p>
+                            <p class="k">@att.Unit@(att.UnitNumber.HasValue ? " · " + SettingsService.GetUnitLabel(att.UnitNumber.Value) : "")</p>
                         </div>
                     </div>
                     <div class="dash-mrow"><span>Erstellt</span><span class="v">@att.CreatedAt.ToString("dd.MM. HH:mm")</span></div>
