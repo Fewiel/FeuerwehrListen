@@ -1,7 +1,8 @@
 @using FeuerwehrListen.Client.Layout
 <Router AppAssembly="typeof(FeuerwehrListen.Client._Imports).Assembly">
     <Found Context="routeData">
+        @* Kein FocusOnNavigate: es fokussierte nach jeder Navigation die h1 und der
+           Browser zeichnete einen Fokusrahmen um Ueberschriften (z. B. "Offene Listen"). *@
         <RouteView RouteData="routeData" DefaultLayout="typeof(MainLayout)" />
-        <FocusOnNavigate RouteData="routeData" Selector="h1" />
     </Found>
 </Router>
