@@ -12,7 +12,8 @@
     <link rel="stylesheet" href="bootstrap/bootstrap.min.css"/>
     <link rel="stylesheet" href="lib/bootstrap-icons/bootstrap-icons.min.css"/>
     <link rel="stylesheet" href="app.css"/>
-    <link rel="stylesheet" href="FeuerwehrListen.styles.css"/>
+    @* FeuerwehrListen.styles.css entfernt: es gibt keine .razor.css (Scoped-CSS) mehr,
+       das Bundle wird nicht erzeugt -> war ein 404 auf jeder Seite. *@
     @* Statisch: sonst wuerde der HeadOutlet auch auf reinen WASM-Seiten einen
        SignalR-Circuit oeffnen. Seitentitel werden beim (Pre-)Rendern gesetzt. *@
     <HeadOutlet />
