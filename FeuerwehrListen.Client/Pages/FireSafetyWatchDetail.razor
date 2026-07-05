@@ -1,0 +1,115 @@
+@page "/firesafetywatches/{Id:int}"
+@rendermode InteractiveWebAssembly
+@layout MainLayout
+@using System.Net.Http.Json
+@inject HttpClient Http
+@inject IJSRuntime JS
+
+<PageTitle>Brandsicherheitswache</PageTitle>
+
+<div class="container mt-4">
+    @if (_w is null) { <p><em>Lade…</em></p> }
+    else
+    {
+        <div class="mb-4">
+            <h1>@_w.Name</h1>
+            <p class="lead text-muted">@_w.Location | @_w.EventTime.ToString("dd.MM.yyyy HH:mm 'Uhr'")</p>
+            <div class="d-flex flex-wrap gap-2">
+                <AuthorizeView>
+                    @if (_w.IsOpen) { <button class="btn btn-warning" @onclick="Close">Wache abschließen</button> }
+                </AuthorizeView>
+                <a href="/firesafetywatches" class="btn btn-secondary">Zurück</a>
+            </div>
+        </div>
+
+        @if (_w.IsOpen && _selectedReq is not null)
+        {
+            <div class="card mb-3 border-success"><div class="card-body">
+                <p class="mb-2">Eintragen für: <strong>@_selectedReq.FunctionName</strong> (@(_selectedReq.VehicleName))</p>
+                <QrScanner IsActive="true" OnCodeScanned="c => Register(c)" />
+                <div class="input-group mt-2">
+                    <input class="form-control" placeholder="Mitgliedsnummer/Name" @bind="_input" @bind:event="oninput" @onkeyup="@(async e => { if (e.Key == "Enter") await Register(_input); })" />
+                    <button class="btn btn-success" @onclick="() => Register(_input)">Eintragen</button>
+                    <button class="btn btn-secondary" @onclick="() => _selectedReq = null">Abbrechen</button>
+                </div>
+                @if (_error is not null) { <div class="alert alert-danger py-2 mt-2 mb-0">@_error</div> }
+            </div></div>
+        }
+
+        @if (_confirm is not null) { <div class="entry-confirmation-overlay"><i class="bi bi-check-circle-fill"></i><div class="entry-confirmation-name">@_confirm</div><small class="text-muted">eingetragen</small></div> }
+
+        @foreach (var g in _w.Requirements.GroupBy(r => r.VehicleName))
+        {
+            <div class="card mb-4"><div class="card-header"><h5 class="mb-0"><i class="bi bi-truck me-1"></i>@g.Key</h5></div>
+                <ul class="list-group list-group-flush">
+                    @foreach (var r in g)
+                    {
+                        @for (var i = 0; i < r.Amount; i++)
+                        {
+                            var e = r.Entries.ElementAtOrDefault(i);
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                <strong>@r.FunctionName</strong>
+                                <div>
+                                    @if (e is not null)
+                                    {
+                                        <span>@e.MemberName</span>
+                                        <AuthorizeView Roles="Admin">
+                                            @if (_w.IsOpen) { <button class="btn btn-sm btn-outline-danger ms-2" @onclick="() => Unregister(e.EntryId)">Austragen</button> }
+                                        </AuthorizeView>
+                                    }
+                                    else if (_w.IsOpen)
+                                    {
+                                        <button class="btn btn-sm btn-success" @onclick="() => SelectReq(r)">Eintragen</button>
+                                    }
+                                </div>
+                            </li>
+                        }
+                    }
+                </ul>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public int Id { get; set; }
+    private WatchDto? _w;
+    private ReqDto? _selectedReq;
+    private string _input = "";
+    private string? _error, _confirm;
+
+    protected override async Task OnParametersSetAsync() => await Load();
+    private async Task Load() { try { _w = await Http.GetFromJsonAsync<WatchDto>($"client-api/firesafetywatch/{Id}"); } catch { _w = null; } }
+
+    private void SelectReq(ReqDto r) { _selectedReq = r; _input = ""; _error = null; }
+
+    private async Task Register(string code)
+    {
+        if (_selectedReq is null || string.IsNullOrWhiteSpace(code)) return;
+        _error = null;
+        try
+        {
+            var resp = await Http.PostAsJsonAsync($"client-api/firesafetywatch/{Id}/register", new { RequirementId = _selectedReq.Id, Code = code.Trim() });
+            var r = await resp.Content.ReadFromJsonAsync<RegResult>();
+            switch (r?.Status)
+            {
+                case "added": await Confirm(r.Name); _selectedReq = null; _input = ""; await Load(); break;
+                case "duplicate": _error = $"{r.Name} ist bereits eingetragen!"; await Sound("error"); break;
+                case "notfound": _error = "Mitglied nicht gefunden!"; await Sound("error"); break;
+                case "choose-member": _error = "Mehrere Treffer – bitte Mitgliedsnummer verwenden."; break;
+            }
+        }
+        catch { _error = "Eintragen fehlgeschlagen."; }
+    }
+
+    private async Task Unregister(int entryId) { await Http.DeleteAsync($"client-api/firesafetywatch/{Id}/entry/{entryId}"); await Load(); }
+    private async Task Close() { await Http.PostAsync($"client-api/firesafetywatch/{Id}/close", null); await Load(); }
+
+    private async Task Confirm(string? name) { await Sound("success"); _confirm = name; StateHasChanged(); _ = Task.Run(async () => { await Task.Delay(2000); await InvokeAsync(() => { _confirm = null; StateHasChanged(); }); }); }
+    private async Task Sound(string t) { try { await JS.InvokeVoidAsync("playSound", t); } catch { } }
+
+    private record WatchDto(int Id, string Name, string Location, DateTime EventTime, bool IsOpen, List<ReqDto> Requirements);
+    private record ReqDto(int Id, string FunctionName, int? VehicleId, string VehicleName, int Amount, List<EntryDto> Entries);
+    private record EntryDto(int EntryId, string MemberName);
+    private record RegResult(string Status, string? Name);
+}

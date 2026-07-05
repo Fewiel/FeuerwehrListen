@@ -1,0 +1,79 @@
+@page "/firesafetywatches/create"
+@rendermode InteractiveWebAssembly
+@layout MainLayout
+@using System.Net.Http.Json
+@inject HttpClient Http
+@inject NavigationManager Nav
+
+<PageTitle>Neue Brandsicherheitswache</PageTitle>
+
+<AuthGuard RequireAdmin="true">
+    <div class="container mt-4">
+        <h1>Neue Brandsicherheitswache anlegen</h1>
+        <div class="card mt-4"><div class="card-body">
+            <div class="mb-3"><label class="form-label">Name / Anlass</label><input class="form-control" @bind="_name" /></div>
+            <div class="mb-3"><label class="form-label">Ort</label><input class="form-control" @bind="_location" /></div>
+            <div class="mb-3"><label class="form-label">Datum &amp; Uhrzeit</label><input type="datetime-local" class="form-control" @bind="_eventTime" /></div>
+            <hr />
+            <h5>Personal- &amp; Fahrzeuganforderungen</h5>
+            @foreach (var req in _requirements)
+            {
+                <div class="row gx-2 mb-2 align-items-end">
+                    <div class="col-md-4"><label class="form-label">Funktion</label>
+                        <select class="form-select" @bind="req.FunctionDefId"><option value="0">-- wählen --</option>
+                            @foreach (var f in _functions) { <option value="@f.Id">@f.Name</option> }
+                        </select>
+                    </div>
+                    <div class="col-md-2"><label class="form-label">Anzahl</label><input type="number" class="form-control" @bind="req.Amount" /></div>
+                    <div class="col-md-4"><label class="form-label">Fahrzeug (optional)</label>
+                        <select class="form-select" @bind="req.VehicleId"><option value="">-- Ohne Fahrzeug --</option>
+                            @foreach (var v in _vehicles) { <option value="@v.Id">@v.Name</option> }
+                        </select>
+                    </div>
+                    <div class="col-md-2"><button class="btn btn-danger w-100" @onclick="() => _requirements.Remove(req)">Entfernen</button></div>
+                </div>
+            }
+            <button class="btn btn-secondary mt-2" @onclick="() => _requirements.Add(new())">Anforderung hinzufügen</button>
+            <hr />
+            @if (_error is not null) { <div class="alert alert-danger">@_error</div> }
+            <button class="btn btn-primary mt-2" @onclick="Save" disabled="@_saving">Brandsicherheitswache anlegen</button>
+        </div></div>
+    </div>
+</AuthGuard>
+
+@code {
+    private string _name = "", _location = "";
+    private DateTime _eventTime = DateTime.Today.AddHours(8);
+    private List<ReqRow> _requirements = new() { new() };
+    private List<FuncDto> _functions = new();
+    private List<VehDto> _vehicles = new();
+    private bool _saving;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try { _functions = await Http.GetFromJsonAsync<List<FuncDto>>("client-api/admin/functions") ?? new(); } catch { }
+        try { _vehicles = (await Http.GetFromJsonAsync<List<VehDto>>("client-api/admin/vehicles") ?? new()).Where(v => v.IsActive).ToList(); } catch { }
+    }
+
+    private async Task Save()
+    {
+        _error = null;
+        if (string.IsNullOrWhiteSpace(_name) || string.IsNullOrWhiteSpace(_location)) { _error = "Name und Ort erforderlich."; return; }
+        var reqs = _requirements.Where(r => r.Amount > 0 && r.FunctionDefId > 0)
+            .Select(r => new { FunctionDefId = r.FunctionDefId, Amount = r.Amount, VehicleId = string.IsNullOrEmpty(r.VehicleId) ? (int?)null : int.Parse(r.VehicleId) }).ToList();
+        if (reqs.Count == 0) { _error = "Mindestens eine Anforderung mit Anzahl > 0."; return; }
+        _saving = true;
+        try
+        {
+            var resp = await Http.PostAsJsonAsync("client-api/admin/firesafetywatches", new { Name = _name, Location = _location, EventTime = _eventTime, Requirements = reqs });
+            if (resp.IsSuccessStatusCode) Nav.NavigateTo("/firesafetywatches", forceLoad: true);
+            else _error = "Anlegen fehlgeschlagen.";
+        }
+        finally { _saving = false; }
+    }
+
+    private class ReqRow { public int FunctionDefId { get; set; } public int Amount { get; set; } = 1; public string VehicleId { get; set; } = ""; }
+    private record FuncDto(int Id, string Name, bool IsDefault);
+    private record VehDto(int Id, string Name, string CallSign, string Type, bool IsActive, DateTime CreatedAt);
+}

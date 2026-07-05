@@ -793,6 +793,70 @@ app.MapPost("/client-api/operation/{id:int}/add", async (int id, OperationListRe
     return Results.Json(new { status = "added", name = $"{member.FirstName} {member.LastName}" });
 }).DisableAntiforgery();
 
+// Brandsicherheitswache: Detail (öffentlich) + Registrieren/Austragen/Abschließen
+app.MapGet("/client-api/firesafetywatch/{id:int}", async (int id, FireSafetyWatchRepository repo, FireSafetyWatchRequirementRepository reqRepo, FireSafetyWatchEntryRepository entryRepo) =>
+{
+    var w = await repo.GetByIdAsync(id);
+    if (w == null) return Results.NotFound();
+    var reqs = await reqRepo.GetByWatchIdAsync(id);
+    var entries = await entryRepo.GetByWatchIdAsync(id);
+    return Results.Json(new
+    {
+        id = w.Id, name = w.Name, location = w.Location, eventTime = w.EventDateTime, isOpen = w.Status == ListStatus.Open,
+        requirements = reqs.OrderBy(r => r.VehicleId == null ? 1 : 0).Select(r => new
+        {
+            id = r.Id, functionName = r.FunctionDef?.Name ?? "Trupp", vehicleId = r.VehicleId, vehicleName = r.VehicleId == null ? "Ohne Fahrzeug" : r.Vehicle?.Name, amount = r.Amount,
+            entries = entries.Where(e => e.RequirementId == r.Id).Select(e => new { entryId = e.Id, memberName = $"{e.Member?.FirstName} {e.Member?.LastName}" })
+        })
+    });
+});
+
+app.MapPost("/client-api/firesafetywatch/{id:int}/register", async (int id, FireSafetyWatchEntryRepository entryRepo, MemberRepository memberRepo, FswRegisterRequest req) =>
+{
+    Member? member = null;
+    if (req.MemberId is int mid) member = await memberRepo.GetByIdAsync(mid);
+    else if (!string.IsNullOrWhiteSpace(req.Code))
+    {
+        var input = req.Code.Trim();
+        if (int.TryParse(input, out _)) member = await memberRepo.GetByMemberNumberAsync(input);
+        if (member == null)
+        {
+            var found = await memberRepo.SearchAsync(input);
+            if (found.Count == 1) member = found[0];
+            else if (found.Count > 1) return Results.Json(new { status = "choose-member", members = found.Select(m => new { id = m.Id, name = $"{m.FirstName} {m.LastName}", number = m.MemberNumber }) });
+        }
+    }
+    if (member == null) return Results.Json(new { status = "notfound" });
+
+    var entries = await entryRepo.GetByWatchIdAsync(id);
+    if (entries.Any(e => e.MemberId == member.Id)) return Results.Json(new { status = "duplicate", name = $"{member.FirstName} {member.LastName}" });
+
+    await entryRepo.InsertAsync(new FireSafetyWatchEntry { FireSafetyWatchId = id, RequirementId = req.RequirementId, MemberId = member.Id });
+    return Results.Json(new { status = "added", name = $"{member.FirstName} {member.LastName}" });
+}).DisableAntiforgery();
+
+app.MapDelete("/client-api/firesafetywatch/{id:int}/entry/{entryId:int}", async (int entryId, FireSafetyWatchEntryRepository entryRepo) =>
+{ await entryRepo.DeleteAsync(entryId); return Results.Ok(); }).RequireAuthorization("Admin").DisableAntiforgery();
+
+app.MapPost("/client-api/firesafetywatch/{id:int}/close", async (int id, FireSafetyWatchRepository repo, ListNotificationService notif) =>
+{
+    var w = await repo.GetByIdAsync(id); if (w == null) return Results.NotFound();
+    w.Status = ListStatus.Closed; w.ClosedAt = DateTime.Now;
+    await repo.UpdateAsync(w);
+    await notif.NotifyFireSafetyWatchClosedAsync(w);
+    return Results.Ok();
+}).RequireAuthorization().DisableAntiforgery();
+
+admin.MapPost("/firesafetywatches", async (FireSafetyWatchRepository repo, FswCreateRequest r) =>
+{
+    var watch = new FireSafetyWatch { Name = r.Name.Trim(), Location = r.Location.Trim(), EventDateTime = r.EventTime, Status = ListStatus.Open };
+    var reqs = (r.Requirements ?? new()).Where(x => x.Amount > 0 && x.FunctionDefId > 0)
+        .Select(x => new FireSafetyWatchRequirement { FunctionDefId = x.FunctionDefId, Amount = x.Amount, VehicleId = x.VehicleId }).ToList();
+    if (reqs.Count == 0) return Results.BadRequest();
+    await repo.InsertFireSafetyWatchWithRequirements(watch, reqs);
+    return Results.Ok();
+});
+
 // Brandsicherheitswachen-Liste
 app.MapGet("/client-api/firesafetywatches", async (FireSafetyWatchRepository repo) =>
     Results.Json((await repo.GetAllWithStatusAsync())
@@ -915,5 +979,8 @@ public record CreateOperationRequest(string OperationNumber, string Keyword, Dat
 public record AttendanceAddRequest(string? Code, int? MemberId, int? TargetListId);
 public record OperationResolveRequest(string? Code);
 public record OperationAddRequest(int MemberId, int? VehicleId, bool NoVehicle, bool BreathingApparatus, List<int>? FunctionIds);
+public record FswRegisterRequest(int RequirementId, string? Code, int? MemberId);
+public record FswReqItem(int FunctionDefId, int Amount, int? VehicleId);
+public record FswCreateRequest(string Name, string Location, DateTime EventTime, List<FswReqItem>? Requirements);
 
 public partial class Program { }
