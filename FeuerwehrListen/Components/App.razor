@@ -93,6 +93,12 @@
 
             Blazor.start({
                 circuit: {
+                    // Safari (iPadOS 17/18) drosselt JS-Timer aggressiv. Client-Timeouts an die
+                    // Server-Toleranz (120s) angleichen, sonst erklaert der Client die Verbindung
+                    // nach 30s Standard zu frueh fuer tot -> "Verbindung unterbrochen" je Klick.
+                    configureSignalR: function (builder) {
+                        builder.withServerTimeout(120000).withKeepAliveInterval(15000);
+                    },
                     reconnectionHandler: {
                         onConnectionDown: function() {
                             currentProcess = currentProcess || startReconnect();

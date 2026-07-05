@@ -20,13 +20,29 @@ if (builder.Environment.IsProduction())
 GlobalFontSettings.FontResolver = new FontResolver();
 
 builder.Services.AddRazorComponents()
-    .AddInteractiveServerComponents()
+    .AddInteractiveServerComponents(options =>
+    {
+        // Getrennte Circuits laenger aufbewahren: Safari/iPad legt Seiten schnell schlafen.
+        // Nach dem Aufwachen findet der Client seinen Circuit wieder (Reconnect), statt dass
+        // Blazor.reconnect() fehlschlaegt und die Seite komplett neu laden muss.
+        options.DisconnectedCircuitRetentionPeriod = TimeSpan.FromMinutes(6);
+        options.DisconnectedCircuitMaxRetained = 100;
+    })
     .AddHubOptions(options =>
     {
         // Standard sind 32 KB. Digital gezeichnete Unterschriften (PNG-DataURL vom Canvas)
         // kommen per JS-Interop zurück und können größer sein -> sonst bricht der Circuit
         // beim Speichern ab ("hängt fest / verliert die Verbindung").
         options.MaximumReceiveMessageSize = 5 * 1024 * 1024; // 5 MB
+
+        // Neuere Safari-Versionen (iPadOS 17/18) drosseln JS-Timer aggressiv (Energiesparen,
+        // Display dimmt, Tab kurz inaktiv). Der Keep-Alive-Ping des Clients kommt dann zu
+        // spaet und der Server beendete den Circuit nach 30s (Standard) -> auf neuen iPads
+        // "Verbindung unterbrochen" bei jedem Klick, Buttons/Login/Navigation tot.
+        // 120s Toleranz ueberbrueckt die Drosselung; Server pingt weiter alle 15s.
+        options.ClientTimeoutInterval = TimeSpan.FromSeconds(120);
+        options.KeepAliveInterval = TimeSpan.FromSeconds(15);
+        options.HandshakeTimeout = TimeSpan.FromSeconds(30);
     });
 
 builder.Services.AddScoped<AuthenticationService>();
