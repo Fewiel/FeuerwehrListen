@@ -65,8 +65,12 @@ public class SettingsService
         return string.IsNullOrWhiteSpace(alias) ? null : alias.Trim();
     }
 
-    /// <summary>Anzeige-Label einer Einheit, z. B. "Einheit 3 – Jugendfeuerwehr" bzw. "Einheit 3".</summary>
-    public string GetUnitLabel(int unitNumber, bool includeNumber = true)
+    /// <summary>
+    /// Anzeige-Label einer Einheit: mit Alias nur der Alias (z. B. „Jugendfeuerwehr"),
+    /// ohne Alias „Einheit N". Mit includeNumber=true wird bei Alias zusätzlich die Nummer
+    /// vorangestellt („Einheit 3 – Jugendfeuerwehr").
+    /// </summary>
+    public string GetUnitLabel(int unitNumber, bool includeNumber = false)
     {
         var alias = GetUnitAlias(unitNumber);
         if (string.IsNullOrWhiteSpace(alias))
