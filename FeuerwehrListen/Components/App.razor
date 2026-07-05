@@ -52,8 +52,33 @@
                 var r = e.reason;
                 add('promise', r && r.message ? r.message : String(r));
             });
+            // WebSocket-Abbrueche (Code 1006 = von aussen gekappt, z. B. Firewall/Middlebox
+            // trennt Dauerverbindungen nach ~40s) zaehlen. Nach dem 2. Abbruch schaltet dieses
+            // Geraet dauerhaft auf Long-Polling um (kurze HTTP-Requests statt Dauerverbindung).
+            function noteWsFailure(msg) {
+                if (String(msg).indexOf('WebSocket closed') === -1) return;
+                try {
+                    var n = (parseInt(sessionStorage.getItem('ws_fail_count') || '0', 10) || 0) + 1;
+                    sessionStorage.setItem('ws_fail_count', String(n));
+                    add('ws', 'WebSocket-Abbruch Nr. ' + n);
+                    if (n >= 2 && localStorage.getItem('fw_transport') !== 'lp') {
+                        localStorage.setItem('fw_transport', 'lp');
+                        add('ws', 'Netzwerk kappt Dauerverbindungen - schalte dauerhaft auf Long-Polling um');
+                    }
+                } catch (e) { }
+            }
+            // Manuelles Umschalten zum Testen: ?transport=lp bzw. ?transport=ws
+            try {
+                var tm = location.search.match(/[?&]transport=(lp|ws)/);
+                if (tm) {
+                    if (tm[1] === 'lp') { localStorage.setItem('fw_transport', 'lp'); }
+                    else { localStorage.removeItem('fw_transport'); sessionStorage.removeItem('ws_fail_count'); }
+                    add('info', 'Transport per URL gesetzt: ' + tm[1]);
+                }
+            } catch (e) { }
+
             var oe = console.error, ow = console.warn, oi = console.info;
-            console.error = function () { try { add('error', Array.prototype.join.call(arguments, ' ')); } catch (e) { } oe.apply(console, arguments); };
+            console.error = function () { try { var m = Array.prototype.join.call(arguments, ' '); add('error', m); noteWsFailure(m); } catch (e) { } oe.apply(console, arguments); };
             console.warn = function () { try { add('warn', Array.prototype.join.call(arguments, ' ')); } catch (e) { } ow.apply(console, arguments); };
             console.info = function () { try { add('sig', Array.prototype.join.call(arguments, ' ')); } catch (e) { } oi.apply(console, arguments); };
             document.addEventListener('visibilitychange', function () { add('vis', document.visibilityState); });
@@ -127,6 +152,18 @@
             function startReconnect() {
                 var isCanceled = false;
                 if (window._diag) window._diag.add('circuit', 'Verbindung getrennt (onConnectionDown)');
+
+                // Long-Polling wurde inzwischen aktiviert, diese Seite laeuft aber noch auf
+                // WebSockets: einmal neu laden, damit der stabile Transport sofort greift.
+                try {
+                    if (!window._fwLp && localStorage.getItem('fw_transport') === 'lp') {
+                        if (window._diag) window._diag.add('circuit', 'Neuladen fuer Wechsel auf Long-Polling');
+                        showBanner('<i class="bi bi-arrow-repeat"></i> Wechsle auf stabile Verbindung…', 'reconnect-down');
+                        setTimeout(function () { location.reload(); }, 600);
+                        return { cancel: function () { } };
+                    }
+                } catch (e) { }
+
                 showBanner('<i class="bi bi-wifi-off"></i> Verbindung unterbrochen — Reconnect... <small>(Details: Banner antippen)</small>', 'reconnect-down');
 
                 (async function() {
@@ -154,6 +191,16 @@
                         builder.withServerTimeout(120000).withKeepAliveInterval(15000);
                         // Transportwahl + Abbruchgruende in der Diagnose sichtbar machen
                         try { builder.configureLogging('information'); } catch (e) { }
+                        // Nach wiederholten 1006-Abbruechen (Netzwerk kappt Dauerverbindungen)
+                        // dauerhaft Long-Polling nutzen: kurze HTTP-Requests (jeder <=15s dank
+                        // Keep-Alive) statt einer Dauerverbindung. 4 = HttpTransportType.LongPolling.
+                        try {
+                            if (localStorage.getItem('fw_transport') === 'lp') {
+                                builder.withUrl('_blazor', { transport: 4 });
+                                window._fwLp = true;
+                                if (window._diag) window._diag.add('sig', 'Transport erzwungen: Long-Polling');
+                            }
+                        } catch (e) { }
                     },
                     reconnectionHandler: {
                         onConnectionDown: function() {
