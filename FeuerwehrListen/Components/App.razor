@@ -19,12 +19,11 @@
     <HeadOutlet />
 </head>
 
-<body data-enhance-nav="false">
-    @* Kein globaler Render-Mode mehr: jede Seite bestimmt ihn selbst (@rendermode),
-       damit einzelne Seiten auf InteractiveWebAssembly umgestellt werden koennen.
-       data-enhance-nav="false": Blazors Enhanced Navigation global aus - sie ist auf
-       alten iPads (iOS15/Safari) fehlerhaft. Alle Links machen normale Vollnavigation. *@
-    <Routes />
+<body>
+    @* Globaler WASM-Router: die gesamte App laeuft als Blazor WebAssembly, die
+       Navigation ist client-seitig (kein Neuladen, kein Re-Boot) -> schnell auf
+       allen Geraeten inkl. alte iPads, und Enhanced Navigation wird nicht gebraucht. *@
+    <FeuerwehrListen.Client.Routes @rendermode="InteractiveWebAssembly" />
     <script>
         // --- Verbindungs-Diagnose (Geraete ohne Konsole, z. B. iPad) ---
         // Sammelt JS-Fehler, Konsolen-Meldungen und Verbindungsereignisse in einem
