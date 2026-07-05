@@ -18,6 +18,59 @@
 
 <body>
     <Routes @rendermode="InteractiveServer" />
+    <script>
+        // --- Verbindungs-Diagnose (Geraete ohne Konsole, z. B. iPad) ---
+        // Sammelt JS-Fehler, Konsolen-Meldungen und Verbindungsereignisse in einem
+        // Ringpuffer (sessionStorage, ueberlebt Reloads). Ein Tipp auf das rote
+        // Reconnect-Banner blendet das Protokoll ein. Muss VOR allen anderen
+        // Scripts stehen, damit auch deren Meldungen erfasst werden.
+        (function () {
+            var MAX = 40;
+            var buf = [];
+            try { buf = JSON.parse(sessionStorage.getItem('diag_log') || '[]'); } catch (e) { buf = []; }
+            function ts() {
+                var d = new Date();
+                function p(n) { return (n < 10 ? '0' : '') + n; }
+                return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+            }
+            function add(kind, msg) {
+                try {
+                    buf.push(ts() + ' [' + kind + '] ' + String(msg).slice(0, 300));
+                    while (buf.length > MAX) buf.shift();
+                    sessionStorage.setItem('diag_log', JSON.stringify(buf));
+                    var el = document.getElementById('diag-details');
+                    if (el && el.style.display !== 'none') el.textContent = buf.join('\n');
+                } catch (e) { }
+            }
+            window._diag = { add: add, all: function () { return buf.join('\n'); } };
+            add('info', 'Geladen: ' + location.pathname + ' | online=' + navigator.onLine + ' | ' + navigator.userAgent.slice(0, 120));
+
+            window.addEventListener('error', function (e) {
+                add('js-error', (e.message || 'Fehler') + ' bei ' + (e.filename || '').split('/').pop() + ':' + (e.lineno || ''));
+            });
+            window.addEventListener('unhandledrejection', function (e) {
+                var r = e.reason;
+                add('promise', r && r.message ? r.message : String(r));
+            });
+            var oe = console.error, ow = console.warn, oi = console.info;
+            console.error = function () { try { add('error', Array.prototype.join.call(arguments, ' ')); } catch (e) { } oe.apply(console, arguments); };
+            console.warn = function () { try { add('warn', Array.prototype.join.call(arguments, ' ')); } catch (e) { } ow.apply(console, arguments); };
+            console.info = function () { try { add('sig', Array.prototype.join.call(arguments, ' ')); } catch (e) { } oi.apply(console, arguments); };
+            document.addEventListener('visibilitychange', function () { add('vis', document.visibilityState); });
+            window.addEventListener('online', function () { add('net', 'online'); });
+            window.addEventListener('offline', function () { add('net', 'offline'); });
+
+            // Tipp auf das Reconnect-Banner blendet das Protokoll ein/aus
+            document.addEventListener('click', function (e) {
+                var b = document.getElementById('reconnect-banner');
+                if (!b || !(e.target === b || b.contains(e.target))) return;
+                var d = document.getElementById('diag-details');
+                if (!d) return;
+                if (d.style.display === 'none') { d.textContent = buf.join('\n'); d.style.display = 'block'; }
+                else { d.style.display = 'none'; }
+            });
+        })();
+    </script>
     <script src="lib/barcode-detector/polyfill.min.js"></script>
     <script>
         // WASM des Barcode-Polyfills lokal laden (statt CDN) – für Altgeräte / falls das CDN ausfällt
@@ -73,7 +126,8 @@
 
             function startReconnect() {
                 var isCanceled = false;
-                showBanner('<i class="bi bi-wifi-off"></i> Verbindung unterbrochen — Reconnect...', 'reconnect-down');
+                if (window._diag) window._diag.add('circuit', 'Verbindung getrennt (onConnectionDown)');
+                showBanner('<i class="bi bi-wifi-off"></i> Verbindung unterbrochen — Reconnect... <small>(Details: Banner antippen)</small>', 'reconnect-down');
 
                 (async function() {
                     for (var i = 0; i < maxRetries; i++) {
@@ -98,6 +152,8 @@
                     // nach 30s Standard zu frueh fuer tot -> "Verbindung unterbrochen" je Klick.
                     configureSignalR: function (builder) {
                         builder.withServerTimeout(120000).withKeepAliveInterval(15000);
+                        // Transportwahl + Abbruchgruende in der Diagnose sichtbar machen
+                        try { builder.configureLogging('information'); } catch (e) { }
                     },
                     reconnectionHandler: {
                         onConnectionDown: function() {
@@ -105,6 +161,7 @@
                         },
                         onConnectionUp: function() {
                             if (currentProcess) { currentProcess.cancel(); currentProcess = null; }
+                            if (window._diag) window._diag.add('circuit', 'Wieder verbunden (onConnectionUp)');
                             showBanner('<i class="bi bi-wifi"></i> Wieder verbunden', 'reconnect-up');
                             setTimeout(function() { showBanner('', 'reconnect-hidden'); }, 3000);
                         }
