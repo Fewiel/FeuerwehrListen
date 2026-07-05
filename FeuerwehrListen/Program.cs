@@ -285,6 +285,92 @@ app.MapGet("/client-api/app-context", (SettingsService settings) =>
     });
 });
 
+// Anwesenheitsliste: Detail + Eintraege
+app.MapGet("/client-api/attendance/{id:int}", async (int id, AttendanceListRepository repo, AttendanceEntryRepository entryRepo, SettingsService settings) =>
+{
+    var list = await repo.GetByIdAsync(id);
+    if (list == null) return Results.NotFound();
+    var entries = await entryRepo.GetByListIdAsync(id);
+    return Results.Json(new
+    {
+        id = list.Id,
+        title = list.Title,
+        unit = list.Unit,
+        unitNumber = list.UnitNumber,
+        unitAlias = list.UnitNumber.HasValue ? settings.GetUnitAlias(list.UnitNumber.Value) : null,
+        description = list.Description,
+        createdAt = list.CreatedAt,
+        isOpen = list.Status == ListStatus.Open,
+        entries = entries.Select(e => new { id = e.Id, name = e.NameOrId, enteredAt = e.EnteredAt, isExcused = e.IsExcused })
+    });
+});
+
+// Anwesenheit eintragen (Mitglieds-Lookup + Einheiten-Umleitung + Duplikatpruefung serverseitig)
+app.MapPost("/client-api/attendance/{id:int}/add", async (int id, AttendanceListRepository repo, AttendanceEntryRepository entryRepo, MemberRepository memberRepo, UnitAssignmentService unitSvc, AttendanceAddRequest req) =>
+{
+    var list = await repo.GetByIdAsync(id);
+    if (list == null) return Results.NotFound();
+
+    Member? member = null;
+    if (req.MemberId is int mid)
+    {
+        member = await memberRepo.GetByIdAsync(mid);
+    }
+    else if (!string.IsNullOrWhiteSpace(req.Code))
+    {
+        var input = req.Code.Trim();
+        var o = input.LastIndexOf('('); var c = input.LastIndexOf(')');
+        if (o >= 0 && c > o)
+        {
+            var inside = input.Substring(o + 1, c - o - 1).Trim();
+            if (inside.Length > 0 && await memberRepo.GetByMemberNumberAsync(inside) != null) input = inside;
+        }
+        if (int.TryParse(input, out _)) member = await memberRepo.GetByMemberNumberAsync(input);
+        if (member == null)
+        {
+            var found = await memberRepo.SearchAsync(input);
+            if (found.Count == 1) member = found[0];
+            else if (found.Count > 1)
+                return Results.Json(new { status = "choose-member", members = found.Select(m => new { id = m.Id, name = $"{m.FirstName} {m.LastName}", number = m.MemberNumber }) });
+        }
+    }
+    if (member == null) return Results.Json(new { status = "notfound" });
+
+    var name = $"{member.FirstName} {member.LastName}";
+    int targetListId = req.TargetListId ?? id;
+
+    if (req.TargetListId == null && list.Status == ListStatus.Open && list.UnitNumber.HasValue)
+    {
+        var units = await unitSvc.ResolveAllUnitNumbersAsync(member);
+        if (!units.Contains(list.UnitNumber.Value) && units.Count > 0)
+        {
+            var avail = new List<AttendanceList>();
+            foreach (var u in units)
+                foreach (var l in await repo.GetAllOpenByUnitNumberAsync(u))
+                    if (!avail.Any(a => a.Id == l.Id)) avail.Add(l);
+            foreach (var l in await repo.GetOpenWithoutUnitAsync())
+                if (!avail.Any(a => a.Id == l.Id)) avail.Add(l);
+
+            if (avail.Count == 0) return Results.Json(new { status = "nomatch", units = string.Join(", ", units.Select(u => $"Einheit {u}")) });
+            if (avail.Count == 1) targetListId = avail[0].Id;
+            else return Results.Json(new { status = "choose-list", memberId = member.Id, name, lists = avail.Select(l => new { id = l.Id, title = l.Title }) });
+        }
+    }
+
+    var targetEntries = await entryRepo.GetByListIdAsync(targetListId);
+    if (targetEntries.Any(e => e.NameOrId.Contains($"({member.MemberNumber})")))
+        return Results.Json(new { status = "duplicate", name });
+
+    await entryRepo.CreateAsync(new AttendanceEntry
+    {
+        AttendanceListId = targetListId,
+        NameOrId = $"{name} ({member.MemberNumber})",
+        EnteredAt = DateTime.Now,
+        IsExcused = false
+    });
+    return Results.Json(new { status = targetListId == id ? "added" : "redirected", name, listId = targetListId });
+}).DisableAntiforgery();
+
 // Brandsicherheitswachen-Liste
 app.MapGet("/client-api/firesafetywatches", async (FireSafetyWatchRepository repo) =>
     Results.Json((await repo.GetAllWithStatusAsync())
@@ -378,5 +464,6 @@ app.Run();
 public record FeedbackRequest(int OperationId, string? Text);
 public record CreateAttendanceRequest(string Title, string Unit, string? Description, int? UnitNumber);
 public record CreateOperationRequest(string OperationNumber, string Keyword, DateTime AlertTime, string? Address);
+public record AttendanceAddRequest(string? Code, int? MemberId, int? TargetListId);
 
 public partial class Program { }

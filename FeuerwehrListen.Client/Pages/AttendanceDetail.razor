@@ -1,0 +1,229 @@
+@page "/attendance/{Id:int}"
+@rendermode InteractiveWebAssembly
+@layout MainLayout
+@using System.Net.Http.Json
+@inject HttpClient Http
+@inject IJSRuntime JS
+
+<PageTitle>Anwesenheitsliste@(_list is null ? "" : " - " + _list.Title)</PageTitle>
+
+@if (_list is null)
+{
+    <div class="container mt-4"><p><em>Lade…</em></p></div>
+}
+else
+{
+    <div class="container mt-4">
+        <div class="mb-4">
+            <h1>@_list.Title</h1>
+            <p class="lead">@_list.Unit</p>
+            @if (_list.UnitNumber.HasValue)
+            {
+                <p><strong>Einheit:</strong> @_list.UnitNumber@(_list.UnitAlias is null ? "" : " – " + _list.UnitAlias)</p>
+            }
+            <p>@_list.Description</p>
+            <small class="text-muted">Erstellt: @_list.CreatedAt.ToString("dd.MM.yyyy HH:mm")</small>
+            @if (!_list.IsOpen)
+            {
+                <div class="mt-3"><span class="badge bg-secondary fs-5">Abgeschlossen</span></div>
+            }
+        </div>
+
+        @if (_list.IsOpen)
+        {
+            <QrScanner IsActive="true" OnCodeScanned="HandleCode" OnManualEntryRequested="() => _showManual = !_showManual" />
+
+            @if (_showManual)
+            {
+                <div class="input-group mb-3">
+                    <input class="form-control" placeholder="Mitgliedsnummer oder Name" @bind="_manualInput" @bind:event="oninput"
+                           @onkeyup="@(async e => { if (e.Key == "Enter") await HandleCode(_manualInput); })" />
+                    <button class="btn btn-success" @onclick="() => HandleCode(_manualInput)">Eintragen</button>
+                </div>
+            }
+        }
+
+        @if (_confirmationVisible)
+        {
+            <div class="entry-confirmation-overlay">
+                <i class="bi bi-check-circle-fill"></i>
+                <div class="entry-confirmation-name">@_confirmationName</div>
+                <small class="text-muted">eingetragen</small>
+            </div>
+        }
+
+        @if (!string.IsNullOrWhiteSpace(_info)) { <div class="alert alert-info mt-2">@_info</div> }
+        @if (!string.IsNullOrWhiteSpace(_error)) { <div class="alert alert-danger mt-2">@_error</div> }
+
+        @if (_chooseMembers is not null)
+        {
+            <div class="card mb-3">
+                <div class="card-header">Mehrere Treffer – bitte wählen</div>
+                <div class="list-group list-group-flush">
+                    @foreach (var m in _chooseMembers)
+                    {
+                        <button class="list-group-item list-group-item-action" @onclick="() => AddByMember(m.Id)">@m.Name (@m.Number)</button>
+                    }
+                </div>
+            </div>
+        }
+
+        @if (_chooseLists is not null)
+        {
+            <div class="card mb-3">
+                <div class="card-header">@_chooseName gehört zu einer anderen Einheit – Zielliste wählen</div>
+                <div class="list-group list-group-flush">
+                    @foreach (var l in _chooseLists)
+                    {
+                        <button class="list-group-item list-group-item-action" @onclick="() => AddToList(l.Id)">@l.Title</button>
+                    }
+                </div>
+            </div>
+        }
+
+        <div class="card">
+            <div class="card-header"><h5 class="mb-0">Anwesend (@Present.Count)</h5></div>
+            <div class="card-body">
+                @if (Present.Count == 0)
+                {
+                    <p class="text-muted">Noch keine Einträge</p>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead><tr><th>#</th><th>Name/ID</th><th>Eingetragen um</th></tr></thead>
+                            <tbody>
+                                @foreach (var (e, i) in Present.Select((e, i) => (e, i)))
+                                {
+                                    <tr><td>@(i + 1)</td><td><strong>@e.Name</strong></td><td>@e.EnteredAt.ToString("HH:mm:ss")</td></tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        </div>
+
+        @if (Excused.Count > 0)
+        {
+            <div class="card mt-3">
+                <div class="card-header"><h5 class="mb-0">Entschuldigt (@Excused.Count)</h5></div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead><tr><th>#</th><th>Name/ID</th><th>Eingetragen um</th></tr></thead>
+                            <tbody>
+                                @foreach (var (e, i) in Excused.Select((e, i) => (e, i)))
+                                {
+                                    <tr><td>@(i + 1)</td><td><strong>@e.Name</strong></td><td>@e.EnteredAt.ToString("HH:mm:ss")</td></tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <div class="mt-3 mb-4"><a class="btn btn-secondary" href="/">Zurück zur Übersicht</a></div>
+    </div>
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private ListDto? _list;
+    private bool _showManual;
+    private string _manualInput = string.Empty;
+    private string _error = string.Empty;
+    private string _info = string.Empty;
+    private bool _confirmationVisible;
+    private string _confirmationName = string.Empty;
+    private List<MemberChoice>? _chooseMembers;
+    private List<ListChoice>? _chooseLists;
+    private string _chooseName = string.Empty;
+
+    private List<EntryDto> Present => _list?.Entries.Where(e => !e.IsExcused).ToList() ?? new();
+    private List<EntryDto> Excused => _list?.Entries.Where(e => e.IsExcused).ToList() ?? new();
+
+    protected override async Task OnParametersSetAsync() => await Load();
+
+    private async Task Load()
+    {
+        try { _list = await Http.GetFromJsonAsync<ListDto>($"client-api/attendance/{Id}"); }
+        catch { _list = null; }
+    }
+
+    private async Task HandleCode(string code)
+    {
+        if (string.IsNullOrWhiteSpace(code)) return;
+        await Post(new { Code = code.Trim() });
+        _manualInput = string.Empty;
+    }
+
+    private async Task AddByMember(int memberId) => await Post(new { MemberId = memberId });
+    private async Task AddToList(int listId) => await Post(new { MemberId = _pendingMemberId, TargetListId = listId });
+
+    private int? _pendingMemberId;
+
+    private async Task Post(object body)
+    {
+        _error = ""; _info = "";
+        _chooseMembers = null; _chooseLists = null;
+        try
+        {
+            var resp = await Http.PostAsJsonAsync($"client-api/attendance/{Id}/add", body);
+            if (!resp.IsSuccessStatusCode) { _error = "Eintragen fehlgeschlagen."; return; }
+            var r = await resp.Content.ReadFromJsonAsync<AddResult>();
+            switch (r?.Status)
+            {
+                case "added":
+                    await Confirm(r.Name);
+                    await Load();
+                    break;
+                case "redirected":
+                    await Confirm(r.Name);
+                    _info = "Eintrag wurde in eine andere Liste übertragen.";
+                    await Load();
+                    break;
+                case "duplicate":
+                    _error = $"{r.Name} ist bereits eingetragen!";
+                    await Sound("error");
+                    break;
+                case "notfound":
+                    _error = "Mitglied nicht gefunden!";
+                    await Sound("error");
+                    break;
+                case "choose-member":
+                    _chooseMembers = r.Members;
+                    break;
+                case "choose-list":
+                    _chooseLists = r.Lists;
+                    _chooseName = r.Name ?? "";
+                    _pendingMemberId = r.MemberId;
+                    break;
+                case "nomatch":
+                    _error = $"Keine offene Anwesenheitsliste für {r.Units} gefunden.";
+                    break;
+            }
+        }
+        catch { _error = "Eintragen fehlgeschlagen. Bitte erneut versuchen."; }
+    }
+
+    private async Task Confirm(string? name)
+    {
+        await Sound("success");
+        _confirmationName = name ?? "";
+        _confirmationVisible = true;
+        StateHasChanged();
+        _ = Task.Run(async () => { await Task.Delay(2000); await InvokeAsync(() => { _confirmationVisible = false; StateHasChanged(); }); });
+    }
+
+    private async Task Sound(string type) { try { await JS.InvokeVoidAsync("playSound", type); } catch { } }
+
+    private record ListDto(int Id, string Title, string Unit, int? UnitNumber, string? UnitAlias, string? Description, DateTime CreatedAt, bool IsOpen, List<EntryDto> Entries);
+    private record EntryDto(int Id, string Name, DateTime EnteredAt, bool IsExcused);
+    private record MemberChoice(int Id, string Name, string Number);
+    private record ListChoice(int Id, string Title);
+    private record AddResult(string Status, string? Name, int? MemberId, string? Units, List<MemberChoice>? Members, List<ListChoice>? Lists);
+}
