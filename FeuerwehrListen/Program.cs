@@ -334,6 +334,18 @@ app.MapPost("/client-api/auth/logout", async (HttpContext ctx) =>
     return Results.Ok();
 }).DisableAntiforgery();
 
+app.MapPost("/client-api/auth/change-password", async (HttpContext ctx, UserRepository users, ChangePwRequest req) =>
+{
+    if (ctx.User?.Identity?.IsAuthenticated != true) return Results.Unauthorized();
+    var user = await users.GetByUsernameAsync(ctx.User.Identity!.Name ?? "");
+    if (user == null) return Results.Unauthorized();
+    if (user.PasswordHash != FeuerwehrListen.Services.AuthenticationService.HashPassword(req.OldPassword ?? ""))
+        return Results.Json(new { ok = false });
+    user.PasswordHash = FeuerwehrListen.Services.AuthenticationService.HashPassword(req.NewPassword ?? "");
+    await users.UpdateAsync(user);
+    return Results.Json(new { ok = true });
+}).RequireAuthorization().DisableAntiforgery();
+
 app.MapGet("/client-api/auth/me", (HttpContext ctx) =>
 {
     if (ctx.User?.Identity?.IsAuthenticated != true) return Results.Json(new { authenticated = false });
@@ -345,6 +357,49 @@ app.MapGet("/client-api/auth/me", (HttpContext ctx) =>
         firstName = ctx.User.FindFirst("FirstName")?.Value,
         lastName = ctx.User.FindFirst("LastName")?.Value
     });
+});
+
+// ================== Listen-Verwaltung (angemeldete Nutzer) ==================
+var listMgmt = app.MapGroup("/client-api").RequireAuthorization().DisableAntiforgery();
+
+listMgmt.MapGet("/closed-lists", async (AttendanceListRepository att, OperationListRepository op, FireSafetyWatchRepository fsw) =>
+    Results.Json(new
+    {
+        operations = (await op.GetClosedAsync()).OrderByDescending(l => l.ClosedAt).Select(l => new { id = l.Id, title = $"{NextcloudService.StripLeadingYear(l.OperationNumber, l.AlertTime.Year)} - {l.Keyword}", sub = l.Address ?? "", closedAt = l.ClosedAt, href = $"/operation/{l.Id}" }),
+        attendance = (await att.GetClosedAsync()).OrderByDescending(l => l.ClosedAt).Select(l => new { id = l.Id, title = l.Title, sub = l.Unit, closedAt = l.ClosedAt, href = $"/attendance/{l.Id}" }),
+        watches = (await fsw.GetClosedAsync()).OrderByDescending(l => l.ClosedAt).Select(l => new { id = l.Id, title = l.Name, sub = l.Location, closedAt = l.ClosedAt, href = $"/firesafetywatches/{l.Id}" })
+    }));
+
+listMgmt.MapGet("/archived-lists", async (AttendanceListRepository att, OperationListRepository op, FireSafetyWatchRepository fsw) =>
+    Results.Json(new
+    {
+        operations = (await op.GetArchivedAsync()).OrderByDescending(l => l.ClosedAt).Select(l => new { id = l.Id, title = $"{NextcloudService.StripLeadingYear(l.OperationNumber, l.AlertTime.Year)} - {l.Keyword}", sub = l.Address ?? "", closedAt = l.ClosedAt, href = $"/operation/{l.Id}" }),
+        attendance = (await att.GetArchivedAsync()).OrderByDescending(l => l.ClosedAt).Select(l => new { id = l.Id, title = l.Title, sub = l.Unit, closedAt = l.ClosedAt, href = $"/attendance/{l.Id}" }),
+        watches = (await fsw.GetArchivedAsync()).OrderByDescending(l => l.ClosedAt).Select(l => new { id = l.Id, title = l.Name, sub = l.Location, closedAt = l.ClosedAt, href = $"/firesafetywatches/{l.Id}" })
+    }));
+
+listMgmt.MapPost("/list/{type}/{id:int}/archive", async (string type, int id, AttendanceListRepository att, OperationListRepository op, FireSafetyWatchRepository fsw) =>
+{
+    switch (type)
+    {
+        case "attendance": var a = await att.GetByIdAsync(id); if (a != null) { a.IsArchived = true; await att.UpdateAsync(a); } break;
+        case "operation": var o = await op.GetByIdAsync(id); if (o != null) { o.IsArchived = true; await op.UpdateAsync(o); } break;
+        case "firesafety": var w = await fsw.GetByIdAsync(id); if (w != null) { w.IsArchived = true; await fsw.UpdateAsync(w); } break;
+        default: return Results.BadRequest();
+    }
+    return Results.Ok();
+});
+
+listMgmt.MapDelete("/list/{type}/{id:int}", async (string type, int id, AttendanceListRepository att, OperationListRepository op, FireSafetyWatchRepository fsw) =>
+{
+    switch (type)
+    {
+        case "attendance": await att.DeleteAsync(id); break;
+        case "operation": await op.DeleteAsync(id); break;
+        case "firesafety": await fsw.DeleteAsync(id); break;
+        default: return Results.BadRequest();
+    }
+    return Results.Ok();
 });
 
 // ================== ADMIN-CRUD (Cookie-Auth, Rolle Admin) ==================
@@ -720,6 +775,7 @@ public record ApiKeyReq(string? Description);
 public record UserReq(string Username, string? FirstName, string? LastName, string Role, string? Password, string? QrAuthCode, string? AdminPin);
 public record AuthLoginRequest(string? Username, string? Password);
 public record AuthQrRequest(string? Code, string? Pin);
+public record ChangePwRequest(string? OldPassword, string? NewPassword);
 public record FeedbackRequest(int OperationId, string? Text);
 public record CreateAttendanceRequest(string Title, string Unit, string? Description, int? UnitNumber);
 public record CreateOperationRequest(string OperationNumber, string Keyword, DateTime AlertTime, string? Address);
