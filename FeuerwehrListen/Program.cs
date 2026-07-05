@@ -43,7 +43,10 @@ builder.Services.AddRazorComponents()
         options.ClientTimeoutInterval = TimeSpan.FromSeconds(120);
         options.KeepAliveInterval = TimeSpan.FromSeconds(15);
         options.HandshakeTimeout = TimeSpan.FromSeconds(30);
-    });
+    })
+    // WASM-Fundament: erlaubt einzelnen Seiten den Render-Mode InteractiveWebAssembly
+    // (Client laeuft im Browser, Daten ueber Fast-Endpoints - kein SignalR).
+    .AddInteractiveWebAssemblyComponents();
 
 builder.Services.AddScoped<AuthenticationService>();
 builder.Services.AddScoped<AuthenticationStateProvider>(sp => sp.GetRequiredService<AuthenticationService>());
@@ -252,7 +255,9 @@ app.MapGet("/client-api/open-lists", async (
     });
 });
 app.MapRazorComponents<App>()
-    .AddInteractiveServerRenderMode();
+    .AddInteractiveServerRenderMode()
+    .AddInteractiveWebAssemblyRenderMode()
+    .AddAdditionalAssemblies(typeof(FeuerwehrListen.Client._Imports).Assembly);
 
 app.Run();
 

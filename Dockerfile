@@ -2,10 +2,13 @@
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
 
-# Copy project file first to leverage Docker layer caching
+# Copy project files first to leverage Docker layer caching.
+# Der Server referenziert das WASM-Client-Projekt -> beide csproj vor dem Restore kopieren.
 COPY ["FeuerwehrListen/FeuerwehrListen.csproj", "FeuerwehrListen/"]
+COPY ["FeuerwehrListen.Client/FeuerwehrListen.Client.csproj", "FeuerwehrListen.Client/"]
 
-# Restore dependencies for the app project only (excludes test projects)
+# Restore dependencies for the app project only (excludes test projects).
+# Zieht das referenzierte Client-Projekt transitiv mit.
 RUN dotnet restore "FeuerwehrListen/FeuerwehrListen.csproj"
 
 # Copy the rest of the application source code

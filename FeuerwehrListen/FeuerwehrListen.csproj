@@ -20,7 +20,11 @@
         <PackageReference Include="MySqlConnector" Version="2.3.5" />
         <PackageReference Include="Swashbuckle.AspNetCore" Version="6.5.0" />
         <PackageReference Include="PdfSharp" Version="6.0.0" />
+        <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="8.0.0" />
     </ItemGroup>
 
+    <ItemGroup>
+        <ProjectReference Include="..\FeuerwehrListen.Client\FeuerwehrListen.Client.csproj" />
+    </ItemGroup>
 
 </Project>
