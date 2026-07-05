@@ -1,0 +1,69 @@
+@page "/firesafetywatches"
+@rendermode InteractiveWebAssembly
+@layout MainLayout
+@inject HttpClient Http
+
+<PageTitle>Brandsicherheitswachen</PageTitle>
+
+<div class="container mt-4">
+    <div class="row mb-4">
+        <div class="col"><h1>Brandsicherheitswachen</h1></div>
+    </div>
+
+    @if (_watches is null)
+    {
+        <p><em>Lade…</em></p>
+    }
+    else if (_watches.Count == 0)
+    {
+        <div class="alert alert-secondary">Aktuell sind keine Brandsicherheitswachen geplant.</div>
+    }
+    else
+    {
+        <div class="list-group">
+            @foreach (var w in _watches)
+            {
+                <a href="/firesafetywatches/@w.Id" class="list-group-item list-group-item-action @RowClass(w)">
+                    <div class="d-flex w-100 justify-content-between align-items-center">
+                        <div>
+                            <h6 class="mb-1">
+                                @if (IsUrgent(w))
+                                {
+                                    <i class="bi bi-exclamation-triangle-fill me-2" title="Dringend"></i>
+                                }
+                                @w.Name
+                            </h6>
+                            <p class="mb-1 text-muted">@w.Location</p>
+                        </div>
+                        <div class="text-end">
+                            <small>@w.Time.ToString("dd.MM.yyyy HH:mm")</small>
+                            <div>
+                                <span class="badge @(w.Required == w.Assigned ? "bg-success" : "bg-warning")">@w.Assigned / @w.Required</span>
+                            </div>
+                        </div>
+                    </div>
+                </a>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private List<WatchDto>? _watches;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try { _watches = await Http.GetFromJsonAsync<List<WatchDto>>("client-api/firesafetywatches"); }
+        catch { _watches = new(); }
+    }
+
+    private bool IsUrgent(WatchDto w) => w.Required != w.Assigned && (w.Time - DateTime.Now).TotalDays < 14;
+
+    private string RowClass(WatchDto w)
+    {
+        if (w.Required == w.Assigned) return "list-group-item-success";
+        return IsUrgent(w) ? "list-group-item-danger" : "list-group-item-warning";
+    }
+
+    private record WatchDto(int Id, string Name, string Location, DateTime Time, int Required, int Assigned);
+}

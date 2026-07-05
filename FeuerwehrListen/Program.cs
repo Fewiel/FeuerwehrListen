@@ -285,6 +285,13 @@ app.MapGet("/client-api/app-context", (SettingsService settings) =>
     });
 });
 
+// Brandsicherheitswachen-Liste
+app.MapGet("/client-api/firesafetywatches", async (FireSafetyWatchRepository repo) =>
+    Results.Json((await repo.GetAllWithStatusAsync())
+        .Where(w => !w.IsArchived)
+        .OrderBy(w => w.EventDateTime)
+        .Select(w => new { id = w.Id, name = w.Name, location = w.Location, time = w.EventDateTime, required = w.TotalRequired, assigned = w.TotalAssigned })));
+
 // Stichwoerter (fuer die Einsatzliste-Anlage)
 app.MapGet("/client-api/keywords", async (KeywordRepository kw) =>
     Results.Json((await kw.GetAllAsync()).Select(k => new { name = k.Name, description = k.Description })));
