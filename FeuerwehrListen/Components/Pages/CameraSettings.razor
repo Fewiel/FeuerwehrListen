@@ -5,47 +5,30 @@
 <div class="container">
     <div class="content">
         <h1><i class="bi bi-camera-video me-2"></i>Kamera-Einstellungen</h1>
-        <p class="text-muted">Wähle die Kamera für den QR-Code Scanner aus. Die Auswahl wird in diesem Browser gespeichert.</p>
+        <p class="text-muted">W&auml;hle die Kamera f&uuml;r den QR-Code-Scanner. Standard ist die <strong>Frontkamera</strong>. Die Auswahl wird auf diesem Ger&auml;t gespeichert und bleibt auch nach Updates erhalten.</p>
 
         <div class="row">
             <div class="col-md-6">
                 <div class="card">
                     <div class="card-header">
-                        <h5>Kamera auswählen</h5>
+                        <h5>Kamera ausw&auml;hlen</h5>
                     </div>
                     <div class="card-body">
-                        @if (_cameras == null)
-                        {
-                            <p class="text-muted">Kameras werden geladen...</p>
-                        }
-                        else if (_cameras.Count == 0)
-                        {
-                            <div class="alert alert-warning">
-                                <i class="bi bi-exclamation-triangle me-2"></i>
-                                Keine Kameras gefunden. Bitte erlaube den Kamerazugriff im Browser.
-                            </div>
-                        }
-                        else
-                        {
-                            <div class="mb-3">
-                                <label class="form-label">Kamera</label>
-                                <select class="form-select" value="@_selectedDeviceId" @onchange="OnCameraChanged">
-                                    <option value="">Standard-Kamera</option>
-                                    @foreach (var cam in _cameras)
-                                    {
-                                        <option value="@cam.DeviceId">@cam.Label</option>
-                                    }
-                                </select>
-                            </div>
+                        <div class="mb-3">
+                            <label class="form-label">Kamera</label>
+                            <select class="form-select" value="@_facing" @onchange="OnCameraChanged">
+                                <option value="user">Frontkamera (Standard)</option>
+                                <option value="environment">R&uuml;ckkamera</option>
+                            </select>
+                        </div>
 
-                            <button class="btn btn-primary" @onclick="SaveSettings">
-                                <i class="bi bi-check-lg me-2"></i>Speichern
-                            </button>
+                        <button class="btn btn-primary" @onclick="SaveSettings">
+                            <i class="bi bi-check-lg me-2"></i>Speichern
+                        </button>
 
-                            @if (_saved)
-                            {
-                                <span class="badge bg-success ms-2">Gespeichert!</span>
-                            }
+                        @if (_saved)
+                        {
+                            <span class="badge bg-success ms-2">Gespeichert!</span>
                         }
                     </div>
                 </div>
@@ -68,8 +51,7 @@
 @implements IAsyncDisposable
 
 @code {
-    private List<CameraDevice>? _cameras;
-    private string _selectedDeviceId = "";
+    private string _facing = "user";
     private string _previewVideoId = $"camera-preview-{Guid.NewGuid():N}";
     private bool _saved;
 
@@ -79,25 +61,19 @@
         {
             try
             {
-                _cameras = await JS.InvokeAsync<List<CameraDevice>>("qrScanner.listCameras");
-                var savedId = await JS.InvokeAsync<string?>("qrScanner.loadDeviceId");
-                _selectedDeviceId = savedId ?? "";
+                _facing = await JS.InvokeAsync<string?>("qrScanner.loadFacing") ?? "user";
                 StateHasChanged();
 
                 await Task.Delay(100);
                 await StartPreview();
             }
-            catch
-            {
-                _cameras = new List<CameraDevice>();
-                StateHasChanged();
-            }
+            catch { }
         }
     }
 
     private async Task OnCameraChanged(ChangeEventArgs e)
     {
-        _selectedDeviceId = e.Value?.ToString() ?? "";
+        _facing = e.Value?.ToString() == "environment" ? "environment" : "user";
         _saved = false;
         await StartPreview();
     }
@@ -107,14 +83,14 @@
         try
         {
             await JS.InvokeVoidAsync("qrScanner.stopPreview", _previewVideoId);
-            await JS.InvokeVoidAsync("qrScanner.startPreview", _previewVideoId, string.IsNullOrEmpty(_selectedDeviceId) ? null : _selectedDeviceId);
+            await JS.InvokeVoidAsync("qrScanner.startPreview", _previewVideoId, _facing);
         }
         catch { }
     }
 
     private async Task SaveSettings()
     {
-        await JS.InvokeVoidAsync("qrScanner.saveDeviceId", _selectedDeviceId);
+        await JS.InvokeVoidAsync("qrScanner.saveFacing", _facing);
         _saved = true;
         StateHasChanged();
     }
@@ -127,6 +103,4 @@
         }
         catch { }
     }
-
-    private record CameraDevice(string DeviceId, string Label);
 }

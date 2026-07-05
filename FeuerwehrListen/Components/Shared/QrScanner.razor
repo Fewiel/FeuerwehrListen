@@ -89,8 +89,8 @@
         try
         {
             _dotNetRef ??= DotNetObjectReference.Create(this);
-            var savedDeviceId = await JS.InvokeAsync<string?>("qrScanner.loadDeviceId");
-            await JS.InvokeVoidAsync("qrScanner.start", _videoElementId, _dotNetRef, savedDeviceId);
+            // Kamera-Ausrichtung (Standard: Frontkamera) nimmt qrScanner.start intern aus localStorage.
+            await JS.InvokeVoidAsync("qrScanner.start", _videoElementId, _dotNetRef);
             _isScanning = true;
             _noCameraAccess = false;
         }

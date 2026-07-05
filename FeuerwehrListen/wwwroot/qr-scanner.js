@@ -5,18 +5,17 @@ window.qrScanner = (() => {
     let canvas = null;
     let ctx = null;
 
-    function buildConstraints(deviceId) {
+    // facing: 'user' (Frontkamera, Standard) oder 'environment' (Rueckkamera).
+    // Als "ideal" (nicht exact), damit es auch mit nur einer Kamera nicht fehlschlaegt.
+    // facingMode ist stabil und uebersteht Updates - anders als eine deviceId.
+    function buildConstraints(facing) {
         const video = {
             width: { ideal: 1280 },
             height: { ideal: 720 },
             focusMode: { ideal: 'continuous' },
-            advanced: [{ focusMode: 'continuous' }]
+            advanced: [{ focusMode: 'continuous' }],
+            facingMode: { ideal: facing || 'user' }
         };
-        if (deviceId) {
-            video.deviceId = { exact: deviceId };
-        } else {
-            video.facingMode = 'environment';
-        }
         return { video: video };
     }
 
@@ -34,7 +33,7 @@ window.qrScanner = (() => {
         return imageData;
     }
 
-    async function start(videoElementId, dotNetRef, deviceId) {
+    async function start(videoElementId, dotNetRef, facing) {
         await stop();
 
         // BarcodeDetector is either native (Android) or polyfilled (Desktop via WASM)
@@ -53,7 +52,7 @@ window.qrScanner = (() => {
         }
 
         try {
-            const constraints = buildConstraints(deviceId);
+            const constraints = buildConstraints(facing || loadFacing());
             activeStream = await navigator.mediaDevices.getUserMedia(constraints);
             videoEl.srcObject = activeStream;
             await videoEl.play();
@@ -149,11 +148,11 @@ window.qrScanner = (() => {
         }
     }
 
-    async function startPreview(videoElementId, deviceId) {
+    async function startPreview(videoElementId, facing) {
         var videoElement = document.getElementById(videoElementId);
         if (!videoElement) return;
         try {
-            var constraints = buildConstraints(deviceId);
+            var constraints = buildConstraints(facing || loadFacing());
             var stream = await navigator.mediaDevices.getUserMedia(constraints);
             videoElement.srcObject = stream;
             await videoElement.play();
@@ -170,13 +169,15 @@ window.qrScanner = (() => {
         }
     }
 
-    function saveDeviceId(deviceId) {
-        localStorage.setItem('qr_camera_deviceId', deviceId);
+    // Kamera-Ausrichtung geraetebezogen (localStorage) - NICHT nutzerbezogen, uebersteht Updates.
+    // Standard ist IMMER 'user' (Frontkamera); nur ein aktives Umstellen speichert 'environment'.
+    function saveFacing(facing) {
+        try { localStorage.setItem('qr_camera_facing', facing === 'environment' ? 'environment' : 'user'); } catch (e) { }
     }
 
-    function loadDeviceId() {
-        return localStorage.getItem('qr_camera_deviceId');
+    function loadFacing() {
+        try { return localStorage.getItem('qr_camera_facing') === 'environment' ? 'environment' : 'user'; } catch (e) { return 'user'; }
     }
 
-    return { start: start, stop: stop, listCameras: listCameras, startPreview: startPreview, stopPreview: stopPreview, saveDeviceId: saveDeviceId, loadDeviceId: loadDeviceId };
+    return { start: start, stop: stop, listCameras: listCameras, startPreview: startPreview, stopPreview: stopPreview, saveFacing: saveFacing, loadFacing: loadFacing };
 })();
