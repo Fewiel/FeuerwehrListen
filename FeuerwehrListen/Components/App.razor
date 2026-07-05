@@ -18,9 +18,11 @@
     <HeadOutlet />
 </head>
 
-<body>
+<body data-enhance-nav="false">
     @* Kein globaler Render-Mode mehr: jede Seite bestimmt ihn selbst (@rendermode),
-       damit einzelne Seiten auf InteractiveWebAssembly umgestellt werden koennen. *@
+       damit einzelne Seiten auf InteractiveWebAssembly umgestellt werden koennen.
+       data-enhance-nav="false": Blazors Enhanced Navigation global aus - sie ist auf
+       alten iPads (iOS15/Safari) fehlerhaft. Alle Links machen normale Vollnavigation. *@
     <Routes />
     <script>
         // --- Verbindungs-Diagnose (Geraete ohne Konsole, z. B. iPad) ---
