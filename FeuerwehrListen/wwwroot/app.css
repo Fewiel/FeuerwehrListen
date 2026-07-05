@@ -330,16 +330,6 @@ textarea.form-control { min-height: unset; }
 }
 #blazor-error-ui .dismiss { cursor: pointer; position: absolute; right: .75rem; top: .5rem; }
 
-/* ---------- Reconnect-Banner ---------- */
-.reconnect-banner {
-    position: fixed; top: 0; left: 0; right: 0; z-index: 9999; padding: 1rem; text-align: center;
-    font-size: 1.05rem; font-weight: 600; transition: transform .3s ease, opacity .3s ease;
-}
-.reconnect-hidden { transform: translateY(-100%); opacity: 0; pointer-events: none; }
-.reconnect-down { background: var(--tw-red); color: #fff; transform: translateY(0); opacity: 1; animation: reconnect-pulse 2s infinite; }
-.reconnect-up { background: var(--tw-green); color: #fff; transform: translateY(0); opacity: 1; }
-@@keyframes reconnect-pulse { 0%,100% { opacity: 1; } 50% { opacity: .7; } }
-
 /* ---------- Entry-Confirmation-Overlay ---------- */
 .entry-confirmation-overlay {
     position: fixed; inset: 0; z-index: 2000; background: rgba(30,135,75,.94);
@@ -386,5 +376,5 @@ textarea.form-control { min-height: unset; }
     .qr-video-wrapper video { width: 100%; height: 100%; object-fit: cover; }
 }
 @media (prefers-reduced-motion: reduce) {
-    .reconnect-down { animation: none; }
+    .qr-success-overlay { animation: none; }
 }

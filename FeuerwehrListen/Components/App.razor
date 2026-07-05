@@ -12,98 +12,16 @@
     <link rel="stylesheet" href="bootstrap/bootstrap.min.css"/>
     <link rel="stylesheet" href="lib/bootstrap-icons/bootstrap-icons.min.css"/>
     <link rel="stylesheet" href="app.css"/>
-    @* FeuerwehrListen.styles.css entfernt: es gibt keine .razor.css (Scoped-CSS) mehr,
-       das Bundle wird nicht erzeugt -> war ein 404 auf jeder Seite. *@
-    @* Statisch: sonst wuerde der HeadOutlet auch auf reinen WASM-Seiten einen
-       SignalR-Circuit oeffnen. Seitentitel werden beim (Pre-)Rendern gesetzt. *@
+    @* Statisch: sonst wuerde der HeadOutlet auf reinen WASM-Seiten einen
+       Circuit oeffnen. Seitentitel werden beim (Pre-)Rendern gesetzt. *@
     <HeadOutlet />
 </head>
 
 <body>
     @* Globaler WASM-Router: die gesamte App laeuft als Blazor WebAssembly, die
-       Navigation ist client-seitig (kein Neuladen, kein Re-Boot) -> schnell auf
-       allen Geraeten inkl. alte iPads, und Enhanced Navigation wird nicht gebraucht. *@
+       Navigation ist client-seitig (kein Neuladen, kein Re-Boot). *@
     <FeuerwehrListen.Client.Routes @rendermode="InteractiveWebAssembly" />
-    <script>
-        // --- Verbindungs-Diagnose (Geraete ohne Konsole, z. B. iPad) ---
-        // Sammelt JS-Fehler, Konsolen-Meldungen und Verbindungsereignisse in einem
-        // Ringpuffer (sessionStorage, ueberlebt Reloads). Ein Tipp auf das rote
-        // Reconnect-Banner blendet das Protokoll ein. Muss VOR allen anderen
-        // Scripts stehen, damit auch deren Meldungen erfasst werden.
-        (function () {
-            var MAX = 40;
-            var buf = [];
-            try { buf = JSON.parse(sessionStorage.getItem('diag_log') || '[]'); } catch (e) { buf = []; }
-            function ts() {
-                var d = new Date();
-                function p(n) { return (n < 10 ? '0' : '') + n; }
-                return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
-            }
-            function add(kind, msg) {
-                try {
-                    buf.push(ts() + ' [' + kind + '] ' + String(msg).slice(0, 300));
-                    while (buf.length > MAX) buf.shift();
-                    sessionStorage.setItem('diag_log', JSON.stringify(buf));
-                    var el = document.getElementById('diag-details');
-                    if (el && el.style.display !== 'none') el.textContent = buf.join('\n');
-                } catch (e) { }
-            }
-            window._diag = { add: add, all: function () { return buf.join('\n'); } };
-            add('info', 'Geladen: ' + location.pathname + ' | online=' + navigator.onLine + ' | ' + navigator.userAgent.slice(0, 120));
 
-            window.addEventListener('error', function (e) {
-                add('js-error', (e.message || 'Fehler') + ' bei ' + (e.filename || '').split('/').pop() + ':' + (e.lineno || ''));
-            });
-            window.addEventListener('unhandledrejection', function (e) {
-                var r = e.reason;
-                add('promise', r && r.message ? r.message : String(r));
-            });
-            // Long-Polling ist Standard (das Netzwerk kappt WebSockets nach ~40s, Code 1006).
-            // Falls jemand per ?transport=ws WebSocket erzwungen hat und es wieder abbricht,
-            // wird der Override nach dem 2. Abbruch automatisch verworfen -> zurueck zu LP.
-            function noteWsFailure(msg) {
-                if (String(msg).indexOf('WebSocket closed') === -1) return;
-                try {
-                    var n = (parseInt(sessionStorage.getItem('ws_fail_count') || '0', 10) || 0) + 1;
-                    sessionStorage.setItem('ws_fail_count', String(n));
-                    add('ws', 'WebSocket-Abbruch Nr. ' + n);
-                    if (n >= 2 && localStorage.getItem('fw_transport') === 'ws') {
-                        localStorage.removeItem('fw_transport');
-                        add('ws', 'WebSocket-Override verworfen - zurueck zu Long-Polling');
-                    }
-                } catch (e) { }
-            }
-            // Manuelles Umschalten zum Testen: ?transport=ws erzwingt WebSocket,
-            // ?transport=lp entfernt den Override (zurueck zum Standard Long-Polling).
-            try {
-                var tm = location.search.match(/[?&]transport=(lp|ws)/);
-                if (tm) {
-                    if (tm[1] === 'ws') { localStorage.setItem('fw_transport', 'ws'); }
-                    else { localStorage.removeItem('fw_transport'); }
-                    sessionStorage.removeItem('ws_fail_count');
-                    add('info', 'Transport per URL gesetzt: ' + tm[1]);
-                }
-            } catch (e) { }
-
-            var oe = console.error, ow = console.warn, oi = console.info;
-            console.error = function () { try { var m = Array.prototype.join.call(arguments, ' '); add('error', m); noteWsFailure(m); } catch (e) { } oe.apply(console, arguments); };
-            console.warn = function () { try { add('warn', Array.prototype.join.call(arguments, ' ')); } catch (e) { } ow.apply(console, arguments); };
-            console.info = function () { try { add('sig', Array.prototype.join.call(arguments, ' ')); } catch (e) { } oi.apply(console, arguments); };
-            document.addEventListener('visibilitychange', function () { add('vis', document.visibilityState); });
-            window.addEventListener('online', function () { add('net', 'online'); });
-            window.addEventListener('offline', function () { add('net', 'offline'); });
-
-            // Tipp auf das Reconnect-Banner blendet das Protokoll ein/aus
-            document.addEventListener('click', function (e) {
-                var b = document.getElementById('reconnect-banner');
-                if (!b || !(e.target === b || b.contains(e.target))) return;
-                var d = document.getElementById('diag-details');
-                if (!d) return;
-                if (d.style.display === 'none') { d.textContent = buf.join('\n'); d.style.display = 'block'; }
-                else { d.style.display = 'none'; }
-            });
-        })();
-    </script>
     <script src="lib/barcode-detector/polyfill.min.js"></script>
     <script>
         // WASM des Barcode-Polyfills lokal laden (statt CDN) – für Altgeräte / falls das CDN ausfällt
@@ -121,128 +39,40 @@
     <script src="signature.js?v=2"></script>
     <script src="_framework/blazor.web.js" autostart="false"></script>
     <script>
-        // Sound feedback helper
-        window.playSound = function(type) {
+        // Sound-Feedback
+        window.playSound = function (type) {
             try {
                 var audio = new Audio('/sounds/' + type + '.wav');
                 audio.volume = 0.5;
-                audio.play().catch(function() {});
-            } catch(e) {}
+                audio.play().catch(function () { });
+            } catch (e) { }
         };
 
         // PDF/Datei robust oeffnen - window.open('_blank') wird auf altem iOS-Safari
         // aus async-Handlern vom Popup-Blocker geblockt. Ein Anker-Klick (gleiche Seite)
         // navigiert bzw. laedt herunter und wird NICHT geblockt.
-        window.openPdf = function(url) {
+        window.openPdf = function (url) {
             try {
                 var a = document.createElement('a');
                 a.href = url;
                 a.rel = 'noopener';
                 document.body.appendChild(a);
                 a.click();
-                setTimeout(function() { try { document.body.removeChild(a); } catch(e) {} }, 100);
-            } catch(e) {
-                try { window.location.href = url; } catch(e2) {}
+                setTimeout(function () { try { document.body.removeChild(a); } catch (e) { } }, 100);
+            } catch (e) {
+                try { window.location.href = url; } catch (e2) { }
             }
         };
 
-        // Custom Blazor start with reconnect handling
-        (function() {
-            var maxRetries = 30;
-            var delays = [500, 1000, 2000, 5000, 10000];
-            var currentProcess = null;
+        // Blazor WebAssembly starten (kein Server-Circuit, kein SignalR).
+        Blazor.start();
 
-            function showBanner(text, cls) {
-                var b = document.getElementById('reconnect-banner');
-                if (b) { b.className = 'reconnect-banner ' + cls; b.innerHTML = text; }
-            }
-
-            function startReconnect() {
-                var isCanceled = false;
-                if (window._diag) window._diag.add('circuit', 'Verbindung getrennt (onConnectionDown)');
-
-                // Diese Seite laeuft noch auf WebSockets (Override), soll aber wieder auf
-                // Long-Polling: einmal neu laden, damit der stabile Transport sofort greift.
-                try {
-                    if (!window._fwLp && localStorage.getItem('fw_transport') !== 'ws') {
-                        if (window._diag) window._diag.add('circuit', 'Neuladen fuer Wechsel auf Long-Polling');
-                        showBanner('<i class="bi bi-arrow-repeat"></i> Wechsle auf stabile Verbindung…', 'reconnect-down');
-                        setTimeout(function () { location.reload(); }, 600);
-                        return { cancel: function () { } };
-                    }
-                } catch (e) { }
-
-                showBanner('<i class="bi bi-wifi-off"></i> Verbindung unterbrochen — Reconnect... <small>(Details: Banner antippen)</small>', 'reconnect-down');
-
-                (async function() {
-                    for (var i = 0; i < maxRetries; i++) {
-                        await new Promise(function(r) { setTimeout(r, delays[Math.min(i, delays.length - 1)]); });
-                        if (isCanceled) return;
-                        try {
-                            var result = await Blazor.reconnect();
-                            if (!result) { location.reload(); return; }
-                            return;
-                        } catch(e) { /* server not reached, retry */ }
-                    }
-                    showBanner('<i class="bi bi-wifi-off"></i> Verbindung verloren — <a href="" style="color:#fff;text-decoration:underline">Seite neu laden</a>', 'reconnect-down');
-                })();
-
-                return { cancel: function() { isCanceled = true; } };
-            }
-
-            Blazor.start({
-                circuit: {
-                    // Safari (iPadOS 17/18) drosselt JS-Timer aggressiv. Client-Timeouts an die
-                    // Server-Toleranz (120s) angleichen, sonst erklaert der Client die Verbindung
-                    // nach 30s Standard zu frueh fuer tot -> "Verbindung unterbrochen" je Klick.
-                    configureSignalR: function (builder) {
-                        builder.withServerTimeout(120000).withKeepAliveInterval(15000);
-                        // Transportwahl + Abbruchgruende in der Diagnose sichtbar machen
-                        try { builder.configureLogging('information'); } catch (e) { }
-                        // Long-Polling ist STANDARD: Das Einsatz-Netzwerk kappt WebSocket-
-                        // Dauerverbindungen nach ~40s (Code 1006). Kurze HTTP-Requests (jeder
-                        // <=15s dank Keep-Alive) ueberleben das. 4 = HttpTransportType.LongPolling.
-                        // Nur mit ?transport=ws laesst sich WebSocket zum Testen erzwingen.
-                        try {
-                            if (localStorage.getItem('fw_transport') !== 'ws') {
-                                builder.withUrl('_blazor', { transport: 4 });
-                                window._fwLp = true;
-                                if (window._diag) window._diag.add('sig', 'Transport: Long-Polling (Standard)');
-                            } else {
-                                if (window._diag) window._diag.add('sig', 'Transport: WebSocket (per Override)');
-                            }
-                        } catch (e) { }
-                    },
-                    reconnectionHandler: {
-                        onConnectionDown: function() {
-                            currentProcess = currentProcess || startReconnect();
-                        },
-                        onConnectionUp: function() {
-                            if (currentProcess) { currentProcess.cancel(); currentProcess = null; }
-                            if (window._diag) window._diag.add('circuit', 'Wieder verbunden (onConnectionUp)');
-                            showBanner('<i class="bi bi-wifi"></i> Wieder verbunden', 'reconnect-up');
-                            setTimeout(function() { showBanner('', 'reconnect-hidden'); }, 3000);
-                        }
-                    }
-                }
-            });
-        })();
-
-        // PWA Service Worker registration
+        // PWA Service Worker
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('/service-worker.js', { updateViaCache: 'none' })
-                .then(function(reg) {
-                    reg.update();
-                    console.log('SW registered, scope:', reg.scope);
-                })
-                .catch(function(e) { console.error('SW registration failed:', e); });
+                .then(function (reg) { reg.update(); })
+                .catch(function (e) { console.error('SW registration failed:', e); });
         }
-
-        // PWA install prompt capture
-        window.addEventListener('beforeinstallprompt', function(e) {
-            console.log('PWA: beforeinstallprompt fired');
-            window._pwaInstallPrompt = e;
-        });
     </script>
 </body>
 

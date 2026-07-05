@@ -3,17 +3,6 @@ namespace FeuerwehrListen.Tests.Tests;
 [TestFixture, Order(12)]
 public class Phase12_TabletUXTests : BaseTest
 {
-    [Test, Order(1)]
-    public async Task ReconnectBanner_ExistsInDOM()
-    {
-        await GoTo("/");
-        var banner = Page.Locator("#reconnect-banner");
-        // Banner should exist but be hidden
-        await Assertions.Expect(banner).ToHaveCountAsync(1);
-        var cls = await banner.GetAttributeAsync("class");
-        Assert.That(cls, Does.Contain("reconnect-hidden"));
-    }
-
     [Test, Order(2)]
     public async Task PWA_ManifestAccessible()
     {
