@@ -1,0 +1,131 @@
+@page "/admin/members"
+@rendermode InteractiveWebAssembly
+@layout MainLayout
+@using System.Net.Http.Json
+@inject HttpClient Http
+
+<PageTitle>Mitglieder - Admin</PageTitle>
+
+<AuthGuard>
+    <div class="container mt-4">
+        <div class="row mb-4">
+            <div class="col"><h1>Mitgliederverwaltung</h1></div>
+            <div class="col-auto">
+                <button class="btn btn-outline-primary me-2" @onclick="() => _showCsv = !_showCsv"><i class="bi bi-upload me-1"></i> CSV Import</button>
+                <button class="btn btn-primary" @onclick="ShowAdd"><i class="bi bi-plus-circle"></i> Neues Mitglied</button>
+            </div>
+        </div>
+
+        @if (_showCsv)
+        {
+            <div class="card mb-4"><div class="card-body">
+                <h5 class="card-title">CSV Import</h5>
+                <p class="text-muted small">Format je Zeile (Semikolon): <code>Nummer;Vorname;Nachname;Aktiv(ja/nein);Einheiten(z.B. 1,3)</code>. Erste Zeile = Kopfzeile.</p>
+                <textarea class="form-control mb-2" rows="6" @bind="_csv" placeholder="Nummer;Vorname;Nachname;Aktiv;Einheiten&#10;1001;Max;Mustermann;ja;1,3"></textarea>
+                <button class="btn btn-primary" @onclick="ImportCsv" disabled="@_importing">@(_importing ? "Importiere…" : "Importieren")</button>
+                @if (_csvResult is not null) { <div class="alert alert-info mt-2 mb-0">@_csvResult</div> }
+            </div></div>
+        }
+
+        @if (_showForm)
+        {
+            <div class="card mb-4"><div class="card-body">
+                <h5 class="card-title">@(_editId is null ? "Neues Mitglied" : "Mitglied bearbeiten")</h5>
+                <div class="row">
+                    <div class="col-md-4 mb-3"><label class="form-label">Mitgliedsnummer</label><input class="form-control" @bind="_number" /></div>
+                    <div class="col-md-4 mb-3"><label class="form-label">Vorname</label><input class="form-control" @bind="_firstName" /></div>
+                    <div class="col-md-4 mb-3"><label class="form-label">Nachname</label><input class="form-control" @bind="_lastName" /></div>
+                </div>
+                <div class="mb-3"><label class="form-label">Einheiten</label><div class="d-flex flex-wrap gap-3">
+                    @for (var i = 1; i <= 9; i++) { var u = i;
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="u@(u)" checked="@_units.Contains(u)" @onchange="e => ToggleUnit(u, (bool)e.Value!)" />
+                            <label class="form-check-label" for="u@(u)">@u</label>
+                        </div>
+                    }
+                </div></div>
+                <div class="mb-3"><div class="form-check"><input class="form-check-input" type="checkbox" id="act" @bind="_isActive" /><label class="form-check-label" for="act">Aktiv</label></div></div>
+                @if (_error is not null) { <div class="alert alert-danger py-2">@_error</div> }
+                <button class="btn btn-primary me-2" @onclick="Save" disabled="@_saving">Speichern</button>
+                <button class="btn btn-secondary" @onclick="() => _showForm = false">Abbrechen</button>
+            </div></div>
+        }
+
+        <div class="card"><div class="card-body">
+            @if (_items is null) { <p><em>Lade…</em></p> }
+            else if (_items.Count == 0) { <p class="text-muted">Keine Mitglieder</p> }
+            else
+            {
+                <div class="table-responsive"><table class="table table-hover table-sm">
+                    <thead><tr><th>Nummer</th><th>Name</th><th>Einheiten</th><th>Status</th><th>Aktionen</th></tr></thead>
+                    <tbody>
+                        @foreach (var m in _items)
+                        {
+                            <tr>
+                                <td>@m.MemberNumber</td>
+                                <td><strong>@m.LastName</strong>, @m.FirstName</td>
+                                <td>@if (m.Units.Count == 0) { <span class="text-muted">–</span> } else { @foreach (var u in m.Units) { <span class="badge bg-primary me-1">@u</span> } }</td>
+                                <td>@if (m.IsActive) { <span class="badge bg-success">Aktiv</span> } else { <span class="badge bg-secondary">Inaktiv</span> }</td>
+                                <td>
+                                    <button class="btn btn-sm btn-primary me-2" @onclick="() => Edit(m)">Bearbeiten</button>
+                                    <button class="btn btn-sm btn-danger" @onclick="() => Delete(m.Id)">Löschen</button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table></div>
+            }
+        </div></div>
+    </div>
+</AuthGuard>
+
+@code {
+    private List<MemberDto>? _items;
+    private bool _showForm, _saving, _showCsv, _importing;
+    private int? _editId;
+    private string _number = "", _firstName = "", _lastName = "", _csv = "";
+    private bool _isActive = true;
+    private readonly HashSet<int> _units = new();
+    private string? _error, _csvResult;
+
+    protected override async Task OnInitializedAsync() => await Load();
+    private async Task Load() { try { _items = await Http.GetFromJsonAsync<List<MemberDto>>("client-api/admin/members"); } catch { _items = new(); } }
+
+    private void ShowAdd() { _editId = null; _number = ""; _firstName = ""; _lastName = ""; _isActive = true; _units.Clear(); _error = null; _showForm = true; }
+    private void Edit(MemberDto m) { _editId = m.Id; _number = m.MemberNumber; _firstName = m.FirstName; _lastName = m.LastName; _isActive = m.IsActive; _units.Clear(); foreach (var u in m.Units) _units.Add(u); _error = null; _showForm = true; }
+    private void ToggleUnit(int u, bool on) { if (on) _units.Add(u); else _units.Remove(u); }
+
+    private async Task Save()
+    {
+        _error = null;
+        if (string.IsNullOrWhiteSpace(_number) || string.IsNullOrWhiteSpace(_firstName) || string.IsNullOrWhiteSpace(_lastName)) { _error = "Bitte Nummer, Vor- und Nachname ausfüllen."; return; }
+        _saving = true;
+        try
+        {
+            var body = new { MemberNumber = _number, FirstName = _firstName, LastName = _lastName, IsActive = _isActive, Units = _units.ToList() };
+            if (_editId is int id) await Http.PutAsJsonAsync($"client-api/admin/members/{id}", body);
+            else await Http.PostAsJsonAsync("client-api/admin/members", body);
+            _showForm = false; await Load();
+        }
+        finally { _saving = false; }
+    }
+
+    private async Task Delete(int id) { await Http.DeleteAsync($"client-api/admin/members/{id}"); await Load(); }
+
+    private async Task ImportCsv()
+    {
+        _importing = true; _csvResult = null;
+        try
+        {
+            var resp = await Http.PostAsJsonAsync("client-api/admin/members/import-csv", new { Csv = _csv });
+            var r = await resp.Content.ReadFromJsonAsync<CsvResult>();
+            _csvResult = $"Import: {r?.Imported} importiert, {r?.Skipped} übersprungen" + (r?.Errors?.Count > 0 ? $", {r.Errors.Count} Fehler." : ".");
+            _csv = ""; await Load();
+        }
+        catch { _csvResult = "Import fehlgeschlagen."; }
+        finally { _importing = false; }
+    }
+
+    private record MemberDto(int Id, string MemberNumber, string FirstName, string LastName, bool IsActive, List<int> Units);
+    private record CsvResult(int Imported, int Skipped, List<string> Errors);
+}

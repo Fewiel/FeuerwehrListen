@@ -475,6 +475,62 @@ admin.MapPost("/apikeys/{id:int}/toggle", async (int id, ApiKeyRepository repo) 
 });
 admin.MapDelete("/apikeys/{id:int}", async (int id, ApiKeyRepository repo) => { await repo.DeleteAsync(id); return Results.Ok(); });
 
+// --- Mitglieder ---
+admin.MapGet("/members", async (MemberRepository repo) =>
+{
+    var members = await repo.GetAllAsync();
+    var units = await repo.GetUnitsForMembersAsync(members.Select(m => m.Id));
+    return Results.Json(members.OrderBy(m => m.LastName).ThenBy(m => m.FirstName).Select(m => new
+    {
+        id = m.Id, memberNumber = m.MemberNumber, firstName = m.FirstName, lastName = m.LastName, isActive = m.IsActive,
+        units = units.TryGetValue(m.Id, out var u) && u.Count > 0 ? u : (m.UnitNumber.HasValue ? new List<int> { m.UnitNumber.Value } : new List<int>())
+    }));
+});
+admin.MapPost("/members", async (MemberRepository repo, MemberReq r) =>
+{
+    var units = (r.Units ?? new()).Where(u => u >= 1 && u <= 9).OrderBy(u => u).ToList();
+    int? primary = units.Count > 0 ? units.First() : null;
+    var id = await repo.CreateAsync(new Member { MemberNumber = r.MemberNumber.Trim(), FirstName = r.FirstName.Trim(), LastName = r.LastName.Trim(), IsActive = r.IsActive, UnitNumber = primary, CreatedAt = DateTime.Now });
+    await repo.SetUnitsForMemberAsync(id, units, primary);
+    return Results.Json(new { id });
+});
+admin.MapPut("/members/{id:int}", async (int id, MemberRepository repo, MemberReq r) =>
+{
+    var m = await repo.GetByIdAsync(id); if (m == null) return Results.NotFound();
+    var units = (r.Units ?? new()).Where(u => u >= 1 && u <= 9).OrderBy(u => u).ToList();
+    int? primary = units.Count > 0 ? units.First() : null;
+    m.MemberNumber = r.MemberNumber.Trim(); m.FirstName = r.FirstName.Trim(); m.LastName = r.LastName.Trim(); m.IsActive = r.IsActive; m.UnitNumber = primary;
+    await repo.UpdateAsync(m);
+    await repo.SetUnitsForMemberAsync(id, units, primary);
+    return Results.Ok();
+});
+admin.MapDelete("/members/{id:int}", async (int id, MemberRepository repo) => { await repo.DeleteAsync(id); return Results.Ok(); });
+admin.MapPost("/members/import-csv", async (MemberRepository repo, CsvReq r) =>
+{
+    var lines = (r.Csv ?? "").Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+    if (lines.Length < 2) return Results.Json(new { imported = 0, skipped = 0, errors = new[] { "Keine Datenzeilen." } });
+    var existing = (await repo.GetAllAsync()).Select(m => m.MemberNumber.Trim()).ToHashSet(StringComparer.OrdinalIgnoreCase);
+    int imported = 0, skipped = 0; var errors = new List<string>();
+    for (var i = 1; i < lines.Length; i++)
+    {
+        var parts = lines[i].Trim().Split(';');
+        if (parts.Length < 3) { errors.Add($"Zeile {i + 1}: zu wenige Spalten."); continue; }
+        var num = parts[0].Trim(); var fn = parts[1].Trim(); var ln = parts[2].Trim();
+        if (num == "" || fn == "" || ln == "") { errors.Add($"Zeile {i + 1}: Pflichtfeld leer."); continue; }
+        if (existing.Contains(num)) { skipped++; continue; }
+        var active = parts.Length < 4 || parts[3].Trim().ToLowerInvariant() is "ja" or "true" or "1" or "";
+        var allUnits = new List<int>();
+        if (parts.Length >= 5)
+            foreach (var t in parts[4].Split(new[] { ',', ' ', '|', '/' }, StringSplitOptions.RemoveEmptyEntries))
+                if (int.TryParse(t.Trim(), out var pu) && pu >= 1 && pu <= 9 && !allUnits.Contains(pu)) allUnits.Add(pu);
+        int? primary = allUnits.Count > 0 ? allUnits.First() : null;
+        var newId = await repo.CreateAsync(new Member { MemberNumber = num, FirstName = fn, LastName = ln, IsActive = active, UnitNumber = primary, CreatedAt = DateTime.Now });
+        if (allUnits.Count > 0) await repo.SetUnitsForMemberAsync(newId, allUnits, primary);
+        existing.Add(num); imported++;
+    }
+    return Results.Json(new { imported, skipped, errors });
+});
+
 // --- Benutzer ---
 admin.MapGet("/users", async (UserRepository repo) =>
     Results.Json((await repo.GetAllAsync()).Select(u => new { id = u.Id, username = u.Username, firstName = u.FirstName, lastName = u.LastName, role = u.Role.ToString(), hasQr = !string.IsNullOrEmpty(u.QrAuthCode), hasPin = !string.IsNullOrEmpty(u.AdminPin) })));
@@ -845,6 +901,8 @@ public record VehicleReq(string Name, string CallSign, string Type, bool IsActiv
 public record KeywordReq(string Name, string? Description);
 public record FunctionReq(string Name, bool IsDefault);
 public record ReqItem(int FunctionDefId, int MinimumCount, bool IsRequired);
+public record MemberReq(string MemberNumber, string FirstName, string LastName, bool IsActive, List<int>? Units);
+public record CsvReq(string? Csv);
 public record ApiKeyReq(string? Description);
 public record UserReq(string Username, string? FirstName, string? LastName, string Role, string? Password, string? QrAuthCode, string? AdminPin);
 public record ScheduledReq(string Type, string? Title, string? Unit, string? Description, int? UnitNumber, string? OperationNumber, string? Keyword, DateTime EventTime, int MinutesBefore);
