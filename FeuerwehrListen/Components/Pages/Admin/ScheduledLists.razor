@@ -3,6 +3,7 @@
 @using FeuerwehrListen.Repositories
 @using FeuerwehrListen.Components.Layout
 @inject ScheduledListRepository ScheduledRepo
+@inject SettingsService SettingsService
 
 <PageTitle>Geplante Listen - Admin</PageTitle>
 
@@ -50,7 +51,7 @@
                                 <input type="text" class="form-control" @bind="_title" />
                             </div>
                             <div class="mb-3">
-                                <label class="form-label">Einheit</label>
+                                <label class="form-label">Einheit (z. B. Einsatzeinheit)</label>
                                 <input type="text" class="form-control" @bind="_unit" />
                             </div>
                             <div class="mb-3">
@@ -63,7 +64,7 @@
                                     <option value="">Keine Zuordnung</option>
                                     @for (var i = 1; i <= 9; i++)
                                     {
-                                        <option value="@i">@i</option>
+                                        <option value="@i">@SettingsService.GetUnitLabel(i)</option>
                                     }
                                 </select>
                                 <small class="text-muted">Mitglieder werden automatisch der richtigen Einheit zugeordnet.</small>
@@ -149,7 +150,7 @@
                                             <td>
                                                 @if (scheduled.UnitNumber.HasValue)
                                                 {
-                                                    <span>@scheduled.UnitNumber</span>
+                                                    <span>@SettingsService.GetUnitLabel(scheduled.UnitNumber.Value)</span>
                                                 }
                                                 else
                                                 {
