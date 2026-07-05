@@ -1,0 +1,107 @@
+@page "/admin/scheduled"
+@rendermode InteractiveWebAssembly
+@layout MainLayout
+@using System.Net.Http.Json
+@using FeuerwehrListen.Client.Models
+@inject HttpClient Http
+
+<PageTitle>Geplante Listen - Admin</PageTitle>
+
+<AuthGuard>
+    <div class="container mt-4">
+        <div class="row mb-4">
+            <div class="col"><h1>Geplante Listen</h1></div>
+            <div class="col-auto"><button class="btn btn-primary" @onclick="ShowAdd"><i class="bi bi-plus-circle"></i> Neue geplante Liste</button></div>
+        </div>
+
+        @if (_showForm)
+        {
+            <div class="card mb-4"><div class="card-body">
+                <h5 class="card-title">Neue geplante Liste</h5>
+                <div class="mb-3"><label class="form-label">Typ</label>
+                    <select class="form-select" @bind="_type"><option value="Attendance">Anwesenheitsliste</option><option value="Operation">Einsatzliste</option></select>
+                </div>
+                @if (_type == "Attendance")
+                {
+                    <div class="mb-3"><label class="form-label">Titel</label><input class="form-control" @bind="_title" /></div>
+                    <div class="mb-3"><label class="form-label">Einheit (z. B. Einsatzeinheit)</label><input class="form-control" @bind="_unit" /></div>
+                    <div class="mb-3"><label class="form-label">Beschreibung</label><textarea class="form-control" rows="2" @bind="_description"></textarea></div>
+                    <div class="mb-3"><label class="form-label">Einheit-Nummer (optional)</label>
+                        <select class="form-select" @bind="_unitNumber" style="max-width:260px;"><option value="">Keine Zuordnung</option>
+                            @foreach (var u in _unitLabels) { <option value="@u.Number">@u.Label</option> }
+                        </select>
+                    </div>
+                }
+                else
+                {
+                    <div class="mb-3"><label class="form-label">Einsatznummer</label><input class="form-control" @bind="_operationNumber" /></div>
+                    <div class="mb-3"><label class="form-label">Stichwort</label><input class="form-control" @bind="_keyword" /></div>
+                }
+                <div class="row">
+                    <div class="col-md-6 mb-3"><label class="form-label">Ereigniszeit</label><input type="datetime-local" class="form-control" @bind="_eventTime" /></div>
+                    <div class="col-md-6 mb-3"><label class="form-label">Minuten vor Ereignis öffnen</label><input type="number" class="form-control" @bind="_minutesBefore" /></div>
+                </div>
+                <button class="btn btn-primary me-2" @onclick="Save" disabled="@_saving">Speichern</button>
+                <button class="btn btn-secondary" @onclick="() => _showForm = false">Abbrechen</button>
+            </div></div>
+        }
+
+        <div class="card"><div class="card-body">
+            @if (_items is null) { <p><em>Lade…</em></p> }
+            else if (_items.Count == 0) { <p class="text-muted">Keine geplanten Listen</p> }
+            else
+            {
+                <div class="table-responsive"><table class="table table-hover">
+                    <thead><tr><th>Typ</th><th>Titel/Nummer</th><th>Einheit</th><th>Ereigniszeit</th><th>Öffnet um</th><th>Status</th><th></th></tr></thead>
+                    <tbody>
+                        @foreach (var s in _items)
+                        {
+                            <tr>
+                                <td>@if (s.Type == "Attendance") { <span class="badge bg-primary">Anwesenheit</span> } else { <span class="badge bg-danger">Einsatz</span> }</td>
+                                <td><strong>@(s.Type == "Attendance" ? s.Title : s.OperationNumber)</strong></td>
+                                <td>@(s.UnitNumber.HasValue ? UnitLabel(s.UnitNumber.Value) : "")</td>
+                                <td>@s.EventTime.ToString("dd.MM.yyyy HH:mm")</td>
+                                <td>@s.OpenTime.ToString("dd.MM.yyyy HH:mm")</td>
+                                <td>@if (s.IsProcessed) { <span class="badge bg-success">Verarbeitet</span> } else { <span class="badge bg-warning">Wartet</span> }</td>
+                                <td><button class="btn btn-sm btn-danger" @onclick="() => Delete(s.Id)">Löschen</button></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table></div>
+            }
+        </div></div>
+    </div>
+</AuthGuard>
+
+@code {
+    private List<ScheduledDto>? _items;
+    private List<UnitLabel> _unitLabels = new();
+    private bool _showForm, _saving;
+    private string _type = "Attendance", _title = "", _unit = "", _description = "", _operationNumber = "", _keyword = "", _unitNumber = "";
+    private DateTime _eventTime = DateTime.Now.AddDays(1);
+    private int _minutesBefore = 30;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try { var ctx = await Http.GetFromJsonAsync<AppContextDto>("client-api/app-context"); _unitLabels = ctx?.UnitLabels ?? new(); } catch { }
+        await Load();
+    }
+    private async Task Load() { try { _items = await Http.GetFromJsonAsync<List<ScheduledDto>>("client-api/admin/scheduled"); } catch { _items = new(); } }
+    private string UnitLabel(int n) => _unitLabels.FirstOrDefault(u => u.Number == n)?.Label ?? $"Einheit {n}";
+
+    private void ShowAdd() { _type = "Attendance"; _title = ""; _unit = ""; _description = ""; _operationNumber = ""; _keyword = ""; _unitNumber = ""; _eventTime = DateTime.Now.AddDays(1); _minutesBefore = 30; _showForm = true; }
+
+    private async Task Save()
+    {
+        _saving = true;
+        try
+        {
+            int? un = int.TryParse(_unitNumber, out var n) ? n : null;
+            await Http.PostAsJsonAsync("client-api/admin/scheduled", new { Type = _type, Title = _title, Unit = _unit, Description = _description, UnitNumber = un, OperationNumber = _operationNumber, Keyword = _keyword, EventTime = _eventTime, MinutesBefore = _minutesBefore });
+            _showForm = false; await Load();
+        }
+        finally { _saving = false; }
+    }
+
+    private async Task Delete(int id) { await Http.DeleteAsync($"client-api/admin/scheduled/{id}"); await Load(); }
+}

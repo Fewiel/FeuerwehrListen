@@ -494,6 +494,30 @@ admin.MapPut("/users/{id:int}", async (int id, UserRepository repo, UserReq r) =
 });
 admin.MapDelete("/users/{id:int}", async (int id, UserRepository repo) => { await repo.DeleteAsync(id); return Results.Ok(); });
 
+// --- Geplante Listen ---
+admin.MapGet("/scheduled", async (ScheduledListRepository repo) =>
+    Results.Json((await repo.GetAllAsync()).OrderBy(s => s.ScheduledEventTime).Select(s => new
+    {
+        id = s.Id, type = s.Type.ToString(), title = s.Title, unit = s.Unit, unitNumber = s.UnitNumber,
+        operationNumber = s.OperationNumber, keyword = s.Keyword,
+        eventTime = s.ScheduledEventTime, minutesBefore = s.MinutesBeforeEvent,
+        openTime = s.ScheduledEventTime.AddMinutes(-s.MinutesBeforeEvent), isProcessed = s.IsProcessed
+    })));
+admin.MapPost("/scheduled", async (ScheduledListRepository repo, ScheduledReq r) =>
+{
+    var isAtt = r.Type == "Attendance";
+    var id = await repo.CreateAsync(new ScheduledList
+    {
+        Type = isAtt ? ScheduledListType.Attendance : ScheduledListType.Operation,
+        Title = r.Title?.Trim() ?? "", Unit = r.Unit?.Trim() ?? "", Description = r.Description?.Trim() ?? "",
+        OperationNumber = r.OperationNumber?.Trim() ?? "", Keyword = r.Keyword?.Trim() ?? "",
+        UnitNumber = isAtt ? r.UnitNumber : null,
+        ScheduledEventTime = r.EventTime, MinutesBeforeEvent = r.MinutesBefore, IsProcessed = false, CreatedAt = DateTime.Now
+    });
+    return Results.Json(new { id });
+});
+admin.MapDelete("/scheduled/{id:int}", async (int id, ScheduledListRepository repo) => { await repo.DeleteAsync(id); return Results.Ok(); });
+
 // Anwesenheitsliste: Detail + Eintraege
 app.MapGet("/client-api/attendance/{id:int}", async (int id, AttendanceListRepository repo, AttendanceEntryRepository entryRepo, SettingsService settings) =>
 {
@@ -773,6 +797,7 @@ public record KeywordReq(string Name, string? Description);
 public record FunctionReq(string Name, bool IsDefault);
 public record ApiKeyReq(string? Description);
 public record UserReq(string Username, string? FirstName, string? LastName, string Role, string? Password, string? QrAuthCode, string? AdminPin);
+public record ScheduledReq(string Type, string? Title, string? Unit, string? Description, int? UnitNumber, string? OperationNumber, string? Keyword, DateTime EventTime, int MinutesBefore);
 public record AuthLoginRequest(string? Username, string? Password);
 public record AuthQrRequest(string? Code, string? Pin);
 public record ChangePwRequest(string? OldPassword, string? NewPassword);

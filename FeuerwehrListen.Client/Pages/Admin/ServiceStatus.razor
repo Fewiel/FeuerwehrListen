@@ -1,0 +1,66 @@
+@page "/admin/service-status"
+@rendermode InteractiveWebAssembly
+@layout MainLayout
+@using System.Net.Http.Json
+@using FeuerwehrListen.Client.Models
+@inject HttpClient Http
+@implements IDisposable
+
+<PageTitle>Service Status - Admin</PageTitle>
+
+<AuthGuard RequireAdmin="true">
+    <div class="container mt-4">
+        <div class="row mb-4">
+            <div class="col"><h1>Background Service Status</h1></div>
+            <div class="col-auto"><button class="btn btn-primary" @onclick="Load">Aktualisieren</button></div>
+        </div>
+
+        <div class="card mb-4"><div class="card-header"><h5 class="mb-0">Fällige geplante Listen</h5></div><div class="card-body">
+            @{ var due = _items?.Where(s => !s.IsProcessed && s.OpenTime <= DateTime.Now).ToList() ?? new(); }
+            @if (due.Count == 0) { <p class="text-success">✅ Keine fälligen Listen</p> }
+            else
+            {
+                <div class="alert alert-warning"><strong>⚠️ @due.Count Listen sind fällig!</strong></div>
+                <div class="table-responsive"><table class="table table-sm">
+                    <thead><tr><th>ID</th><th>Titel/Nummer</th><th>Ereigniszeit</th><th>Öffnet um</th><th>Verarbeitet?</th></tr></thead>
+                    <tbody>
+                        @foreach (var s in due)
+                        {
+                            <tr><td>@s.Id</td><td>@(s.Type == "Attendance" ? s.Title : s.OperationNumber)</td><td>@s.EventTime.ToString("dd.MM. HH:mm")</td><td>@s.OpenTime.ToString("dd.MM. HH:mm")</td><td><span class="badge bg-danger">NEIN</span></td></tr>
+                        }
+                    </tbody>
+                </table></div>
+            }
+        </div></div>
+
+        <div class="card"><div class="card-header"><h5 class="mb-0">Alle geplanten Listen</h5></div><div class="card-body">
+            @if (_items is null) { <p><em>Lade…</em></p> }
+            else if (_items.Count == 0) { <p class="text-muted">Keine geplanten Listen</p> }
+            else
+            {
+                <div class="table-responsive"><table class="table table-sm">
+                    <thead><tr><th>ID</th><th>Titel/Nummer</th><th>Ereigniszeit</th><th>Öffnet um</th><th>Verarbeitet?</th></tr></thead>
+                    <tbody>
+                        @foreach (var s in _items)
+                        {
+                            <tr><td>@s.Id</td><td>@(s.Type == "Attendance" ? s.Title : s.OperationNumber)</td><td>@s.EventTime.ToString("dd.MM. HH:mm")</td><td>@s.OpenTime.ToString("dd.MM. HH:mm")</td><td>@(s.IsProcessed ? "Ja" : "Nein")</td></tr>
+                        }
+                    </tbody>
+                </table></div>
+            }
+        </div></div>
+    </div>
+</AuthGuard>
+
+@code {
+    private List<ScheduledDto>? _items;
+    private System.Threading.Timer? _timer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Load();
+        _timer = new System.Threading.Timer(async _ => await InvokeAsync(Load), null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+    }
+    private async Task Load() { try { _items = await Http.GetFromJsonAsync<List<ScheduledDto>>("client-api/admin/scheduled"); StateHasChanged(); } catch { } }
+    public void Dispose() => _timer?.Dispose();
+}
