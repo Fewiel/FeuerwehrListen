@@ -6,17 +6,34 @@ window.qrScanner = (() => {
     let ctx = null;
 
     // facing: 'user' (Frontkamera, Standard) oder 'environment' (Rueckkamera).
-    // Als "ideal" (nicht exact), damit es auch mit nur einer Kamera nicht fehlschlaegt.
     // facingMode ist stabil und uebersteht Updates - anders als eine deviceId.
-    function buildConstraints(facing) {
-        const video = {
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-            focusMode: { ideal: 'continuous' },
-            advanced: [{ focusMode: 'continuous' }],
-            facingMode: { ideal: facing || 'user' }
-        };
-        return { video: video };
+    //
+    // WICHTIG: Manche (aeltere) Geraete ignorieren facingMode als "ideal" komplett und
+    // liefern immer die gleiche (Rueck-)Kamera. Darum wird zuerst {exact: facing}
+    // ERZWUNGEN (echtes Umschalten). Nur wenn das Geraet die gewuenschte Kamera nicht hat,
+    // wird auf "ideal" und zuletzt auf "irgendeine Kamera" zurueckgefallen.
+    async function getCameraStream(facing) {
+        var want = facing === 'environment' ? 'environment' : 'user';
+        var base = { width: { ideal: 1280 }, height: { ideal: 720 } };
+
+        // 1) Erzwungen (echtes Umschalten front/rueck)
+        try {
+            return await navigator.mediaDevices.getUserMedia({
+                video: Object.assign({}, base, { facingMode: { exact: want } })
+            });
+        } catch (e) {
+            console.warn('Kamera exact "' + want + '" nicht moeglich, Fallback:', e && e.name);
+        }
+        // 2) Bevorzugt (ideal)
+        try {
+            return await navigator.mediaDevices.getUserMedia({
+                video: Object.assign({}, base, { facingMode: want })
+            });
+        } catch (e) {
+            console.warn('Kamera ideal "' + want + '" nicht moeglich, nehme irgendeine Kamera:', e && e.name);
+        }
+        // 3) Irgendeine Kamera
+        return await navigator.mediaDevices.getUserMedia({ video: true });
     }
 
     // Pre-process for colored QR codes: boost red channel contrast
@@ -52,8 +69,7 @@ window.qrScanner = (() => {
         }
 
         try {
-            const constraints = buildConstraints(facing || loadFacing());
-            activeStream = await navigator.mediaDevices.getUserMedia(constraints);
+            activeStream = await getCameraStream(facing || loadFacing());
             videoEl.srcObject = activeStream;
             await videoEl.play();
 
@@ -151,9 +167,15 @@ window.qrScanner = (() => {
     async function startPreview(videoElementId, facing) {
         var videoElement = document.getElementById(videoElementId);
         if (!videoElement) return;
+        // Vorhandenen Stream zuerst sauber stoppen, damit iOS/Safari die Kamera freigibt
+        // und beim Umschalten wirklich die andere Kamera oeffnet (sonst bleibt es auf der alten).
+        if (videoElement.srcObject) {
+            try { videoElement.srcObject.getTracks().forEach(function (t) { t.stop(); }); } catch (e) { }
+            videoElement.srcObject = null;
+            await new Promise(function (r) { setTimeout(r, 200); });
+        }
         try {
-            var constraints = buildConstraints(facing || loadFacing());
-            var stream = await navigator.mediaDevices.getUserMedia(constraints);
+            var stream = await getCameraStream(facing || loadFacing());
             videoElement.srcObject = stream;
             await videoElement.play();
         } catch (ex) {
