@@ -17,7 +17,9 @@
 </head>
 
 <body>
-    <Routes @rendermode="InteractiveServer" />
+    @* Kein globaler Render-Mode mehr: jede Seite bestimmt ihn selbst (@rendermode),
+       damit einzelne Seiten auf InteractiveWebAssembly umgestellt werden koennen. *@
+    <Routes />
     <script>
         // --- Verbindungs-Diagnose (Geraete ohne Konsole, z. B. iPad) ---
         // Sammelt JS-Fehler, Konsolen-Meldungen und Verbindungsereignisse in einem

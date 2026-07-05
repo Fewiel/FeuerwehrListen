@@ -1,7 +1,9 @@
 @inherits LayoutComponentBase
 
 <div class="tw-shell">
-    <NavMenu />
+    @* Layout ist statisch (SSR); die Navigation ist eine interaktive Insel.
+       So bleibt das Menue bedienbar, auch wenn eine Seite auf WASM laeuft. *@
+    <NavMenu @rendermode="InteractiveServer" />
 
     <main>
         <article class="content px-4">
