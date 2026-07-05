@@ -198,6 +198,59 @@ app.MapGet("/token", (HttpContext ctx, DownloadTokenService tokenSvc, string pat
     var token = tokenSvc.CreateToken(path);
     return Results.Text(token, "text/plain");
 });
+
+// --- Client-API (Proof-of-Concept) ---------------------------------------------------
+// Zustandslose JSON-Endpoints fuer einen circuit-freien Client (kein SignalR).
+// BEWUSST getrennt von der externen /api (X-API-Key) - die bleibt voellig unveraendert;
+// "/client-api" matcht die ApiKey-Middleware (StartsWithSegments "/api") nicht.
+app.MapGet("/client-api/open-lists", async (
+    AttendanceListRepository attRepo,
+    OperationListRepository opRepo,
+    FireSafetyWatchRepository fswRepo,
+    SettingsService settings) =>
+{
+    var operations = (await opRepo.GetOpenAsync())
+        .OrderByDescending(x => x.AlertTime)
+        .Select(o => new
+        {
+            id = o.Id,
+            title = string.IsNullOrWhiteSpace(o.Keyword) ? o.OperationNumber : o.Keyword,
+            sub = o.Address ?? "",
+            time = o.AlertTime,
+            href = $"/operation/{o.Id}"
+        });
+
+    var attendance = (await attRepo.GetOpenAsync())
+        .OrderByDescending(x => x.CreatedAt)
+        .Select(a => new
+        {
+            id = a.Id,
+            title = a.Title,
+            sub = a.UnitNumber.HasValue ? settings.GetUnitLabel(a.UnitNumber.Value) : a.Unit,
+            time = a.CreatedAt,
+            href = $"/attendance/{a.Id}"
+        });
+
+    var watches = (await fswRepo.GetAllAsync())
+        .Where(w => !w.IsArchived && w.Status == FeuerwehrListen.Models.ListStatus.Open && w.EventDateTime >= DateTime.Now)
+        .OrderBy(w => w.EventDateTime)
+        .Select(w => new
+        {
+            id = w.Id,
+            title = w.Name,
+            sub = w.Location ?? "",
+            time = w.EventDateTime,
+            href = $"/firesafetywatches/{w.Id}"
+        });
+
+    return Results.Json(new
+    {
+        serverTime = DateTime.Now,
+        operations,
+        attendance,
+        watches
+    });
+});
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
