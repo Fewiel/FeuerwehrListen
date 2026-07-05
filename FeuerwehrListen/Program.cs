@@ -644,10 +644,12 @@ app.MapGet("/client-api/attendance/{id:int}", async (int id, AttendanceListRepos
 });
 
 // Anwesenheit eintragen (Mitglieds-Lookup + Einheiten-Umleitung + Duplikatpruefung serverseitig)
-app.MapPost("/client-api/attendance/{id:int}/add", async (int id, AttendanceListRepository repo, AttendanceEntryRepository entryRepo, MemberRepository memberRepo, UnitAssignmentService unitSvc, AttendanceAddRequest req) =>
+app.MapPost("/client-api/attendance/{id:int}/add", async (int id, HttpContext http, AttendanceListRepository repo, AttendanceEntryRepository entryRepo, MemberRepository memberRepo, UnitAssignmentService unitSvc, AttendanceAddRequest req) =>
 {
     var list = await repo.GetByIdAsync(id);
     if (list == null) return Results.NotFound();
+    // Geschlossene Listen: Nachtragen nur fuer angemeldete Benutzer
+    if (list.Status != ListStatus.Open && !(http.User.Identity?.IsAuthenticated ?? false)) return Results.Forbid();
 
     Member? member = null;
     if (req.MemberId is int mid)
@@ -986,6 +988,60 @@ admin.MapPost("/firesafetywatches", async (FireSafetyWatchRepository repo, FswCr
     return Results.Ok();
 });
 
+// Anwesenheitsliste: abschliessen (angemeldet)
+app.MapPost("/client-api/attendance/{id:int}/close", async (int id, AttendanceListRepository repo, ListNotificationService notif) =>
+{
+    var l = await repo.GetByIdAsync(id); if (l == null) return Results.NotFound();
+    l.Status = ListStatus.Closed; l.ClosedAt = DateTime.Now;
+    await repo.UpdateAsync(l);
+    await notif.NotifyAttendanceClosedAsync(l);
+    return Results.Ok();
+}).RequireAuthorization().DisableAntiforgery();
+
+// Anwesenheitsliste: Eintrag loeschen (angemeldet)
+app.MapDelete("/client-api/attendance/{id:int}/entry/{entryId:int}", async (int entryId, AttendanceEntryRepository repo) =>
+{ await repo.DeleteAsync(entryId); return Results.Ok(); }).RequireAuthorization().DisableAntiforgery();
+
+// Anwesenheitsliste: als entschuldigt eintragen (Admin)
+app.MapPost("/client-api/attendance/{id:int}/excuse", async (int id, AttendanceEntryRepository entryRepo, MemberRepository memberRepo, ExcuseReq req) =>
+{
+    var member = await memberRepo.FindByNameOrNumberAsync((req.Code ?? "").Trim());
+    if (member == null) return Results.Json(new { status = "notfound" });
+    var entries = await entryRepo.GetByListIdAsync(id);
+    if (entries.Any(e => e.NameOrId.Contains($"({member.MemberNumber})"))) return Results.Json(new { status = "duplicate", name = $"{member.FirstName} {member.LastName}" });
+    await entryRepo.CreateAsync(new AttendanceEntry { AttendanceListId = id, NameOrId = $"{member.FirstName} {member.LastName} ({member.MemberNumber})", EnteredAt = DateTime.Now, IsExcused = true });
+    return Results.Json(new { status = "added", name = $"{member.FirstName} {member.LastName}" });
+}).RequireAuthorization("Admin").DisableAntiforgery();
+
+// Einsatzliste: abschliessen (angemeldet) - inkl. Fahrzeug-Staerken-Korrektur im Bericht
+app.MapPost("/client-api/operation/{id:int}/close", async (int id, OperationListRepository repo, OperationEntryRepository entryRepo, OperationEntryFunctionRepository efRepo, OperationReportRepository reportRepo, ListNotificationService notif, OpCloseReq req) =>
+{
+    var l = await repo.GetByIdAsync(id); if (l == null) return Results.NotFound();
+    if (!string.IsNullOrWhiteSpace(req?.Address)) l.Address = req!.Address!.Trim();
+    l.Status = ListStatus.Closed; l.ClosedAt = DateTime.Now;
+    await repo.UpdateAsync(l);
+    var report = await reportRepo.GetByOperationListIdAsync(id);
+    if (report != null)
+    {
+        var entries = await entryRepo.GetByListIdAsync(id);
+        var funcs = await efRepo.GetFunctionsForEntriesAsync(entries.Select(e => e.Id).ToList());
+        foreach (var g in entries.Where(e => !StrengthCalc.IsNoVehicle(e.Vehicle)).GroupBy(e => e.Vehicle))
+            await reportRepo.UpsertVehicleStrengthAsync(report.Id, g.Key, StrengthCalc.VehicleFuehrerMannschaft(g, funcs));
+    }
+    await notif.NotifyOperationClosedAsync(l);
+    return Results.Ok();
+}).RequireAuthorization().DisableAntiforgery();
+
+// Einsatzliste: Adresse aktualisieren (+ Geocoding) (angemeldet)
+app.MapPost("/client-api/operation/{id:int}/address", async (int id, OperationListRepository repo, GeocodingService geo, OpCloseReq req) =>
+{
+    var l = await repo.GetByIdAsync(id); if (l == null) return Results.NotFound();
+    l.Address = string.IsNullOrWhiteSpace(req.Address) ? null : req.Address.Trim();
+    if (!string.IsNullOrWhiteSpace(l.Address)) { var (lat, lon) = await geo.GeocodeAsync(l.Address); l.Latitude = lat; l.Longitude = lon; }
+    await repo.UpdateAsync(l);
+    return Results.Ok();
+}).RequireAuthorization().DisableAntiforgery();
+
 // Brandsicherheitswachen-Liste
 app.MapGet("/client-api/firesafetywatches", async (FireSafetyWatchRepository repo) =>
     Results.Json((await repo.GetAllWithStatusAsync())
@@ -1107,6 +1163,8 @@ public record CreateAttendanceRequest(string Title, string Unit, string? Descrip
 public record CreateOperationRequest(string OperationNumber, string Keyword, DateTime AlertTime, string? Address);
 public record AttendanceAddRequest(string? Code, int? MemberId, int? TargetListId);
 public record OperationResolveRequest(string? Code);
+public record ExcuseReq(string? Code);
+public record OpCloseReq(string? Address);
 public record OperationAddRequest(int MemberId, int? VehicleId, bool NoVehicle, bool BreathingApparatus, List<int>? FunctionIds);
 public record ReportSaveRequest(OperationReport Report, List<ExtForceReq>? ExternalForces, List<MittelReq>? Mittel, List<VsReq>? VehicleStrengths);
 public record ExtForceReq(string? Rufname, string? Staerke);

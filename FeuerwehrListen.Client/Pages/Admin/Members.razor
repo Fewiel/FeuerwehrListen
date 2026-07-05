@@ -2,6 +2,8 @@
 @layout MainLayout
 @using System.Net.Http.Json
 @inject HttpClient Http
+@inject IJSRuntime JS
+@inject NavigationManager Nav
 
 <PageTitle>Mitglieder - Admin</PageTitle>
 
@@ -10,6 +12,7 @@
         <div class="row mb-4">
             <div class="col"><h1>Mitgliederverwaltung</h1></div>
             <div class="col-auto">
+                <button class="btn btn-outline-danger me-2" @onclick="ExportPdf"><i class="bi bi-file-earmark-pdf me-1"></i> PDF</button>
                 <button class="btn btn-outline-primary me-2" @onclick="() => _showCsv = !_showCsv"><i class="bi bi-upload me-1"></i> CSV Import</button>
                 <button class="btn btn-primary" @onclick="ShowAdd"><i class="bi bi-plus-circle"></i> Neues Mitglied</button>
             </div>
@@ -89,6 +92,17 @@
 
     protected override async Task OnInitializedAsync() => await Load();
     private async Task Load() { try { _items = await Http.GetFromJsonAsync<List<MemberDto>>("client-api/admin/members"); } catch { _items = new(); } }
+
+    private async Task ExportPdf()
+    {
+        try
+        {
+            var path = "/api/export/members/pdf";
+            var token = await Http.GetStringAsync($"token?path={Uri.EscapeDataString(path)}");
+            await JS.InvokeVoidAsync("openPdf", $"{Nav.BaseUri.TrimEnd('/')}{path}?token={Uri.EscapeDataString(token)}");
+        }
+        catch { }
+    }
 
     private void ShowAdd() { _editId = null; _number = ""; _firstName = ""; _lastName = ""; _isActive = true; _units.Clear(); _error = null; _showForm = true; }
     private void Edit(MemberDto m) { _editId = m.Id; _number = m.MemberNumber; _firstName = m.FirstName; _lastName = m.LastName; _isActive = m.IsActive; _units.Clear(); foreach (var u in m.Units) _units.Add(u); _error = null; _showForm = true; }

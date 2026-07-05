@@ -74,6 +74,12 @@
             {
                 <a class="btn btn-danger" href="create-operation"><i class="bi bi-plus-circle"></i> Neue Einsatzliste</a>
             }
+            @if (M.FireSafety)
+            {
+                <AuthorizeView Roles="Admin">
+                    <a class="btn btn-warning" href="firesafetywatches/create"><i class="bi bi-plus-circle"></i> Neue Brandsicherheitswache</a>
+                </AuthorizeView>
+            }
         </div>
     </div>
 
