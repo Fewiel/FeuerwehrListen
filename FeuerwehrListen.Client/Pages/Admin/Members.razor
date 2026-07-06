@@ -130,14 +130,17 @@
                         <label class="form-label small mb-1">Eigene SCAD-Datei (optional – sonst mitgeliefert)</label>
                         <input class="form-control form-control-sm mb-2" @bind="_scadPath" placeholder="C:\...\FeuerwehrTag\feuerwehr_tag.scad" />
                         <button type="button" class="btn btn-sm btn-primary" @onclick="SaveSettings">Speichern &amp; testen</button>
+                        <div class="mt-2"><a href="/downloads/fwtag-helper.zip" download><i class="bi bi-download me-1"></i>Renderer-Tool (fwtag-helper) herunterladen</a> – auf dem PC entpacken &amp; <code>fwtag-helper.exe</code> starten. Benötigt OpenSCAD.</div>
                     </div>
                 }
 
                 @if (_helperStatus == "down")
                 {
                     <div class="alert alert-warning py-2 mt-2 mb-0 small">
-                        Der lokale Renderer <code>fwtag-helper.exe</code> läuft nicht. Starte ihn auf deinem PC
-                        (siehe <code>tools/fwtag-helper</code>) und lasse das Fenster offen.
+                        Der lokale Renderer läuft nicht.
+                        <a href="/downloads/fwtag-helper.zip" download><i class="bi bi-download"></i> Renderer-Tool herunterladen</a>,
+                        entpacken und <code>fwtag-helper.exe</code> starten (Fenster offen lassen) – dann „Speichern &amp; testen".
+                        Voraussetzung: OpenSCAD ist auf dem PC installiert.
                     </div>
                 }
                 @if (_tagError is not null) { <div class="alert alert-danger py-2 mt-2 mb-0 small">@_tagError</div> }

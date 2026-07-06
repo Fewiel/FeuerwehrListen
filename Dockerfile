@@ -13,9 +13,19 @@ RUN dotnet restore "FeuerwehrListen/FeuerwehrListen.csproj"
 
 # Copy the rest of the application source code
 COPY . .
+
+# Lokalen Render-Helfer (Windows, self-contained single-file) cross-publishen und als ZIP
+# nach wwwroot/downloads legen -> Admins koennen ihn direkt aus der App herunterladen.
+# (Cross-Compile aus dem Linux-SDK; laeuft nur beim Image-Build, nicht zur Laufzeit.)
+RUN apt-get update && apt-get install -y --no-install-recommends zip && rm -rf /var/lib/apt/lists/*
+RUN dotnet publish "tools/fwtag-helper/fwtag-helper.csproj" -c Release -r win-x64 --self-contained true \
+        -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o /helper \
+    && mkdir -p "FeuerwehrListen/wwwroot/downloads" \
+    && (cd /helper && zip -r -q "/src/FeuerwehrListen/wwwroot/downloads/fwtag-helper.zip" fwtag-helper.exe scad)
+
 WORKDIR "/src/FeuerwehrListen"
 
-# Publish the application
+# Publish the application (die Helfer-ZIP unter wwwroot/downloads kommt als statische Datei mit)
 RUN dotnet publish "FeuerwehrListen.csproj" -c Release -o /app/publish --no-restore
 
 # Stage 2: Create the final runtime image

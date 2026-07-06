@@ -19,3 +19,5 @@ auto-update.log
 
 # Lokale Docker-Konfiguration (wird nicht überschrieben beim Update)
 docker-compose.override.yml
+# Build-generierte Helfer-Downloads (entstehen im Docker-Build)
+FeuerwehrListen/wwwroot/downloads/
