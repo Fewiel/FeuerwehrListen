@@ -162,6 +162,34 @@ builder.Services.AddScoped<EmailSenderService>();
 builder.Services.AddScoped<FeedbackService>();
 builder.Services.AddScoped<ListNotificationService>();
 builder.Services.AddHttpClient();
+builder.Services.AddHttpContextAccessor();
+// Server-seitiger HttpClient fuer server-gerenderte Client-Komponenten (Alt-Geraete /
+// Server-Modus): BaseAddress = App selbst, Auth-Cookie wird weitergereicht. In WASM
+// laeuft der Fetch im Browser und nutzt DIESE Registrierung nicht (nur beim Prerender/
+// InteractiveServer).
+builder.Services.AddSingleton<FeuerwehrListen.Services.AppBaseUrlProvider>();
+builder.Services.AddSingleton<FeuerwehrListen.Services.InternalAuthSecret>();
+builder.Services.AddScoped<HttpClient>(sp =>
+{
+    var accessor = sp.GetRequiredService<IHttpContextAccessor>();
+    var baseProvider = sp.GetRequiredService<FeuerwehrListen.Services.AppBaseUrlProvider>();
+    var authState = sp.GetRequiredService<AuthenticationStateProvider>();
+    var secret = sp.GetRequiredService<FeuerwehrListen.Services.InternalAuthSecret>();
+    var handler = new FeuerwehrListen.Services.SelfCookieHandler(accessor, authState, secret)
+    {
+        InnerHandler = new HttpClientHandler
+        {
+            ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
+        }
+    };
+    var client = new HttpClient(handler);
+    var ctx = accessor.HttpContext;
+    // BaseAddress zuerst aus dem HttpContext (Prerender), sonst aus dem beim ersten Request
+    // erfassten Provider (gilt auch waehrend des Circuits, wo kein HttpContext existiert).
+    var baseUrl = ctx != null ? $"{ctx.Request.Scheme}://{ctx.Request.Host}" : baseProvider.BaseUrl;
+    if (!string.IsNullOrEmpty(baseUrl)) client.BaseAddress = new Uri(baseUrl.TrimEnd('/') + "/");
+    return client;
+});
 builder.Services.AddScoped<NextcloudService>();
 
 builder.Services.AddSingleton<SidebarService>();
@@ -200,9 +228,41 @@ if (!app.Environment.IsDevelopment())
 {
     app.UseHttpsRedirection();
 }
+// Basis-URL (scheme://host) beim ersten Request einmalig erfassen - fuer server-seitige
+// Self-Calls waehrend eines Blazor-Server-Circuits (dort gibt es keinen HttpContext).
+app.Use(async (ctx, next) =>
+{
+    var p = ctx.RequestServices.GetRequiredService<FeuerwehrListen.Services.AppBaseUrlProvider>();
+    if (string.IsNullOrEmpty(p.BaseUrl)) p.BaseUrl = $"{ctx.Request.Scheme}://{ctx.Request.Host}";
+    await next();
+});
+
 app.UseStaticFiles();
 
 app.UseAuthentication();
+
+// Interne Identity fuer Server-Modus-Self-Calls: kein Auth-Cookie, aber gueltiger
+// prozess-geheimer Header -> Identity aus X-Fw-User/Role setzen. Nur der server-eigene
+// SelfCookieHandler kennt das Geheimnis; von aussen nicht faelschbar.
+app.Use(async (ctx, next) =>
+{
+    if (!(ctx.User.Identity?.IsAuthenticated ?? false)
+        && ctx.Request.Headers.TryGetValue("X-Fw-Internal", out var sec)
+        && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                System.Text.Encoding.UTF8.GetBytes(sec.ToString()),
+                System.Text.Encoding.UTF8.GetBytes(ctx.RequestServices.GetRequiredService<FeuerwehrListen.Services.InternalAuthSecret>().Value)))
+    {
+        var claims = new List<System.Security.Claims.Claim>
+        {
+            new(System.Security.Claims.ClaimTypes.Name, ctx.Request.Headers["X-Fw-User"].ToString())
+        };
+        foreach (var r in ctx.Request.Headers["X-Fw-Role"].ToString().Split(',', StringSplitOptions.RemoveEmptyEntries))
+            claims.Add(new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Role, r.Trim()));
+        ctx.User = new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity(claims, "FwInternal"));
+    }
+    await next();
+});
+
 app.UseAuthorization();
 
 app.UseMiddleware<ApiKeyAuthMiddleware>();

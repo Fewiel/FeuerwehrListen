@@ -17,25 +17,27 @@
     <HeadOutlet />
 
     @* Alt-Geraet-Erkennung (ES5, laeuft auch auf iOS 12): Die .NET-8-WASM-Runtime
-       braucht u.a. BigInt (Safari 14+/iOS 14). Fehlt es, bootet die WASM-App nie
-       (bliebe bei "Lade..." haengen) -> auf die klassische Legacy-Oberflaeche
-       (/legacy.html, reines HTML+JS, kein WASM) umleiten. Pfad wird als Hash
-       uebernommen, damit z.B. /attendance/5 -> /legacy.html#/attendance/5. *@
+       braucht u.a. BigInt (Safari 14+/iOS 14). Fehlt es, kann die WASM-App nicht booten.
+       Dann Cookie fw_srv=1 setzen und einmal neu laden -> der Server rendert die App im
+       Server-Modus (InteractiveServer/SignalR), der auch auf iOS 12 laeuft (blazor.web.js
+       ist ES5-kompatibel). So bekommen alte Geraete die VOLLE App, nicht nur eine
+       abgespeckte Seite. Sicherheitsnetz zusaetzlich zur server-seitigen UA-Erkennung. *@
     <script>
         (function () {
             var ok = (typeof WebAssembly !== "undefined") && (typeof Promise !== "undefined") && (typeof BigInt === "function");
             if (ok) return;
-            var path = location.pathname || "/";
-            var hash = /^\/(attendance|operation)\/\d+/.test(path) ? ("#" + path) : "";
-            location.replace("/legacy.html" + hash);
+            if (document.cookie.indexOf("fw_srv=1") === -1) {
+                document.cookie = "fw_srv=1;path=/;max-age=31536000";
+                location.reload();
+            }
         })();
     </script>
 </head>
 
 <body>
-    @* Globaler WASM-Router: die gesamte App laeuft als Blazor WebAssembly, die
-       Navigation ist client-seitig (kein Neuladen, kein Re-Boot). *@
-    <FeuerwehrListen.Client.Routes @rendermode="InteractiveWebAssembly" />
+    @* Render-Modus pro Geraet: moderne Geraete WebAssembly (client-seitig, kein SignalR);
+       alte Geraete (kein WASM moeglich) InteractiveServer (SignalR) -> volle App auf iOS 12. *@
+    <FeuerwehrListen.Client.Routes @rendermode="Mode" />
 
     <script src="lib/barcode-detector/polyfill.min.js"></script>
     <script>
@@ -92,8 +94,18 @@
             } catch (e) { console.error('downloadFileFromStream failed', e); }
         };
 
-        // Blazor WebAssembly starten (kein Server-Circuit, kein SignalR).
-        Blazor.start();
+        // Start: moderne Geraete booten WebAssembly; alte Geraete (Server-Modus) oeffnen
+        // stattdessen einen SignalR-Circuit. Fuer den Circuit Long-Polling erzwingen - das
+        // Einsatznetz kappt WebSocket-Dauerverbindungen (~40s). Die circuit-Optionen werden
+        // auf WASM-Geraeten ignoriert (dort entsteht kein Circuit).
+        Blazor.start({
+            circuit: {
+                configureSignalR: function (builder) {
+                    try { builder.withUrl('_blazor', { transport: 4 }); } catch (e) { }
+                    try { builder.withServerTimeout(120000).withKeepAliveInterval(15000); } catch (e) { }
+                }
+            }
+        });
 
         // PWA Service Worker
         if ('serviceWorker' in navigator) {
@@ -105,3 +117,28 @@
 </body>
 
 </html>
+
+@code {
+    [CascadingParameter] private HttpContext? HttpContext { get; set; }
+
+    // Render-Modus je Request: ?rmode=server/wasm (Test-Override) > Cookie fw_srv=1
+    // (Client-BigInt-Check) > server-seitige UA-Erkennung (iOS 10-13) > sonst WASM.
+    private IComponentRenderMode Mode
+    {
+        get
+        {
+            var ctx = HttpContext;
+            if (ctx is null) return InteractiveWebAssembly;
+            var rmode = ctx.Request.Query["rmode"].ToString();
+            if (rmode == "server") return InteractiveServer;
+            if (rmode == "wasm") return InteractiveWebAssembly;
+            if (ctx.Request.Cookies.TryGetValue("fw_srv", out var c) && c == "1") return InteractiveServer;
+            return IsOldBrowser(ctx.Request.Headers.UserAgent.ToString()) ? InteractiveServer : InteractiveWebAssembly;
+        }
+    }
+
+    // iOS 10-13 (kein .NET-8-WASM) an der UA erkennen.
+    private static bool IsOldBrowser(string ua) =>
+        !string.IsNullOrEmpty(ua) && ua.Contains("Safari")
+        && System.Text.RegularExpressions.Regex.IsMatch(ua, "OS 1[0-3]_");
+}
