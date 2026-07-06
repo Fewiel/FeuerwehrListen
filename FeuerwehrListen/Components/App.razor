@@ -17,24 +17,17 @@
     <HeadOutlet />
 
     @* Alt-Geraet-Erkennung (ES5, laeuft auch auf iOS 12): Die .NET-8-WASM-Runtime
-       braucht u.a. BigInt (Safari 14+/iOS 14). Fehlt es, bootet die App nie und
-       bleibt bei "Lade..." haengen -> stattdessen eine klare Meldung zeigen. *@
+       braucht u.a. BigInt (Safari 14+/iOS 14). Fehlt es, bootet die WASM-App nie
+       (bliebe bei "Lade..." haengen) -> auf die klassische Legacy-Oberflaeche
+       (/legacy.html, reines HTML+JS, kein WASM) umleiten. Pfad wird als Hash
+       uebernommen, damit z.B. /attendance/5 -> /legacy.html#/attendance/5. *@
     <script>
         (function () {
             var ok = (typeof WebAssembly !== "undefined") && (typeof Promise !== "undefined") && (typeof BigInt === "function");
             if (ok) return;
-            function show() {
-                if (!document.body) return;
-                document.body.innerHTML =
-                    '<div style="max-width:640px;margin:64px auto;padding:24px;font-family:-apple-system,Helvetica,Arial,sans-serif;text-align:center;color:#2a2f36">'
-                    + '<div style="font-size:42px">&#128241;&#9888;&#65039;</div>'
-                    + '<h2 style="color:#E4002B;margin:12px 0">Ger&auml;t zu alt</h2>'
-                    + '<p style="font-size:16px;line-height:1.5">Diese App ben&ouml;tigt ein neueres Ger&auml;t.<br>Ein iPad mit <b>iOS 15 oder neuer</b> (oder ein aktuelles Android-/Windows-Ger&auml;t) funktioniert.</p>'
-                    + '<p style="font-size:14px;color:#6b7480">Dieses Ger&auml;t (z.&nbsp;B. iOS&nbsp;12) kann die moderne WebAssembly-Technik der App leider nicht ausf&uuml;hren und bleibt sonst bei &bdquo;Lade&hellip;&ldquo; h&auml;ngen.</p>'
-                    + '</div>';
-            }
-            if (document.readyState === "loading") { document.addEventListener("DOMContentLoaded", show); }
-            else { show(); }
+            var path = location.pathname || "/";
+            var hash = /^\/(attendance|operation)\/\d+/.test(path) ? ("#" + path) : "";
+            location.replace("/legacy.html" + hash);
         })();
     </script>
 </head>

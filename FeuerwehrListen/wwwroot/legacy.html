@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="theme-color" content="#E4002B" />
+<title>Feuerwehr Listen</title>
+<style>
+  /* Bewusst schlicht + iOS-12-tauglich: keine flex-gap/inset/clamp-Abhaengigkeit. */
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { margin: 0; font-family: -apple-system, Helvetica, Arial, sans-serif; color: #23272e; background: #f5f6f8; }
+  .top { background: #E4002B; color: #fff; padding: 14px 16px; font-size: 19px; font-weight: 700; position: sticky; top: 0; z-index: 5; }
+  .top a { color: #fff; text-decoration: none; }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 14px 12px 40px; }
+  h1 { font-size: 21px; margin: 6px 0 12px; }
+  h2 { font-size: 17px; margin: 18px 0 8px; }
+  .card { background: #fff; border: 1px solid #e3e6ea; border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; }
+  .lst a { display: block; background: #fff; border: 1px solid #e3e6ea; border-radius: 12px; padding: 12px 14px; margin-bottom: 8px; text-decoration: none; color: #23272e; }
+  .lst a .t { display: block; font-weight: 600; font-size: 15.5px; }
+  .lst a .s { display: block; font-size: 13px; color: #6b7480; margin-top: 2px; }
+  .muted { color: #6b7480; }
+  .btn { display: inline-block; border: none; border-radius: 10px; padding: 12px 16px; font-size: 16px; font-weight: 600; cursor: pointer; color: #fff; background: #E4002B; }
+  .btn.grey { background: #6b7480; }
+  .btn.green { background: #1e7b34; }
+  .btn.dark { background: #23272e; }
+  .btn.block { display: block; width: 100%; margin-top: 8px; }
+  .btn.wide { width: 100%; }
+  input[type=text], input[type=number] { width: 100%; padding: 12px; font-size: 17px; border: 1px solid #c7ccd2; border-radius: 10px; }
+  .row { margin-bottom: 10px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 7px 6px; border-bottom: 1px solid #eceef1; font-size: 14.5px; }
+  th { color: #6b7480; font-weight: 600; font-size: 12.5px; }
+  .msg { padding: 10px 12px; border-radius: 10px; margin: 10px 0; font-size: 14.5px; }
+  .msg.ok { background: #e6f4ea; color: #1e7b34; }
+  .msg.err { background: #fdecee; color: #c02a3b; }
+  .msg.info { background: #eaf1fb; color: #1f5cc0; }
+  .choice { display: block; width: 100%; text-align: left; background: #fff; border: 1px solid #c7ccd2; border-radius: 10px; padding: 12px; margin-bottom: 8px; font-size: 15px; }
+  .chk { display: block; padding: 10px 4px; border-bottom: 1px solid #eceef1; font-size: 16px; }
+  .chk input { width: 20px; height: 20px; vertical-align: middle; margin-right: 10px; }
+  .backlink { display: inline-block; margin-top: 16px; }
+  .badge { display: inline-block; background: #6b7480; color: #fff; border-radius: 999px; padding: 2px 8px; font-size: 12px; margin-left: 6px; }
+  .badge.blue { background: #1f6feb; }
+  .spin { color: #6b7480; }
+</style>
+</head>
+<body>
+<div class="top"><a href="#/">&#128680; Feuerwehr Listen</a></div>
+<div class="wrap" id="app"><p class="spin">Lade&hellip;</p></div>
+
+<!-- Kamera-/QR-Scanner: derselbe wie in der WASM-App, iOS-12-tauglich (kein WASM-Runtime,
+     nur BarcodeDetector-Polyfill + zxing_reader.wasm; kein BigInt/optional-chaining). -->
+<script src="lib/barcode-detector/polyfill.min.js"></script>
+<script>
+    // zxing-WASM lokal laden (kein CDN) - fuer Altgeraete.
+    try {
+        if (window.BarcodeDetectionAPI && window.BarcodeDetectionAPI.setZXingModuleOverrides) {
+            window.BarcodeDetectionAPI.setZXingModuleOverrides({
+                locateFile: function (path, prefix) {
+                    return (path && path.indexOf('.wasm') >= 0) ? '/lib/barcode-detector/' + path : (prefix || '') + path;
+                }
+            });
+        }
+    } catch (e) { }
+</script>
+<script src="qr-scanner.js?v=3"></script>
+
+<script>
+"use strict";
+(function () {
+  var app = document.getElementById("app");
+
+  function esc(s) {
+    s = (s == null) ? "" : String(s);
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+  function el(html) { app.innerHTML = html; }
+  function on(id, ev, fn) { var e = document.getElementById(id); if (e) e.addEventListener(ev, fn); }
+
+  // ---------------- QR-Scanner (Kamera) ----------------
+  var scanFacing = "user";
+  try { scanFacing = (localStorage.getItem("qr_camera_facing") === "environment") ? "environment" : "user"; } catch (e) { }
+  var scanOnDetect = null, scanBusy = false;
+  function scanShim() { return { invokeMethodAsync: function (m, v) { if (m === "OnQrCodeDetected") onScanHit(v); return Promise.resolve(); } }; }
+  function onScanHit(v) { if (scanBusy) return; scanBusy = true; setTimeout(function () { scanBusy = false; }, 1200); if (scanOnDetect) scanOnDetect(v); }
+  function scannerUiHtml() {
+    return '<div class="card">'
+      + '<button class="btn wide" id="scan_start">&#128247; QR-Code scannen</button>'
+      + '<div id="scan_area" style="display:none">'
+      + '<video id="qrvid" playsinline autoplay muted style="width:100%;border-radius:10px;background:#000"></video>'
+      + '<button class="btn grey block" id="scan_switch">Kamera wechseln (Front/R&uuml;ck)</button>'
+      + '<button class="btn dark block" id="scan_stop">Scannen beenden</button>'
+      + '</div></div>';
+  }
+  function wireScanner(onDetect) {
+    scanOnDetect = onDetect;
+    on("scan_start", "click", startScan);
+    on("scan_switch", "click", switchCam);
+    on("scan_stop", "click", stopScan);
+  }
+  async function startScan() {
+    if (!window.qrScanner) return;
+    var s = document.getElementById("scan_start"), a = document.getElementById("scan_area");
+    if (s) s.style.display = "none";
+    if (a) a.style.display = "block";
+    try { await window.qrScanner.start("qrvid", scanShim(), scanFacing); } catch (e) { }
+  }
+  function stopScan() {
+    if (window.qrScanner) { try { window.qrScanner.stop(); } catch (e) { } }
+    var a = document.getElementById("scan_area"); if (a) a.style.display = "none";
+    var s = document.getElementById("scan_start"); if (s) s.style.display = "block";
+  }
+  function switchCam() {
+    scanFacing = (scanFacing === "environment") ? "user" : "environment";
+    try { window.qrScanner.saveFacing(scanFacing); window.qrScanner.start("qrvid", scanShim(), scanFacing); } catch (e) { }
+  }
+  function beep(type) { try { var au = new Audio("/sounds/" + type + ".wav"); au.volume = 0.5; au.play().catch(function () { }); } catch (e) { } }
+
+  async function getJson(url) {
+    var r = await fetch(url, { headers: { "Accept": "application/json" } });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    return await r.json();
+  }
+  async function postJson(url, body) {
+    var r = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      body: JSON.stringify(body || {})
+    });
+    var txt = await r.text();
+    var data = null;
+    try { data = txt ? JSON.parse(txt) : null; } catch (e) { data = null; }
+    return { ok: r.ok, status: r.status, data: data };
+  }
+
+  function fmtTime(iso) {
+    if (!iso) return "";
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return "";
+    function p(n) { return (n < 10 ? "0" : "") + n; }
+    return p(d.getDate()) + "." + p(d.getMonth() + 1) + ". " + p(d.getHours()) + ":" + p(d.getMinutes());
+  }
+
+  // ---------------- Router ----------------
+  function route() {
+    stopScan();
+    var h = location.hash || "#/";
+    var parts = h.replace(/^#\//, "").split("/");
+    if (parts[0] === "attendance" && parts[1]) return renderAttendance(parts[1]);
+    if (parts[0] === "operation" && parts[1]) return renderOperation(parts[1]);
+    return renderHome();
+  }
+
+  // ---------------- Home ----------------
+  async function renderHome() {
+    el('<h1>Offene Listen</h1><p class="spin">Lade&hellip;</p>');
+    try {
+      var d = await getJson("/client-api/open-lists");
+      var html = "<h1>Offene Listen</h1>";
+      var att = d.attendance || [];
+      var ops = d.operations || [];
+      if (!att.length && !ops.length) {
+        html += '<div class="card muted">Aktuell keine offenen Listen.</div>';
+      }
+      if (ops.length) {
+        html += "<h2>Eins&auml;tze</h2><div class='lst'>";
+        for (var i = 0; i < ops.length; i++) {
+          var o = ops[i];
+          html += '<a href="#/operation/' + o.id + '"><span class="t">' + esc(o.title) + '</span>'
+            + (o.sub ? '<span class="s">' + esc(o.sub) + '</span>' : '')
+            + '<span class="s">' + fmtTime(o.time) + '</span></a>';
+        }
+        html += "</div>";
+      }
+      if (att.length) {
+        html += "<h2>Anwesenheitslisten</h2><div class='lst'>";
+        for (var j = 0; j < att.length; j++) {
+          var a = att[j];
+          html += '<a href="#/attendance/' + a.id + '"><span class="t">' + esc(a.title) + '</span>'
+            + (a.sub ? '<span class="s">' + esc(a.sub) + '</span>' : '')
+            + '<span class="s">' + fmtTime(a.time) + '</span></a>';
+        }
+        html += "</div>";
+      }
+      el(html);
+    } catch (e) {
+      el('<h1>Offene Listen</h1><div class="msg err">Konnte Listen nicht laden. Verbindung pr&uuml;fen.</div>'
+        + '<button class="btn wide" id="retry">Erneut versuchen</button>');
+      on("retry", "click", renderHome);
+    }
+  }
+
+  // ---------------- Anwesenheit ----------------
+  var attId = null;
+  async function renderAttendance(id) {
+    attId = id;
+    el('<p class="spin">Lade&hellip;</p>');
+    var l;
+    try { l = await getJson("/client-api/attendance/" + id); }
+    catch (e) { el('<div class="msg err">Liste nicht gefunden.</div><a class="backlink" href="#/">&#8592; Zur&uuml;ck</a>'); return; }
+
+    var present = (l.entries || []).filter(function (e) { return !e.isExcused; });
+    var html = '<h1>' + esc(l.title) + '</h1>';
+    html += '<p class="muted">' + esc(l.unit || "") + (l.isOpen ? "" : " &middot; <b>Abgeschlossen</b>") + '</p>';
+    if (l.isOpen) {
+      html += scannerUiHtml();
+      html += '<div class="card"><div class="row"><label>Mitgliedsnummer oder Name</label>'
+        + '<input type="text" id="att_in" autocomplete="off" autocapitalize="off" /></div>'
+        + '<button class="btn green wide" id="att_add">Eintragen</button></div>';
+    }
+    html += '<div id="att_msg"></div>';
+    html += '<h2>Anwesend (' + present.length + ')</h2>';
+    html += '<div id="att_list">' + renderAttList(present) + '</div>';
+    html += '<a class="backlink" href="#/">&#8592; Zur&uuml;ck zur &Uuml;bersicht</a>';
+    el(html);
+
+    if (l.isOpen) {
+      var input = document.getElementById("att_in");
+      on("att_add", "click", function () { attAdd(input.value); });
+      input.addEventListener("keyup", function (ev) { if (ev.key === "Enter" || ev.keyCode === 13) attAdd(input.value); });
+      wireScanner(function (v) { attAdd(v); });
+    }
+  }
+  function renderAttList(list) {
+    if (!list.length) return '<div class="card muted">Noch keine Eintr&auml;ge</div>';
+    var h = '<div class="card"><table><thead><tr><th>#</th><th>Name/ID</th><th>Zeit</th></tr></thead><tbody>';
+    for (var i = 0; i < list.length; i++) {
+      var e = list[i];
+      var t = e.enteredAt ? new Date(e.enteredAt) : null;
+      var ts = t && !isNaN(t.getTime()) ? (("0" + t.getHours()).slice(-2) + ":" + ("0" + t.getMinutes()).slice(-2)) : "";
+      h += "<tr><td>" + (i + 1) + "</td><td><b>" + esc(e.name) + "</b></td><td>" + ts + "</td></tr>";
+    }
+    h += "</tbody></table></div>";
+    return h;
+  }
+  function attMsg(cls, text) {
+    var m = document.getElementById("att_msg");
+    if (m) m.innerHTML = '<div class="msg ' + cls + '">' + esc(text) + '</div>';
+  }
+  async function attAdd(code, extra) {
+    code = (code || "").trim();
+    if (!code && !(extra && extra.memberId)) return;
+    attMsg("info", "Bitte warten…");
+    var body = extra ? extra : { code: code };
+    var res = await postJson("/client-api/attendance/" + attId + "/add", body);
+    if (!res.ok || !res.data) { attMsg("err", "Eintragen fehlgeschlagen."); return; }
+    var r = res.data;
+    if (r.status === "added" || r.status === "redirected") {
+      beep("success");
+      attMsg("ok", (r.name || "") + " eingetragen" + (r.status === "redirected" ? " (andere Liste)" : "") + ".");
+      document.getElementById("att_in").value = "";
+      var l = await getJson("/client-api/attendance/" + attId);
+      document.getElementById("att_list").innerHTML = renderAttList((l.entries || []).filter(function (e) { return !e.isExcused; }));
+    } else if (r.status === "duplicate") {
+      beep("error");
+      attMsg("err", (r.name || "Dieses Mitglied") + " ist bereits eingetragen!");
+    } else if (r.status === "notfound") {
+      beep("error");
+      attMsg("err", "Mitglied nicht gefunden!");
+    } else if (r.status === "choose-member") {
+      var h = '<div class="msg info">Mehrere Treffer &ndash; bitte w&auml;hlen:</div>';
+      for (var i = 0; i < r.members.length; i++) {
+        var m = r.members[i];
+        h += '<button class="choice" data-mid="' + m.id + '">' + esc(m.name) + ' (' + esc(m.number) + ')</button>';
+      }
+      document.getElementById("att_msg").innerHTML = h;
+      var btns = document.querySelectorAll("#att_msg .choice");
+      for (var b = 0; b < btns.length; b++) {
+        btns[b].addEventListener("click", function () { attAdd("", { memberId: parseInt(this.getAttribute("data-mid"), 10) }); });
+      }
+    } else if (r.status === "choose-list") {
+      var mid = r.memberId;
+      var h2 = '<div class="msg info">' + esc(r.name) + ' geh&ouml;rt zu einer anderen Einheit &ndash; Zielliste:</div>';
+      for (var k = 0; k < r.lists.length; k++) {
+        h2 += '<button class="choice" data-lid="' + r.lists[k].id + '">' + esc(r.lists[k].title) + '</button>';
+      }
+      document.getElementById("att_msg").innerHTML = h2;
+      var lb = document.querySelectorAll("#att_msg .choice");
+      for (var x = 0; x < lb.length; x++) {
+        lb[x].addEventListener("click", function () { attAdd("", { memberId: mid, targetListId: parseInt(this.getAttribute("data-lid"), 10) }); });
+      }
+    } else if (r.status === "nomatch") {
+      attMsg("err", "Keine offene Anwesenheitsliste für " + (r.units || "die Einheit") + " gefunden.");
+    } else {
+      attMsg("err", "Unbekannte Antwort.");
+    }
+  }
+
+  // ---------------- Einsatz ----------------
+  var opId = null, opData = null, opState = null;
+  async function renderOperation(id) {
+    opId = id; opState = null;
+    el('<p class="spin">Lade&hellip;</p>');
+    try { opData = await getJson("/client-api/operation/" + id); }
+    catch (e) { el('<div class="msg err">Einsatz nicht gefunden.</div><a class="backlink" href="#/">&#8592; Zur&uuml;ck</a>'); return; }
+    drawOperation();
+  }
+  function drawOperation() {
+    var d = opData;
+    var html = '<h1>Einsatz ' + esc(d.number) + '</h1>';
+    html += '<p class="muted">' + esc(d.keyword || "") + (d.address ? " &middot; " + esc(d.address) : "") + (d.isOpen ? "" : " &middot; <b>Abgeschlossen</b>") + '</p>';
+    if (d.isOpen) html += '<div id="op_flow">' + opFlowHtml() + '</div>';
+    html += '<div id="op_msg"></div>';
+    html += '<h2>Eingetragen (' + (d.entries ? d.entries.length : 0) + ')</h2>' + opEntriesHtml();
+    html += '<a class="backlink" href="#/">&#8592; Zur&uuml;ck zur &Uuml;bersicht</a>';
+    el(html);
+    wireOpFlow();
+  }
+  function opEntriesHtml() {
+    var ents = opData.entries || [];
+    if (!ents.length) return '<div class="card muted">Noch keine Eintr&auml;ge</div>';
+    // nach Fahrzeug gruppieren
+    var groups = {};
+    for (var i = 0; i < ents.length; i++) {
+      var v = ents[i].vehicle && ents[i].vehicle.length ? ents[i].vehicle : "Ohne Fahrzeug";
+      if (!groups[v]) groups[v] = [];
+      groups[v].push(ents[i]);
+    }
+    var h = "";
+    for (var g in groups) {
+      if (!groups.hasOwnProperty(g)) continue;
+      h += '<div class="card"><b>&#128667; ' + esc(g) + ' (' + groups[g].length + ')</b>';
+      for (var j = 0; j < groups[g].length; j++) {
+        var e = groups[g][j];
+        var fn = (e.functions || []).map(function (x) { return esc(x); }).join(", ");
+        h += '<div style="padding:6px 0;border-top:1px solid #eceef1">' + esc(e.name)
+          + (e.breathing ? '<span class="badge blue">AGT</span>' : '')
+          + (fn ? ' <span class="muted">(' + fn + ')</span>' : '') + '</div>';
+      }
+      h += "</div>";
+    }
+    return h;
+  }
+  function opFlowHtml() {
+    var s = opState;
+    if (!s) {
+      return scannerUiHtml()
+        + '<div class="card"><div class="row"><label>Mitgliedsnummer oder Name</label>'
+        + '<input type="text" id="op_in" autocomplete="off" autocapitalize="off" /></div>'
+        + '<button class="btn green wide" id="op_resolve">Weiter</button></div>';
+    }
+    if (s.step === "member") {
+      var h = '<div class="card"><b>Mehrere Treffer &ndash; bitte w&auml;hlen:</b>';
+      for (var i = 0; i < s.members.length; i++) h += '<button class="choice" data-mid="' + s.members[i].id + '" data-mn="' + esc(s.members[i].name) + '">' + esc(s.members[i].name) + ' (' + esc(s.members[i].number) + ')</button>';
+      return h + '</div>';
+    }
+    if (s.step === "vehicle") {
+      var v = '<div class="card"><b>' + esc(s.memberName) + '</b> &ndash; Fahrzeug w&auml;hlen:';
+      for (var k = 0; k < opData.vehicles.length; k++) v += '<button class="choice" data-vid="' + opData.vehicles[k].id + '" data-vn="' + esc(opData.vehicles[k].name) + '">' + esc(opData.vehicles[k].name) + '</button>';
+      v += '<button class="choice" data-vid="" data-vn="">Ohne Fahrzeug</button>';
+      v += '<button class="btn grey block" id="op_cancel">Abbrechen</button></div>';
+      return v;
+    }
+    if (s.step === "functions") {
+      var f = '<div class="card"><b>' + esc(s.memberName) + '</b> &ndash; ' + esc(s.vehicleName || "Ohne Fahrzeug") + '<div style="margin-top:8px">';
+      for (var m = 0; m < opData.functions.length; m++) {
+        f += '<label class="chk"><input type="checkbox" class="op_fn" value="' + opData.functions[m].id + '" />' + esc(opData.functions[m].name) + '</label>';
+      }
+      f += '<label class="chk"><input type="checkbox" id="op_agt" />Unter Atemschutz (AGT)</label>';
+      f += '</div><button class="btn green block" id="op_submit">Eintragen</button>'
+        + '<button class="btn grey block" id="op_cancel">Abbrechen</button></div>';
+      return f;
+    }
+    return "";
+  }
+  function wireOpFlow() {
+    if (!opData.isOpen) return;
+    var s = opState;
+    if (!s) {
+      var input = document.getElementById("op_in");
+      on("op_resolve", "click", function () { opResolve(input.value); });
+      if (input) { input.addEventListener("keyup", function (ev) { if (ev.key === "Enter" || ev.keyCode === 13) opResolve(input.value); }); }
+      wireScanner(function (v) { stopScan(); opResolve(v); });
+      return;
+    }
+    if (s.step === "member") {
+      bindChoices("data-mid", function (btn) { opPickMember(parseInt(btn.getAttribute("data-mid"), 10), btn.getAttribute("data-mn")); });
+    } else if (s.step === "vehicle") {
+      bindChoices("data-vid", function (btn) {
+        var vid = btn.getAttribute("data-vid");
+        opState.vehicleId = vid === "" ? null : parseInt(vid, 10);
+        opState.vehicleName = btn.getAttribute("data-vn");
+        opState.step = "functions"; refreshOpFlow();
+      });
+      on("op_cancel", "click", opCancel);
+    } else if (s.step === "functions") {
+      on("op_submit", "click", opSubmit);
+      on("op_cancel", "click", opCancel);
+    }
+  }
+  function bindChoices(attr, fn) {
+    var btns = document.querySelectorAll("#op_flow .choice");
+    for (var i = 0; i < btns.length; i++) (function (b) { b.addEventListener("click", function () { fn(b); }); })(btns[i]);
+  }
+  function refreshOpFlow() { document.getElementById("op_flow").innerHTML = opFlowHtml(); wireOpFlow(); }
+  function opMsg(cls, text) { var m = document.getElementById("op_msg"); if (m) m.innerHTML = '<div class="msg ' + cls + '">' + esc(text) + '</div>'; }
+  function opCancel() { opState = null; refreshOpFlow(); opMsg("info", ""); }
+
+  async function opResolve(code) {
+    code = (code || "").trim();
+    if (!code) return;
+    opMsg("info", "Bitte warten…");
+    var res = await postJson("/client-api/operation/" + opId + "/resolve", { code: code });
+    if (!res.ok || !res.data) { opMsg("err", "Fehler beim Suchen."); return; }
+    var r = res.data;
+    if (r.status === "found") { opPickMember(r.member.id, r.member.name); opMsg("info", ""); }
+    else if (r.status === "choose-member") { opState = { step: "member", members: r.members }; refreshOpFlow(); opMsg("info", ""); }
+    else opMsg("err", "Mitglied nicht gefunden!");
+  }
+  function opPickMember(id, name) {
+    opState = { step: "vehicle", memberId: id, memberName: name, vehicleId: null, vehicleName: null };
+    refreshOpFlow(); opMsg("info", "");
+  }
+  async function opSubmit() {
+    var s = opState;
+    var fnIds = [];
+    var boxes = document.querySelectorAll(".op_fn");
+    for (var i = 0; i < boxes.length; i++) if (boxes[i].checked) fnIds.push(parseInt(boxes[i].value, 10));
+    var agt = document.getElementById("op_agt");
+    opMsg("info", "Bitte warten…");
+    var res = await postJson("/client-api/operation/" + opId + "/add", {
+      memberId: s.memberId,
+      vehicleId: s.vehicleId,
+      noVehicle: s.vehicleId == null,
+      breathingApparatus: agt ? agt.checked : false,
+      functionIds: fnIds
+    });
+    if (!res.ok || !res.data) { opMsg("err", "Eintragen fehlgeschlagen."); return; }
+    var r = res.data;
+    if (r.status === "added") {
+      beep("success");
+      opState = null;
+      opData = await getJson("/client-api/operation/" + opId);
+      drawOperation();
+      opMsg("ok", (r.name || "") + " eingetragen.");
+    } else if (r.status === "duplicate") {
+      beep("error");
+      opState = null; refreshOpFlow(); opMsg("err", (r.name || "Dieses Mitglied") + " ist bereits eingetragen!");
+    } else {
+      opMsg("err", "Eintragen fehlgeschlagen.");
+    }
+  }
+
+  window.addEventListener("hashchange", route);
+  route();
+})();
+</script>
+</body>
+</html>
