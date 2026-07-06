@@ -1,87 +1,935 @@
 @page "/admin/statistics"
 @layout MainLayout
 @using System.Net.Http.Json
+@using System.Globalization
 @inject HttpClient Http
 @inject IJSRuntime JS
 @inject NavigationManager Nav
+@inject FeuerwehrListen.Client.Services.AppContextService AppCtx
 
 <PageTitle>Statistiken - Admin</PageTitle>
 
 <AuthGuard RequireAdmin="true">
     <div class="container mt-4">
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <h1 class="mb-0">Statistiken</h1>
-            <button class="btn btn-outline-danger" @onclick="ExportPdf"><i class="bi bi-file-earmark-pdf me-1"></i> PDF</button>
+        <div class="row mb-3">
+            <div class="col">
+                <h1>📊 Statistiken & Auswertungen</h1>
+                <p class="text-muted">Übersicht über Teilnahmequoten, Trends und Leistungsindikatoren</p>
+            </div>
+            <div class="col-auto">
+                <button class="btn btn-primary" @onclick="ExportPdf">
+                    <i class="bi bi-file-earmark-pdf"></i> PDF-Export (mit Filter)
+                </button>
+            </div>
         </div>
 
-        @if (_pdfError is not null) { <div class="alert alert-danger">@_pdfError</div> }
-        @if (_d is null) { <p><em>Lade…</em></p> }
+        @if (_pdfError is not null)
+        {
+            <div class="alert alert-danger">@_pdfError</div>
+        }
+
+        @* ---------- Filterleiste ---------- *@
+        <style>
+            .stat-filters .form-select,
+            .stat-filters .form-control,
+            .stat-filters .btn { height: 38px; }
+        </style>
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span class="fw-semibold"><i class="bi bi-funnel me-1"></i>Filter</span>
+                <button class="btn btn-sm btn-outline-secondary" @onclick="ResetFilter">
+                    <i class="bi bi-arrow-counterclockwise me-1"></i>Zurücksetzen
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="row g-3 align-items-end stat-filters">
+                    <div class="col-12 col-md-4">
+                        <label class="form-label mb-1"><i class="bi bi-collection me-1"></i>Listentyp</label>
+                        <select class="form-select" @bind="_listType" @bind:after="ReloadStatistics">
+                            <option value="0">Einsatzlisten</option>
+                            <option value="1">Anwesenheitslisten</option>
+                            <option value="2">Brandsicherheitswachen</option>
+                            <option value="3">Gesamt</option>
+                        </select>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <label class="form-label mb-1"><i class="bi bi-calendar-event me-1"></i>Von</label>
+                        <input type="datetime-local" class="form-control" @bind="_from" @bind:after="ReloadStatistics" />
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <label class="form-label mb-1"><i class="bi bi-calendar-event me-1"></i>Bis</label>
+                        <input type="datetime-local" class="form-control" @bind="_to" @bind:after="ReloadStatistics" />
+                    </div>
+                    <div class="col-12 col-md-2">
+                        <label class="form-label mb-1"><i class="bi bi-diagram-3 me-1"></i>Einheit</label>
+                        <select class="form-select" @bind="_unit" @bind:after="ReloadStatistics">
+                            <option value="0">Alle Einheiten</option>
+                            @foreach (var u in _unitLabels)
+                            {
+                                <option value="@u.Number">@u.Label</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+                @if (!IncludeOperations)
+                {
+                    <div class="alert alert-info py-2 mb-0 mt-3">
+                        <i class="bi bi-info-circle me-1"></i>
+                        Fahrzeug-, Funktions-, Atemschutz-, Stichwort- und Requirements-Auswertungen gelten nur für <strong>Einsatzlisten</strong>
+                        und werden bei diesem Listentyp ausgeblendet.
+                    </div>
+                }
+            </div>
+        </div>
+
+        @if (_loadError)
+        {
+            <div class="alert alert-danger d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-exclamation-triangle me-1"></i> Statistiken konnten nicht geladen werden.</span>
+                <button class="btn btn-sm btn-outline-danger" @onclick="ReloadStatistics">
+                    <i class="bi bi-arrow-clockwise me-1"></i>Erneut versuchen
+                </button>
+            </div>
+        }
+        else if (_loading || _d is null)
+        {
+            <div class="text-center">
+                <div class="spinner-border" role="status">
+                    <span class="visually-hidden">Lädt...</span>
+                </div>
+                <p class="mt-2">Statistiken werden berechnet...</p>
+            </div>
+        }
         else
         {
             <div class="row mb-4">
-                @Stat("Listen gesamt", _d.List.TotalLists)
-                @Stat("Offen", _d.List.OpenLists)
-                @Stat("Abgeschlossen", _d.List.ClosedLists)
-                @Stat("Archiviert", _d.List.ArchivedLists)
-                @Stat("Ø Teilnehmer", Math.Round(_d.List.AverageParticipants, 1))
-                @Stat("Teilnahmen gesamt", _d.List.TotalParticipants)
+                <div class="col-md-3">
+                    <div class="card text-center">
+                        <div class="card-body">
+                            <h5 class="card-title text-primary">@_d.List.TotalLists</h5>
+                            <p class="card-text">Gesamt Listen</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card text-center">
+                        <div class="card-body">
+                            <h5 class="card-title text-success">@_d.List.OpenLists</h5>
+                            <p class="card-text">Offene Listen</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card text-center">
+                        <div class="card-body">
+                            <h5 class="card-title text-info">@_d.List.AverageParticipants.ToString("F1")</h5>
+                            <p class="card-text">Ø Teilnehmer</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card text-center">
+                        <div class="card-body">
+                            <h5 class="card-title text-warning">@_d.List.TotalParticipants</h5>
+                            <p class="card-text">Gesamt Teilnahmen</p>
+                        </div>
+                    </div>
+                </div>
             </div>
 
-            <div class="card mb-4"><div class="card-header"><h5 class="mb-0">Top-Teilnehmer</h5></div><div class="card-body">
-                <div class="table-responsive"><table class="table table-sm table-hover">
-                    <thead><tr><th>#</th><th>Name</th><th>Nummer</th><th>Teilnahmen</th><th>Quote</th></tr></thead>
-                    <tbody>
-                        @{ var i = 1; }
-                        @foreach (var t in _d.Top)
-                        {
-                            <tr><td>@(i++)</td><td>@t.MemberName</td><td>@t.MemberNumber</td><td>@t.ParticipationCount</td><td>@Math.Round(t.Percentage, 1)%</td></tr>
-                        }
-                    </tbody>
-                </table></div>
-            </div></div>
+            @if (IncludeOperations)
+            {
+                <div class="row mb-4">
+                    <div class="col-12">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0">📉 Teilnahme-Trend nach Einsatzart</h5>
+                            </div>
+                            <div class="card-body">
+                                <p class="text-muted small mb-3">
+                                    Teilnehmerzahl je Einsatz im gew&auml;hlten Zeitraum (chronologisch).
+                                    <span class="text-danger fw-semibold">Rot/fallend</span> bedeutet: zu dieser Einsatzart kommen zunehmend <strong>weniger</strong> Kr&auml;fte.
+                                </p>
+                                @if (_d.TypeTrends.Count == 0)
+                                {
+                                    <p class="text-muted mb-0">Keine Eins&auml;tze im Zeitraum.</p>
+                                }
+                                else
+                                {
+                                    <div class="table-responsive">
+                                        <table class="table table-sm align-middle mb-0">
+                                            <thead>
+                                                <tr>
+                                                    <th>Einsatzart</th>
+                                                    <th class="text-center">Eins&auml;tze</th>
+                                                    <th class="text-center">&Oslash; Teiln.</th>
+                                                    <th>Verlauf</th>
+                                                    <th class="text-center">Trend</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @foreach (var tr in _d.TypeTrends)
+                                                {
+                                                    <tr>
+                                                        <td><strong>@tr.Einsatzart</strong></td>
+                                                        <td class="text-center">@tr.OperationCount</td>
+                                                        <td class="text-center">@tr.AverageParticipants.ToString("F1")</td>
+                                                        <td>@((MarkupString)Sparkline(tr))</td>
+                                                        <td class="text-center">@((MarkupString)TrendBadge(tr.TrendPercent, tr.OperationCount))</td>
+                                                    </tr>
+                                                }
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
 
-            <div class="card"><div class="card-header"><h5 class="mb-0">Mitglieder-Statistik</h5></div><div class="card-body">
-                <div class="table-responsive"><table class="table table-sm table-hover">
-                    <thead><tr><th>Name</th><th>Nummer</th><th>Anwesenheit</th><th>Einsätze</th><th>Quote</th></tr></thead>
-                    <tbody>
-                        @foreach (var m in _d.Members)
-                        {
-                            <tr><td>@m.MemberName</td><td>@m.MemberNumber</td><td>@m.TotalAttendance</td><td>@m.TotalOperations</td><td>@Math.Round(m.AttendancePercentage, 1)%</td></tr>
-                        }
-                    </tbody>
-                </table></div>
-            </div></div>
+            <div class="row">
+                <div class="col-md-6 mb-4">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">🏆 Top Teilnehmer</h5>
+                        </div>
+                        <div class="card-body">
+                            @if (_d.Top.Count == 0)
+                            {
+                                <p class="text-muted">Keine Daten verfügbar</p>
+                            }
+                            else
+                            {
+                                <div class="table-responsive">
+                                    <table class="table table-sm">
+                                        <thead>
+                                            <tr>
+                                                <th>#</th>
+                                                <th>Name</th>
+                                                <th>Teilnahmen</th>
+                                                <th>Anteil</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @{ var idx = 0; }
+                                            @foreach (var participant in _d.Top)
+                                            {
+                                                <tr>
+                                                    <td>@(++idx)</td>
+                                                    <td>
+                                                        <strong>@participant.MemberName</strong>
+                                                        <br><small class="text-muted">@participant.MemberNumber</small>
+                                                    </td>
+                                                    <td>@participant.ParticipationCount</td>
+                                                    <td>
+                                                        <ProgressBar Value="@participant.Percentage" Color="@GetProgressBarColor(participant.Percentage)" />
+                                                    </td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                @if (IncludeOperations)
+                {
+                    <div class="col-md-6 mb-4">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0">🚒 Fahrzeug-Nutzung</h5>
+                            </div>
+                            <div class="card-body">
+                                @if (_d.Vehicles.Count == 0)
+                                {
+                                    <p class="text-muted">Keine Daten verfügbar</p>
+                                }
+                                else
+                                {
+                                    <div class="table-responsive">
+                                        <table class="table table-sm">
+                                            <thead>
+                                                <tr>
+                                                    <th>Fahrzeug</th>
+                                                    <th>Einsätze</th>
+                                                    <th>Ø Besatzung</th>
+                                                    <th>Anteil</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @foreach (var vehicle in _d.Vehicles.Take(5))
+                                                {
+                                                    <tr>
+                                                        <td><strong>@vehicle.VehicleName</strong></td>
+                                                        <td>@vehicle.UsageCount</td>
+                                                        <td>@vehicle.AverageCrew.ToString("F1")</td>
+                                                        <td>
+                                                            <ProgressBar Value="@vehicle.UsagePercentage" Color="#dc3545" />
+                                                        </td>
+                                                    </tr>
+                                                }
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-md-6 mb-4">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0">👥 Funktionen-Verteilung</h5>
+                            </div>
+                            <div class="card-body">
+                                @if (_d.Functions.Count == 0)
+                                {
+                                    <p class="text-muted">Keine Daten verfügbar</p>
+                                }
+                                else
+                                {
+                                    <div class="table-responsive">
+                                        <table class="table table-sm">
+                                            <thead>
+                                                <tr>
+                                                    <th>Funktion</th>
+                                                    <th>Anzahl</th>
+                                                    <th>Anteil</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @foreach (var func in _d.Functions)
+                                                {
+                                                    <tr>
+                                                        <td><strong>@func.FunctionName</strong></td>
+                                                        <td>@func.Count</td>
+                                                        <td>
+                                                            <ProgressBar Value="@func.Percentage" Color="#0dcaf0" />
+                                                        </td>
+                                                    </tr>
+                                                }
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-md-6 mb-4">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0">🫁 Unter Atemschutz</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="row text-center">
+                                    <div class="col-6">
+                                        <h3 class="text-warning">@_d.Breathing.WithApparatus</h3>
+                                        <p class="mb-0">Unter Atemschutz</p>
+                                    </div>
+                                    <div class="col-6">
+                                        <h3 class="text-secondary">@_d.Breathing.WithoutApparatus</h3>
+                                        <p class="mb-0">Ohne Atemschutz</p>
+                                    </div>
+                                </div>
+                                <hr>
+                                <ProgressBar Value="@_d.Breathing.WithApparatusPercentage"
+                                             Color="#ffc107"
+                                             Height="30px"
+                                             FontSize="14px"
+                                             CustomLabel="@($"{_d.Breathing.WithApparatusPercentage.ToString("F1")}% unter Atemschutz")" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-md-6 mb-4">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0">🏷️ Stichwort-Verwendung</h5>
+                            </div>
+                            <div class="card-body">
+                                @if (_d.Keywords.Count == 0)
+                                {
+                                    <p class="text-muted">Keine Stichwort-Daten verfügbar</p>
+                                }
+                                else
+                                {
+                                    <div class="table-responsive">
+                                        <table class="table table-sm">
+                                            <thead>
+                                                <tr>
+                                                    <th>Stichwort</th>
+                                                    <th>Einsätze</th>
+                                                    <th>Erfüllung</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @foreach (var keyword in _d.Keywords.Take(5))
+                                                {
+                                                    <tr>
+                                                        <td><strong>@keyword.KeywordName</strong></td>
+                                                        <td>@keyword.UsageCount</td>
+                                                        <td>
+                                                            @if (keyword.OperationsWithRequirements > 0)
+                                                            {
+                                                                <ProgressBar Value="@keyword.RequirementsFulfillmentRate"
+                                                                             Color="@GetRequirementsColor(keyword.RequirementsFulfillmentRate)" />
+                                                                <small class="text-muted">@keyword.RequirementsFulfillmentRate.ToString("F1")%</small>
+                                                            }
+                                                            else
+                                                            {
+                                                                <span class="text-muted">Keine Requirements</span>
+                                                            }
+                                                        </td>
+                                                    </tr>
+                                                }
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-md-6 mb-4">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0">✅ Personal Requirements Status</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="row text-center mb-3">
+                                    <div class="col-4">
+                                        <h4 class="text-primary">@_d.Requirements.TotalOperations</h4>
+                                        <small class="text-muted">Einsätze mit Requirements</small>
+                                    </div>
+                                    <div class="col-4">
+                                        <h4 class="text-info">@_d.Requirements.OperationsFulfillingRequirements</h4>
+                                        <small class="text-muted">Erfüllt</small>
+                                    </div>
+                                    <div class="col-4">
+                                        <h4 class="@GetRequirementsStatusColor(_d.Requirements.RequirementsFulfillmentRate)">@_d.Requirements.RequirementsFulfillmentRate.ToString("F1")%</h4>
+                                        <small class="text-muted">Erfüllungsrate</small>
+                                    </div>
+                                </div>
+                                <hr>
+                                <div class="mb-3">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <span><strong>Gesamt-Erfüllungsrate</strong></span>
+                                        <span class="badge @GetRequirementsBadgeClass(_d.Requirements.RequirementsFulfillmentRate)">
+                                            @_d.Requirements.RequirementsFulfillmentRate.ToString("F1")%
+                                        </span>
+                                    </div>
+                                    <ProgressBar Value="@_d.Requirements.RequirementsFulfillmentRate"
+                                                 Color="@GetRequirementsColor(_d.Requirements.RequirementsFulfillmentRate)"
+                                                 Height="25px" />
+                                </div>
+                                @if (_d.Requirements.KeywordSummaries.Count > 0)
+                                {
+                                    <h6 class="mb-2">Top Stichwörter:</h6>
+                                    <div class="row">
+                                        @foreach (var keyword in _d.Requirements.KeywordSummaries.Take(3))
+                                        {
+                                            <div class="col-12 mb-2">
+                                                <div class="d-flex justify-content-between align-items-center">
+                                                    <span>@keyword.KeywordName</span>
+                                                    <div class="d-flex align-items-center">
+                                                        <span class="me-2">@keyword.FulfillmentRate.ToString("F0")%</span>
+                                                        <ProgressBar Value="@keyword.FulfillmentRate"
+                                                                     Color="@GetRequirementsColor(keyword.FulfillmentRate)"
+                                                                     Height="15px" />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                                else
+                                {
+                                    <p class="text-muted mb-0">Keine Einsätze mit gesetzten Requirements im Filterzeitraum.</p>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+
+            @if (IncludeOperations)
+            {
+                <div class="row mb-4">
+                    <div class="col-12">
+                        <div class="card">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h5 class="mb-0">📋 Einsatz-Übersicht</h5>
+                                <div>
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="PreviousPage" disabled="@(_currentPage == 0)">
+                                        <i class="bi bi-chevron-left"></i> Zurück
+                                    </button>
+                                    <span class="mx-2">Seite @(_currentPage + 1) / @TotalPages</span>
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="NextPage" disabled="@(_currentPage >= TotalPages - 1)">
+                                        Weiter <i class="bi bi-chevron-right"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                @if (_d.OperationComposition.Count > 0)
+                                {
+                                    var pagedOperations = _d.OperationComposition
+                                        .OrderByDescending(o => o.OperationNumber)
+                                        .Skip(_currentPage * _pageSize)
+                                        .Take(_pageSize)
+                                        .ToList();
+
+                                    @foreach (var op in pagedOperations)
+                                    {
+                                        var isExpanded = _expandedOperations.Contains(op.OperationNumber);
+                                        <div class="card mb-3">
+                                            <div class="card-header" style="cursor: pointer;" @onclick="() => ToggleOperation(op.OperationNumber)">
+                                                <div class="d-flex justify-content-between align-items-center">
+                                                    <div>
+                                                        <strong>@op.OperationNumber</strong>
+                                                        @if (!string.IsNullOrEmpty(op.Keyword))
+                                                        {
+                                                            <span class="ms-2 text-muted">| @op.Keyword</span>
+                                                        }
+                                                        @if (!string.IsNullOrEmpty(op.Address))
+                                                        {
+                                                            <span class="ms-2 text-muted">| @op.Address</span>
+                                                        }
+                                                    </div>
+                                                    <div class="d-flex align-items-center">
+                                                        <span class="badge bg-primary me-2">@op.TotalParticipants Teilnehmer</span>
+                                                        @if (op.HasPersonalRequirements)
+                                                        {
+                                                            <span class="badge @(op.RequirementsFulfilled ? "bg-success" : "bg-warning") me-2">
+                                                                @if (op.RequirementsFulfilled)
+                                                                {
+                                                                    <i class="bi bi-check-circle"></i> @($"{op.RequirementsFulfillmentRate.ToString("F0")}%")
+                                                                }
+                                                                else
+                                                                {
+                                                                    <i class="bi bi-exclamation-triangle"></i> @($"{op.RequirementsFulfillmentRate.ToString("F0")}%")
+                                                                }
+                                                            </span>
+                                                        }
+                                                        else
+                                                        {
+                                                            <span class="badge bg-secondary me-2">
+                                                                <i class="bi bi-info-circle"></i> Keine Requirements
+                                                            </span>
+                                                        }
+                                                        <i class="bi @(isExpanded ? "bi-chevron-up" : "bi-chevron-down")"></i>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            @if (isExpanded)
+                                            {
+                                                <div class="card-body">
+                                                    @if (op.HasPersonalRequirements)
+                                                    {
+                                                        <div class="alert @(op.RequirementsFulfilled ? "alert-success" : "alert-warning") mb-3">
+                                                            <div class="d-flex align-items-center">
+                                                                <i class="bi @(op.RequirementsFulfilled ? "bi-check-circle" : "bi-exclamation-triangle") me-2"></i>
+                                                                <div>
+                                                                    <strong>Personal Requirements Status:</strong>
+                                                                    @if (op.RequirementsFulfilled)
+                                                                    {
+                                                                        <span class="text-success">Alle Requirements erfüllt (@op.RequirementsFulfillmentRate.ToString("F0")%)</span>
+                                                                    }
+                                                                    else
+                                                                    {
+                                                                        <span class="text-warning">Requirements teilweise erfüllt (@op.RequirementsFulfillmentRate.ToString("F0")%)</span>
+                                                                    }
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    }
+                                                    else
+                                                    {
+                                                        <div class="alert alert-info mb-3">
+                                                            <i class="bi bi-info-circle me-2"></i>
+                                                            <strong>Keine Personal Requirements definiert</strong> - Stichwort ohne Requirements-Konfiguration
+                                                        </div>
+                                                    }
+
+                                                    @if (op.FunctionCounts.Any(f => f.Value > 0) || op.WithVehicleTruppCount > 0)
+                                                    {
+                                                        <h6 class="mb-3">Funktionen (mit Fahrzeug):</h6>
+                                                        <div class="row">
+                                                            @foreach (var func in op.FunctionCounts.Where(f => f.Value > 0).OrderByDescending(f => f.Value))
+                                                            {
+                                                                <div class="col-md-6 mb-2">
+                                                                    <div class="d-flex justify-content-between align-items-center">
+                                                                        <span>@func.Key</span>
+                                                                        <span class="badge bg-primary">@func.Value</span>
+                                                                    </div>
+                                                                </div>
+                                                            }
+                                                            @if (op.WithVehicleTruppCount > 0)
+                                                            {
+                                                                <div class="col-md-6 mb-2">
+                                                                    <div class="d-flex justify-content-between align-items-center">
+                                                                        <span>Trupp</span>
+                                                                        <span class="badge bg-secondary">@op.WithVehicleTruppCount</span>
+                                                                    </div>
+                                                                </div>
+                                                            }
+                                                        </div>
+                                                    }
+
+                                                    @if (op.NoVehicleFunctionCounts.Any(f => f.Value > 0) || op.WithoutVehicleTruppCount > 0)
+                                                    {
+                                                        <hr class="my-3" />
+                                                        <h6 class="mb-3">Funktionen (ohne Fahrzeug):</h6>
+                                                        <div class="row">
+                                                            @foreach (var func in op.NoVehicleFunctionCounts.Where(f => f.Value > 0).OrderByDescending(f => f.Value))
+                                                            {
+                                                                <div class="col-md-6 mb-2">
+                                                                    <div class="d-flex justify-content-between align-items-center">
+                                                                        <span>@func.Key</span>
+                                                                        <span class="badge bg-warning text-dark">@func.Value</span>
+                                                                    </div>
+                                                                </div>
+                                                            }
+                                                            @if (op.WithoutVehicleTruppCount > 0)
+                                                            {
+                                                                <div class="col-md-6 mb-2">
+                                                                    <div class="d-flex justify-content-between align-items-center">
+                                                                        <span>Trupp</span>
+                                                                        <span class="badge bg-secondary">@op.WithoutVehicleTruppCount</span>
+                                                                    </div>
+                                                                </div>
+                                                            }
+                                                        </div>
+                                                    }
+
+                                                    @if (!op.FunctionCounts.Any(f => f.Value > 0) && !op.NoVehicleFunctionCounts.Any(f => f.Value > 0) && op.WithVehicleTruppCount == 0 && op.WithoutVehicleTruppCount == 0)
+                                                    {
+                                                        <p class="text-muted mb-0">Keine Funktionen zugewiesen</p>
+                                                    }
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                }
+                                else
+                                {
+                                    <p class="text-muted">Keine Einsätze verfügbar.</p>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+
+            <div class="row">
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">👤 Mitglieder-Statistiken</h5>
+                        </div>
+                        <div class="card-body">
+                            @if (_d.Members.Count == 0)
+                            {
+                                <p class="text-muted">Keine Daten verfügbar</p>
+                            }
+                            else
+                            {
+                                <div class="table-responsive">
+                                    <table class="table table-hover">
+                                        <thead>
+                                            <tr>
+                                                <th>Name</th>
+                                                <th>Mitgliedsnummer</th>
+                                                <th>Anwesenheit</th>
+                                                <th>Einsätze</th>
+                                                <th>Gesamt</th>
+                                                <th>Letzte Teilnahme</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var member in _d.Members.Take(20))
+                                            {
+                                                <tr>
+                                                    <td><strong>@member.MemberName</strong></td>
+                                                    <td>@member.MemberNumber</td>
+                                                    <td>@member.TotalAttendance</td>
+                                                    <td>@member.TotalOperations</td>
+                                                    <td>@(member.TotalAttendance + member.TotalOperations)</td>
+                                                    <td>
+                                                        @if (member.LastParticipation.HasValue && member.LastParticipation.Value != DateTime.MinValue)
+                                                        {
+                                                            @member.LastParticipation.Value.ToString("dd.MM.yyyy")
+                                                        }
+                                                        else
+                                                        {
+                                                            <span class="text-muted">Nie</span>
+                                                        }
+                                                    </td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
         }
     </div>
 </AuthGuard>
 
 @code {
+    // Filter-State (int fuer den Listentyp, damit Enum-Serialisierung robust bleibt).
+    private int _listType = 0;                 // 0 = Einsatzlisten (Default wie Original)
+    private DateTime? _from = new DateTime(DateTime.Now.Year, 1, 1, 0, 1, 0); // Jahresanfang
+    private DateTime? _to;
+    private int _unit = 0;                      // 0 = alle Einheiten
+
+    private bool IncludeOperations => _listType == 0 || _listType == 3;
+
+    private bool _loading = true;
+    private bool _loadError;
     private StatsDto? _d;
+    private string? _pdfError;
+    private double _trendMax = 1;
+
+    // Einsatz-Uebersicht: Expand-State pro Einsatz + Paging.
+    private HashSet<string> _expandedOperations = new();
+    private int _currentPage = 0;
+    private const int _pageSize = 10;
+    private int TotalPages => (_d?.OperationComposition.Count ?? 0) > 0
+        ? (int)Math.Ceiling(_d!.OperationComposition.Count / (double)_pageSize)
+        : 1;
+
+    private List<UnitLabelDto> _unitLabels = new();
 
     protected override async Task OnInitializedAsync()
     {
-        try { _d = await Http.GetFromJsonAsync<StatsDto>("client-api/admin/statistics"); } catch { }
+        var ctx = await AppCtx.GetAsync();
+        if (ctx?.UnitLabels is { } labels)
+            _unitLabels = labels.Select(l => new UnitLabelDto(l.Number, l.Label)).ToList();
+
+        await LoadStatistics();
     }
 
-    private string? _pdfError;
+    private async Task ReloadStatistics() => await LoadStatistics();
+
+    private async Task ResetFilter()
+    {
+        _listType = 0;
+        _from = new DateTime(DateTime.Now.Year, 1, 1, 0, 1, 0);
+        _to = null;
+        _unit = 0;
+        await LoadStatistics();
+    }
+
+    private async Task LoadStatistics()
+    {
+        _loading = true;
+        _loadError = false;
+        StateHasChanged();
+
+        try
+        {
+            var url = $"client-api/admin/statistics?listType={_listType}&unit={_unit}";
+            if (_from.HasValue)
+                url += $"&from={Uri.EscapeDataString(_from.Value.ToString("s"))}";
+            if (_to.HasValue)
+                url += $"&to={Uri.EscapeDataString(_to.Value.ToString("s"))}";
+
+            _d = await Http.GetFromJsonAsync<StatsDto>(url);
+            if (_d is null)
+            {
+                _loadError = true;
+            }
+            else
+            {
+                _trendMax = _d.TypeTrends.SelectMany(t => t.Series).DefaultIfEmpty(0).Max();
+                if (_trendMax <= 0) _trendMax = 1;
+                _currentPage = 0;
+            }
+        }
+        catch
+        {
+            _loadError = true;
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
 
     private async Task ExportPdf()
     {
         _pdfError = null;
         try
         {
-            // Neuer cookie-authentifizierter Inline-Endpoint: kein Token-Umweg mehr,
-            // Aufruf direkt in der Klick-Geste (behebt iOS-Download-Bug). Parameter optional
-            // (listType default 3, unit default 0) – diese Seite hat keine Filter-UI.
-            await JS.InvokeVoidAsync("openPdf", $"{Nav.BaseUri}client-api/export/statistics/pdf");
+            var url = $"{Nav.BaseUri}client-api/export/statistics/pdf?listType={_listType}&unit={_unit}";
+            if (_from.HasValue)
+                url += $"&from={Uri.EscapeDataString(_from.Value.ToString("s"))}";
+            if (_to.HasValue)
+                url += $"&to={Uri.EscapeDataString(_to.Value.ToString("s"))}";
+            await JS.InvokeVoidAsync("openPdf", url);
         }
-        catch { _pdfError = "PDF konnte nicht geöffnet werden."; }
+        catch
+        {
+            _pdfError = "PDF konnte nicht geöffnet werden.";
+        }
     }
 
-    private RenderFragment Stat(string label, object value) =>@<div class="col-6 col-md-2 mb-3"><div class="card text-center"><div class="card-body py-3"><div class="fs-4 fw-bold">@value</div><div class="small text-muted">@label</div></div></div></div>;
+    // ---------- Einsatz-Uebersicht: Expand/Collapse + Paging ----------
 
-    private record ListStat(int TotalLists, int OpenLists, int ClosedLists, int ArchivedLists, double AverageParticipants, int TotalParticipants);
+    private void ToggleOperation(string operationNumber)
+    {
+        if (!_expandedOperations.Add(operationNumber))
+            _expandedOperations.Remove(operationNumber);
+    }
+
+    private void NextPage()
+    {
+        if (_currentPage < TotalPages - 1)
+            _currentPage++;
+    }
+
+    private void PreviousPage()
+    {
+        if (_currentPage > 0)
+            _currentPage--;
+    }
+
+    // ---------- Darstellungs-Helfer (aus dem Original uebernommen) ----------
+
+    private static string N(double d) => d.ToString("0.#", CultureInfo.InvariantCulture);
+
+    private string Sparkline(TypeTrendDto tr)
+    {
+        var s = tr.Series;
+        if (s.Count == 0) return string.Empty;
+        double w = 150, h = 32, pad = 4;
+        var max = _trendMax <= 0 ? 1 : _trendMax;
+        var color = tr.TrendPercent < -5 ? "#dc3545" : tr.TrendPercent > 5 ? "#198754" : "#6c757d";
+
+        if (s.Count == 1)
+        {
+            double cy1 = h - pad - ((double)s[0] / max) * (h - 2 * pad);
+            return $"<svg width=\"{N(w)}\" height=\"{N(h)}\"><circle cx=\"{N(w / 2)}\" cy=\"{N(cy1)}\" r=\"3\" fill=\"{color}\"/></svg>";
+        }
+
+        var pts = new List<string>();
+        for (int i = 0; i < s.Count; i++)
+        {
+            double x = pad + (double)i / (s.Count - 1) * (w - 2 * pad);
+            double y = h - pad - ((double)s[i] / max) * (h - 2 * pad);
+            pts.Add($"{N(x)},{N(y)}");
+        }
+        var poly = string.Join(" ", pts);
+        var last = pts[^1].Split(',');
+        return $"<svg width=\"{N(w)}\" height=\"{N(h)}\"><polyline points=\"{poly}\" fill=\"none\" stroke=\"{color}\" stroke-width=\"2\"/><circle cx=\"{last[0]}\" cy=\"{last[1]}\" r=\"2.5\" fill=\"{color}\"/></svg>";
+    }
+
+    private string TrendBadge(double pct, int opCount)
+    {
+        if (opCount < 2)
+            return "<span class=\"badge bg-light text-muted\">&ndash;</span>";
+        if (pct < -5)
+            return $"<span class=\"badge bg-danger\"><i class=\"bi bi-arrow-down-right\"></i> {N(pct)}%</span>";
+        if (pct > 5)
+            return $"<span class=\"badge bg-success\"><i class=\"bi bi-arrow-up-right\"></i> +{N(pct)}%</span>";
+        return "<span class=\"badge bg-secondary\"><i class=\"bi bi-arrow-right\"></i> stabil</span>";
+    }
+
+    private string GetProgressBarColor(double rate) => rate switch
+    {
+        >= 80 => "#198754",
+        >= 60 => "#0dcaf0",
+        >= 40 => "#ffc107",
+        _ => "#dc3545"
+    };
+
+    private string GetRequirementsColor(double rate) => rate switch
+    {
+        >= 90 => "#198754",
+        >= 70 => "#20c997",
+        >= 50 => "#ffc107",
+        >= 30 => "#fd7e14",
+        _ => "#dc3545"
+    };
+
+    private string GetRequirementsStatusColor(double rate) => rate switch
+    {
+        >= 90 => "text-success",
+        >= 70 => "text-info",
+        >= 50 => "text-warning",
+        >= 30 => "text-warning",
+        _ => "text-danger"
+    };
+
+    private string GetRequirementsBadgeClass(double rate) => rate switch
+    {
+        >= 90 => "bg-success",
+        >= 70 => "bg-info",
+        >= 50 => "bg-warning",
+        >= 30 => "bg-warning",
+        _ => "bg-danger"
+    };
+
+    // ---------- DTOs (matchen die JSON-Felder des Endpoints case-insensitiv) ----------
+
+    private record UnitLabelDto(int Number, string Label);
+
+    private record ListStat(int TotalLists, int OpenLists, int ClosedLists, int ArchivedLists,
+        double AverageParticipants, int TotalParticipants);
+
     private record TopP(string MemberName, string MemberNumber, int ParticipationCount, double Percentage);
-    private record MemberStat(string MemberName, string MemberNumber, int TotalAttendance, int TotalOperations, double AttendancePercentage);
-    private record StatsDto(ListStat List, List<TopP> Top, List<MemberStat> Members);
+
+    private record MemberStat(string MemberName, string MemberNumber, int TotalAttendance,
+        int TotalOperations, double AttendancePercentage, DateTime? LastParticipation);
+
+    private record VehicleStat(string VehicleName, int UsageCount, double UsagePercentage, double AverageCrew);
+
+    private record FunctionStat(string FunctionName, int Count, double Percentage);
+
+    private record BreathingStat(int WithApparatus, int WithoutApparatus, double WithApparatusPercentage);
+
+    private record KeywordStat(string KeywordName, int UsageCount, double UsagePercentage,
+        int TotalOperations, int OperationsWithRequirements, int OperationsFulfillingRequirements,
+        double RequirementsFulfillmentRate);
+
+    private record KeywordSummaryDto(string KeywordName, int OperationsCount, int RequirementsDefined,
+        int RequirementsFulfilled, double FulfillmentRate);
+
+    // Hinweis: Alle Sektionen werden vom Endpoint immer als (ggf. leere) Arrays/Objekte
+    // geliefert, System.Text.Json setzt daher nie null fuer diese Felder.
+    private record RequirementsStat(int TotalOperations, int OperationsWithKeywords,
+        int OperationsWithRequirements, int OperationsFulfillingRequirements,
+        double RequirementsFulfillmentRate, List<KeywordSummaryDto> KeywordSummaries);
+
+    private record TypeTrendDto(string Einsatzart, int OperationCount, double AverageParticipants,
+        List<int> Series, double TrendPercent);
+
+    // Einsatz-Uebersicht: die verschachtelten Funktions-Zaehler kommen als JSON-Objekt
+    // (string->int) und werden in Dictionary<string,int> deserialisiert.
+    private record OpCompositionDto(string OperationNumber, string Keyword, int? KeywordId,
+        string Address, int TotalParticipants,
+        Dictionary<string, int> FunctionCounts, Dictionary<string, int> NoVehicleFunctionCounts,
+        int WithVehicleTruppCount, int WithoutVehicleTruppCount,
+        bool HasPersonalRequirements, double RequirementsFulfillmentRate, bool RequirementsFulfilled);
+
+    private record StatsDto(
+        bool IncludeOperations,
+        ListStat List,
+        List<TopP> Top,
+        List<MemberStat> Members,
+        List<VehicleStat> Vehicles,
+        List<FunctionStat> Functions,
+        BreathingStat Breathing,
+        List<KeywordStat> Keywords,
+        RequirementsStat Requirements,
+        List<TypeTrendDto> TypeTrends,
+        List<OpCompositionDto> OperationComposition);
 }

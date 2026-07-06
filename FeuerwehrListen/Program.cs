@@ -721,16 +721,80 @@ admin.MapPut("/users/{id:int}", async (int id, UserRepository repo, UserReq r) =
 admin.MapDelete("/users/{id:int}", async (int id, UserRepository repo) => { await repo.DeleteAsync(id); return Results.Ok(); });
 
 // --- Statistik ---
-admin.MapGet("/statistics", async (StatisticsService stats) =>
+// Vollstaendige Auswertung MIT Filter (Listentyp/Zeitraum/Einheit). Die Fahrzeug-,
+// Funktions-, Atemschutz-, Stichwort-, Requirements- und Trend-Sektionen gelten nur fuer
+// Einsatzlisten (filter.IncludeOperations); bei anderem ListType liefern die Service-
+// Methoden leere Listen/Nullwerte - die UI blendet sie dann aus.
+admin.MapGet("/statistics", async (StatisticsService stats, int? listType, DateTime? from, DateTime? to, int? unit) =>
 {
-    var list = await stats.GetListStatisticsAsync();
-    var top = await stats.GetTopParticipantsAsync(null, 10);
-    var members = await stats.GetMemberStatisticsAsync();
+    var lt = listType ?? 0;
+    var filter = new StatsFilter
+    {
+        ListType = Enum.IsDefined(typeof(StatListType), lt) ? (StatListType)lt : StatListType.Operation,
+        From = from,
+        To = to,
+        Unit = unit ?? 0
+    };
+
+    var list = await stats.GetListStatisticsAsync(filter);
+    var top = await stats.GetTopParticipantsAsync(filter, 10);
+    var members = await stats.GetMemberStatisticsAsync(filter);
+    var vehicles = await stats.GetVehicleStatisticsAsync(filter);
+    var functions = await stats.GetFunctionStatisticsAsync(filter);
+    var breathing = await stats.GetBreathingApparatusStatisticsAsync(filter);
+    var keywords = await stats.GetKeywordStatisticsAsync(filter);
+    var requirements = await stats.GetPersonalRequirementsStatisticsAsync(filter);
+    var typeTrends = await stats.GetParticipationTrendByTypeAsync(filter);
+    var opComposition = await stats.GetOperationCompositionAsync(filter, 100);
+
     return Results.Json(new
     {
-        list = new { list.TotalLists, list.OpenLists, list.ClosedLists, list.ArchivedLists, list.AverageParticipants, list.TotalParticipants },
+        includeOperations = filter.IncludeOperations,
+        list = new
+        {
+            list.TotalLists, list.OpenLists, list.ClosedLists, list.ArchivedLists,
+            list.AverageParticipants, list.TotalParticipants
+        },
         top = top.Select(t => new { t.MemberName, t.MemberNumber, t.ParticipationCount, t.Percentage }),
-        members = members.Select(m => new { m.MemberName, m.MemberNumber, m.TotalAttendance, m.TotalOperations, m.AttendancePercentage })
+        members = members.Select(m => new
+        {
+            m.MemberName, m.MemberNumber, m.TotalAttendance, m.TotalOperations,
+            m.AttendancePercentage, m.LastParticipation
+        }),
+        vehicles = vehicles.Select(v => new { v.VehicleName, v.UsageCount, v.UsagePercentage, v.AverageCrew }),
+        functions = functions.Select(f => new { f.FunctionName, f.Count, f.Percentage }),
+        breathing = new { breathing.WithApparatus, breathing.WithoutApparatus, breathing.WithApparatusPercentage },
+        keywords = keywords.Select(k => new
+        {
+            k.KeywordName, k.UsageCount, k.UsagePercentage, k.TotalOperations,
+            k.OperationsWithRequirements, k.OperationsFulfillingRequirements, k.RequirementsFulfillmentRate
+        }),
+        requirements = new
+        {
+            requirements.TotalOperations,
+            requirements.OperationsWithKeywords,
+            requirements.OperationsWithRequirements,
+            requirements.OperationsFulfillingRequirements,
+            requirements.RequirementsFulfillmentRate,
+            keywordSummaries = requirements.KeywordSummaries.Select(s => new
+            {
+                s.KeywordName, s.OperationsCount, s.RequirementsDefined,
+                s.RequirementsFulfilled, s.FulfillmentRate
+            })
+        },
+        typeTrends = typeTrends.Select(t => new
+        {
+            t.Einsatzart, t.OperationCount, t.AverageParticipants, t.Series, t.TrendPercent
+        }),
+        // Einsatz-Uebersicht: verschachtelte Dictionaries (Funktion->Anzahl) werden von
+        // System.Text.Json direkt als JSON-Objekte (string->int) serialisiert.
+        operationComposition = opComposition.Select(o => new
+        {
+            o.OperationNumber, o.Keyword, o.KeywordId, o.Address, o.TotalParticipants,
+            o.FunctionCounts, o.NoVehicleFunctionCounts,
+            o.WithVehicleTruppCount, o.WithoutVehicleTruppCount,
+            o.HasPersonalRequirements, o.RequirementsFulfillmentRate, o.RequirementsFulfilled
+        })
     });
 });
 
