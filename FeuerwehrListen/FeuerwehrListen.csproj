@@ -28,9 +28,4 @@
         <ProjectReference Include="..\FeuerwehrListen.Client\FeuerwehrListen.Client.csproj" />
     </ItemGroup>
 
-    <!-- SCAD-Vorlagen fuer die Tag-Erzeugung (OpenSCAD) mit ins Output/Publish kopieren -->
-    <ItemGroup>
-        <None Include="Scad\**\*.scad" CopyToOutputDirectory="PreserveNewest" />
-    </ItemGroup>
-
 </Project>

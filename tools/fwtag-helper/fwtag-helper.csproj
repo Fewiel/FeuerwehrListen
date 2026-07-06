@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+    <PropertyGroup>
+        <TargetFramework>net8.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <AssemblyName>fwtag-helper</AssemblyName>
+        <RootNamespace>FwTagHelper</RootNamespace>
+        <InvariantGlobalization>true</InvariantGlobalization>
+    </PropertyGroup>
+
+    <!-- SCAD-Vorlagen neben die exe ins Output/Publish kopieren -->
+    <ItemGroup>
+        <None Include="scad\**\*.scad" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+
+</Project>

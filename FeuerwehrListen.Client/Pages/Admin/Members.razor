@@ -16,6 +16,13 @@
     .tagm-preview { display: inline-block; background: #f6f7f9; border: 1px solid var(--tw-line, #e3e6ea); border-radius: 12px; padding: 10px; }
     .tagm-preview svg { width: 190px; height: auto; display: block; }
     .tagm-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--tw-line, #e3e6ea); }
+    .tagm-status { display: flex; align-items: center; font-size: 13px; padding: 8px 10px; border-radius: 9px; text-align: left; }
+    .tagm-ok { background: #e6f4ea; color: #1e7b34; }
+    .tagm-warn { background: #fbeeda; color: #a8690b; }
+    .tagm-down { background: #fdecee; color: #c02a3b; }
+    .tagm-check { background: #eef1f4; color: #55606c; }
+    .tagm-settings { text-align: left; background: #f6f7f9; border: 1px solid var(--tw-line, #e3e6ea); border-radius: 10px; padding: 12px; margin-top: 8px; }
+    .tagm-settings input { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
 </style>
 
 <AuthGuard>
@@ -105,12 +112,39 @@
                     @if (_tagPreview is null && _tagError is null) { <p class="text-muted my-4">Vorschau lädt…</p> }
                     else if (_tagPreview is not null) { @((MarkupString)_tagPreview) }
                 </div>
-                <p class="text-muted small mt-2 mb-0">Draufsicht – <span style="color:#1657b0;font-weight:600">Body blau</span>, <span style="color:#e4002b;font-weight:600">Inlay rot</span>. Das ZIP enthält <strong>body.stl</strong> + <strong>inlay.stl</strong> für den Zweifarbdruck.</p>
-                @if (_tagError is not null) { <div class="alert alert-danger py-2 mt-2 mb-0">@_tagError</div> }
+                <p class="text-muted small mt-2 mb-2">Draufsicht – <span style="color:#1657b0;font-weight:600">Body blau</span>, <span style="color:#e4002b;font-weight:600">Inlay rot</span>. Das ZIP enthält <strong>body.stl</strong> + <strong>inlay.stl</strong> für den Zweifarbdruck.</p>
+
+                @* Status des lokalen Renderers *@
+                <div class="tagm-status @HelperCssClass">
+                    <i class="bi @HelperIcon me-1"></i>@HelperStatusText
+                    <button type="button" class="btn btn-link btn-sm p-0 ms-2" @onclick="() => _showSettings = !_showSettings">Einstellungen</button>
+                </div>
+
+                @if (_showSettings)
+                {
+                    <div class="tagm-settings">
+                        <label class="form-label small mb-1">Renderer-URL</label>
+                        <input class="form-control form-control-sm mb-2" @bind="_helperUrl" placeholder="http://localhost:47800" />
+                        <label class="form-label small mb-1">OpenSCAD-Pfad (optional – sonst automatisch)</label>
+                        <input class="form-control form-control-sm mb-2" @bind="_openscadPath" placeholder="C:\Program Files\OpenSCAD\openscad.com" />
+                        <label class="form-label small mb-1">Eigene SCAD-Datei (optional – sonst mitgeliefert)</label>
+                        <input class="form-control form-control-sm mb-2" @bind="_scadPath" placeholder="C:\...\FeuerwehrTag\feuerwehr_tag.scad" />
+                        <button type="button" class="btn btn-sm btn-primary" @onclick="SaveSettings">Speichern &amp; testen</button>
+                    </div>
+                }
+
+                @if (_helperStatus == "down")
+                {
+                    <div class="alert alert-warning py-2 mt-2 mb-0 small">
+                        Der lokale Renderer <code>fwtag-helper.exe</code> läuft nicht. Starte ihn auf deinem PC
+                        (siehe <code>tools/fwtag-helper</code>) und lasse das Fenster offen.
+                    </div>
+                }
+                @if (_tagError is not null) { <div class="alert alert-danger py-2 mt-2 mb-0 small">@_tagError</div> }
             </div>
             <div class="tagm-foot">
                 <button type="button" class="btn btn-secondary" @onclick="CloseTag" disabled="@_tagDownloading">Schließen</button>
-                <button type="button" class="btn btn-danger" @onclick="DownloadTag" disabled="@_tagDownloading">
+                <button type="button" class="btn btn-danger" @onclick="DownloadTag" disabled="@(_tagDownloading || _helperStatus == "down")">
                     @if (_tagDownloading)
                     {
                         <span class="spinner-border spinner-border-sm me-1"></span>
@@ -150,20 +184,71 @@
         catch { }
     }
 
-    // --- Tag (3D-Druck) ---
+    // --- Tag (3D-Druck) - Rendern via lokalem Helfer (fwtag-helper) ---
     private MemberDto? _tagMember;
     private string? _tagPreview;
     private bool _tagDownloading;
     private string? _tagError;
+    private string _tagNumber = "", _tagName = "";
+    private bool _showSettings;
+
+    // Pro-Client-Einstellungen (localStorage)
+    private string _helperUrl = "http://localhost:47800";
+    private string _openscadPath = "";
+    private string _scadPath = "";
+    private string _helperStatus = "checking"; // checking | ok | no-openscad | down
+
+    private string HelperCssClass => _helperStatus switch { "ok" => "tagm-ok", "no-openscad" => "tagm-warn", "down" => "tagm-down", _ => "tagm-check" };
+    private string HelperIcon => _helperStatus switch { "ok" => "bi-check-circle-fill", "no-openscad" => "bi-exclamation-triangle-fill", "down" => "bi-x-circle-fill", _ => "bi-hourglass-split" };
+    private string HelperStatusText => _helperStatus switch
+    {
+        "ok" => "Lokaler Renderer verbunden",
+        "no-openscad" => "Renderer läuft – OpenSCAD nicht gefunden (Pfad in Einstellungen setzen)",
+        "down" => "Lokaler Renderer nicht erreichbar",
+        _ => "Prüfe Renderer…"
+    };
 
     private async Task OpenTag(MemberDto m)
     {
-        _tagMember = m; _tagPreview = null; _tagError = null; _tagDownloading = false;
+        _tagMember = m; _tagPreview = null; _tagError = null; _tagDownloading = false; _showSettings = false;
+        _tagNumber = m.MemberNumber; _tagName = "";
+        await LoadTagSettings();
         try { _tagPreview = await Http.GetStringAsync($"client-api/admin/members/{m.Id}/tag-preview"); }
         catch { _tagError = "Vorschau konnte nicht geladen werden."; }
+        try { var info = await Http.GetFromJsonAsync<TagInfo>($"client-api/admin/members/{m.Id}/tag-info"); if (info is not null) { _tagNumber = info.Number; _tagName = info.Name; } }
+        catch { }
+        await CheckHelper();
     }
 
-    private void CloseTag() { if (_tagDownloading) return; _tagMember = null; _tagPreview = null; _tagError = null; }
+    private void CloseTag() { if (_tagDownloading) return; _tagMember = null; _tagPreview = null; _tagError = null; _showSettings = false; }
+
+    private async Task LoadTagSettings()
+    {
+        _helperUrl = await Ls("fwtag_helper_url") ?? "http://localhost:47800";
+        _openscadPath = await Ls("fwtag_openscad") ?? "";
+        _scadPath = await Ls("fwtag_scad") ?? "";
+    }
+
+    private async Task SaveSettings()
+    {
+        if (string.IsNullOrWhiteSpace(_helperUrl)) _helperUrl = "http://localhost:47800";
+        await SetLs("fwtag_helper_url", _helperUrl.Trim());
+        await SetLs("fwtag_openscad", _openscadPath?.Trim() ?? "");
+        await SetLs("fwtag_scad", _scadPath?.Trim() ?? "");
+        _showSettings = false;
+        await CheckHelper();
+    }
+
+    private async Task CheckHelper()
+    {
+        _helperStatus = "checking"; StateHasChanged();
+        try
+        {
+            var ping = await Http.GetFromJsonAsync<HelperPing>($"{_helperUrl.TrimEnd('/')}/ping");
+            _helperStatus = ping is { Ok: true } ? (ping.OpenscadFound || !string.IsNullOrWhiteSpace(_openscadPath) ? "ok" : "no-openscad") : "down";
+        }
+        catch { _helperStatus = "down"; }
+    }
 
     private async Task DownloadTag()
     {
@@ -171,14 +256,35 @@
         _tagDownloading = true; _tagError = null;
         try
         {
-            var bytes = await Http.GetByteArrayAsync($"client-api/admin/members/{_tagMember.Id}/tag.zip");
+            var url = $"{_helperUrl.TrimEnd('/')}/tag?number={Uri.EscapeDataString(_tagNumber)}&name={Uri.EscapeDataString(_tagName)}";
+            if (!string.IsNullOrWhiteSpace(_openscadPath)) url += $"&openscad={Uri.EscapeDataString(_openscadPath.Trim())}";
+            if (!string.IsNullOrWhiteSpace(_scadPath)) url += $"&scad={Uri.EscapeDataString(_scadPath.Trim())}";
+
+            var resp = await Http.GetAsync(url);
+            if (!resp.IsSuccessStatusCode)
+            {
+                var body = await resp.Content.ReadAsStringAsync();
+                _tagError = $"Renderer-Fehler: {body}";
+                return;
+            }
+            var bytes = await resp.Content.ReadAsByteArrayAsync();
             using var stream = new MemoryStream(bytes);
             using var streamRef = new DotNetStreamReference(stream);
-            await JS.InvokeVoidAsync("downloadFileFromStream", $"feuerwehr_tag_{_tagMember.MemberNumber}.zip", streamRef);
+            await JS.InvokeVoidAsync("downloadFileFromStream", $"feuerwehr_tag_{_tagNumber}.zip", streamRef);
         }
-        catch (Exception ex) { _tagError = "Download fehlgeschlagen: " + ex.Message; }
+        catch (Exception ex)
+        {
+            _tagError = $"Lokaler Renderer nicht erreichbar ({_helperUrl}). Läuft fwtag-helper.exe? [{ex.Message}]";
+            _helperStatus = "down";
+        }
         finally { _tagDownloading = false; }
     }
+
+    private async Task<string?> Ls(string key) { try { var v = await JS.InvokeAsync<string?>("localStorage.getItem", key); return string.IsNullOrEmpty(v) ? null : v; } catch { return null; } }
+    private async Task SetLs(string key, string val) { try { await JS.InvokeVoidAsync("localStorage.setItem", key, val ?? ""); } catch { } }
+
+    private record TagInfo(string Number, string Name);
+    private record HelperPing(bool Ok, string? Openscad, bool OpenscadFound, string? Scad);
 
     private void ShowAdd() { _editId = null; _number = ""; _firstName = ""; _lastName = ""; _isActive = true; _units.Clear(); _error = null; _showForm = true; }
     private void Edit(MemberDto m) { _editId = m.Id; _number = m.MemberNumber; _firstName = m.FirstName; _lastName = m.LastName; _isActive = m.IsActive; _units.Clear(); foreach (var u in m.Units) _units.Add(u); _error = null; _showForm = true; }
