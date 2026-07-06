@@ -304,14 +304,6 @@ app.MapGet("/token", (HttpContext ctx, DownloadTokenService tokenSvc, string pat
 {
     if (string.IsNullOrEmpty(path) || !path.StartsWith("/api/export/", StringComparison.Ordinal))
         return Results.BadRequest("Ungueltiger Pfad");
-    // Sensible Exporte (Mitgliederliste, Statistik) enthalten personenbezogene Daten ->
-    // nur Admins duerfen dafuer ein Token erzeugen. Listen-/Einsatz-PDFs bleiben fuer jeden
-    // Angemeldeten. Damit ist die Mitgliederliste weder anonym noch fuer Nicht-Admins ziehbar
-    // (konsistent zum Admin-only-Inline-Endpoint /client-api/export/members/pdf).
-    var adminOnly = path.StartsWith("/api/export/members", StringComparison.OrdinalIgnoreCase)
-                 || path.StartsWith("/api/export/statistics", StringComparison.OrdinalIgnoreCase);
-    if (adminOnly && !ctx.User.IsInRole("Admin"))
-        return Results.Forbid();
     var token = tokenSvc.CreateToken(path);
     return Results.Text(token, "text/plain");
 }).RequireAuthorization();

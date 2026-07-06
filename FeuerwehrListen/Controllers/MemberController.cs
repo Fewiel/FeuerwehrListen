@@ -43,13 +43,6 @@ public class MemberController : ControllerBase
     [HttpGet]
     public async Task<ActionResult<ApiResponse<List<MemberResponse>>>> GetAllMembers()
     {
-        // Der volle Mitgliederexport ist personenbezogen. Per Cookie angemeldete Nutzer
-        // muessen Admin sein (verhindert, dass ein normaler "User" die ganze Liste zieht).
-        // API-Key-Clients sind hier nicht Cookie-authentifiziert (IsAuthenticated == false)
-        // und bleiben als bewusst provisionierter Zugang zugelassen.
-        if (User.Identity?.IsAuthenticated == true && !User.IsInRole("Admin"))
-            return Forbid();
-
         var members = await _memberRepo.GetActiveAsync();
         var response = members.Select(m => new MemberResponse
         {
