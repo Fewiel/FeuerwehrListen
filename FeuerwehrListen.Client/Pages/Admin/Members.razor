@@ -7,6 +7,17 @@
 
 <PageTitle>Mitglieder - Admin</PageTitle>
 
+<style>
+    .tagm-backdrop { position: fixed; inset: 0; background: rgba(15,20,28,.45); z-index: 1050; }
+    .tagm { position: fixed; z-index: 1055; top: 50%; left: 50%; transform: translate(-50%,-50%); width: min(460px, calc(100vw - 24px)); max-height: calc(100vh - 40px); display: flex; flex-direction: column; background: var(--tw-surface, #fff); border: 1px solid var(--tw-line, #e3e6ea); border-radius: 16px; box-shadow: 0 24px 60px rgba(15,20,28,.28); overflow: hidden; }
+    .tagm-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--tw-line, #e3e6ea); }
+    .tagm-head h5 { margin: 0; font-size: 15.5px; font-weight: 600; }
+    .tagm-body { padding: 16px 18px; overflow-y: auto; text-align: center; }
+    .tagm-preview { display: inline-block; background: #f6f7f9; border: 1px solid var(--tw-line, #e3e6ea); border-radius: 12px; padding: 10px; }
+    .tagm-preview svg { width: 190px; height: auto; display: block; }
+    .tagm-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--tw-line, #e3e6ea); }
+</style>
+
 <AuthGuard>
     <div class="container mt-4">
         <div class="row mb-4">
@@ -69,6 +80,7 @@
                                 <td>@if (m.Units.Count == 0) { <span class="text-muted">–</span> } else { @foreach (var u in m.Units) { <span class="badge bg-primary me-1">@u</span> } }</td>
                                 <td>@if (m.IsActive) { <span class="badge bg-success">Aktiv</span> } else { <span class="badge bg-secondary">Inaktiv</span> }</td>
                                 <td>
+                                    <button class="btn btn-sm btn-outline-danger me-2" @onclick="() => OpenTag(m)" title="Tag erstellen & herunterladen"><i class="bi bi-tag"></i> Tag</button>
                                     <button class="btn btn-sm btn-primary me-2" @onclick="() => Edit(m)">Bearbeiten</button>
                                     <button class="btn btn-sm btn-danger" @onclick="() => Delete(m.Id)">Löschen</button>
                                 </td>
@@ -79,6 +91,40 @@
             }
         </div></div>
     </div>
+
+    @if (_tagMember is not null)
+    {
+        <div class="tagm-backdrop" @onclick="CloseTag"></div>
+        <div class="tagm" role="dialog" aria-modal="true">
+            <div class="tagm-head">
+                <h5><i class="bi bi-tag me-1"></i>Tag – @_tagMember.LastName, @_tagMember.FirstName (@_tagMember.MemberNumber)</h5>
+                <button type="button" class="btn-close" @onclick="CloseTag"></button>
+            </div>
+            <div class="tagm-body">
+                <div class="tagm-preview">
+                    @if (_tagPreview is null && _tagError is null) { <p class="text-muted my-4">Vorschau lädt…</p> }
+                    else if (_tagPreview is not null) { @((MarkupString)_tagPreview) }
+                </div>
+                <p class="text-muted small mt-2 mb-0">Draufsicht – <span style="color:#1657b0;font-weight:600">Body blau</span>, <span style="color:#e4002b;font-weight:600">Inlay rot</span>. Das ZIP enthält <strong>body.stl</strong> + <strong>inlay.stl</strong> für den Zweifarbdruck.</p>
+                @if (_tagError is not null) { <div class="alert alert-danger py-2 mt-2 mb-0">@_tagError</div> }
+            </div>
+            <div class="tagm-foot">
+                <button type="button" class="btn btn-secondary" @onclick="CloseTag" disabled="@_tagDownloading">Schließen</button>
+                <button type="button" class="btn btn-danger" @onclick="DownloadTag" disabled="@_tagDownloading">
+                    @if (_tagDownloading)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1"></span>
+                        <text>Erzeuge STL… (~20&nbsp;s)</text>
+                    }
+                    else
+                    {
+                        <i class="bi bi-download me-1"></i>
+                        <text>ZIP herunterladen</text>
+                    }
+                </button>
+            </div>
+        </div>
+    }
 </AuthGuard>
 
 @code {
@@ -102,6 +148,36 @@
             await JS.InvokeVoidAsync("openPdf", $"{Nav.BaseUri.TrimEnd('/')}{path}?token={Uri.EscapeDataString(token)}");
         }
         catch { }
+    }
+
+    // --- Tag (3D-Druck) ---
+    private MemberDto? _tagMember;
+    private string? _tagPreview;
+    private bool _tagDownloading;
+    private string? _tagError;
+
+    private async Task OpenTag(MemberDto m)
+    {
+        _tagMember = m; _tagPreview = null; _tagError = null; _tagDownloading = false;
+        try { _tagPreview = await Http.GetStringAsync($"client-api/admin/members/{m.Id}/tag-preview"); }
+        catch { _tagError = "Vorschau konnte nicht geladen werden."; }
+    }
+
+    private void CloseTag() { if (_tagDownloading) return; _tagMember = null; _tagPreview = null; _tagError = null; }
+
+    private async Task DownloadTag()
+    {
+        if (_tagMember is null) return;
+        _tagDownloading = true; _tagError = null;
+        try
+        {
+            var bytes = await Http.GetByteArrayAsync($"client-api/admin/members/{_tagMember.Id}/tag.zip");
+            using var stream = new MemoryStream(bytes);
+            using var streamRef = new DotNetStreamReference(stream);
+            await JS.InvokeVoidAsync("downloadFileFromStream", $"feuerwehr_tag_{_tagMember.MemberNumber}.zip", streamRef);
+        }
+        catch (Exception ex) { _tagError = "Download fehlgeschlagen: " + ex.Message; }
+        finally { _tagDownloading = false; }
     }
 
     private void ShowAdd() { _editId = null; _number = ""; _firstName = ""; _lastName = ""; _isActive = true; _units.Clear(); _error = null; _showForm = true; }

@@ -20,7 +20,11 @@ RUN dotnet publish "FeuerwehrListen.csproj" -c Release -o /app/publish --no-rest
 
 # Stage 2: Create the final runtime image
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
-RUN apt-get update && apt-get install -y --no-install-recommends libgdiplus libc6-dev && rm -rf /var/lib/apt/lists/*
+# libgdiplus/libc6-dev: PdfSharp (GDI). openscad + fonts-liberation: Tag-Erzeugung
+# (STL-Export laeuft headless via CGAL, kein Display/xvfb noetig).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libgdiplus libc6-dev openscad fonts-liberation \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /app/publish .
 

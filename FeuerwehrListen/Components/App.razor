@@ -64,6 +64,19 @@
             }
         };
 
+        // Datei aus einem .NET-Stream herunterladen (fuer Tag-ZIP etc.)
+        window.downloadFileFromStream = async function (fileName, contentStreamRef) {
+            try {
+                var arrayBuffer = await contentStreamRef.arrayBuffer();
+                var blob = new Blob([arrayBuffer]);
+                var url = URL.createObjectURL(blob);
+                var a = document.createElement('a');
+                a.href = url; a.download = fileName || 'download';
+                document.body.appendChild(a); a.click();
+                setTimeout(function () { try { document.body.removeChild(a); } catch (e) { } URL.revokeObjectURL(url); }, 150);
+            } catch (e) { console.error('downloadFileFromStream failed', e); }
+        };
+
         // Blazor WebAssembly starten (kein Server-Circuit, kein SignalR).
         Blazor.start();
 

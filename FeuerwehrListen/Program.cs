@@ -166,6 +166,7 @@ builder.Services.AddScoped<NextcloudService>();
 
 builder.Services.AddSingleton<SidebarService>();
 builder.Services.AddSingleton<SettingsService>();
+builder.Services.AddScoped<TagRenderService>();
 builder.Services.AddHostedService<ScheduledListBackgroundService>();
 
 var app = builder.Build();
@@ -477,6 +478,28 @@ admin.MapGet("/members", async (MemberRepository repo) =>
         id = m.Id, memberNumber = m.MemberNumber, firstName = m.FirstName, lastName = m.LastName, isActive = m.IsActive,
         units = units.TryGetValue(m.Id, out var u) && u.Count > 0 ? u : (m.UnitNumber.HasValue ? new List<int> { m.UnitNumber.Value } : new List<int>())
     }));
+});
+// Tag-Vorschau (SVG: Body blau + Inlay rot an SCAD-Positionen, echter QR)
+admin.MapGet("/members/{id:int}/tag-preview", async (int id, MemberRepository repo, TagRenderService tags) =>
+{
+    var m = await repo.GetByIdAsync(id);
+    if (m == null) return Results.NotFound();
+    return Results.Content(tags.BuildPreviewSvg(m), "image/svg+xml");
+});
+// Tag-Download: ZIP mit body.stl + inlay.stl (OpenSCAD, ~20s)
+admin.MapGet("/members/{id:int}/tag.zip", async (int id, MemberRepository repo, TagRenderService tags) =>
+{
+    var m = await repo.GetByIdAsync(id);
+    if (m == null) return Results.NotFound();
+    try
+    {
+        var zip = await tags.RenderTagZipAsync(m);
+        return Results.File(zip, "application/zip", $"feuerwehr_tag_{m.MemberNumber}.zip");
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem($"Tag konnte nicht erzeugt werden: {ex.Message}", statusCode: 500);
+    }
 });
 admin.MapPost("/members", async (MemberRepository repo, MemberReq r) =>
 {
