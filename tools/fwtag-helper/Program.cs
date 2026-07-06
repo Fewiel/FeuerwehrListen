@@ -74,8 +74,14 @@ app.MapGet("/tag", async (string? number, string? name, string? openscad, string
         var bodyFile = Path.Combine(work, $"feuerwehr_tag_{Safe(number)}_body.stl");
         var inlayFile = Path.Combine(work, $"feuerwehr_tag_{Safe(number)}_inlay.stl");
 
-        var bodyTask = RunOpenScad(oscad, scadFile, "body", bodyFile, name, number);
-        var inlayTask = RunOpenScad(oscad, scadFile, "inlay", inlayFile, name, number);
+        // Name/Nummer NICHT ueber die Kommandozeile (-D) uebergeben: Umlaute brechen dort auf
+        // Windows (falsche Codepage -> Kasten statt ü). Stattdessen ueber eine ASCII-JSON-
+        // Parameterdatei (System.Text.Json escaped Umlaute als ü), die OpenSCAD als UTF-8 liest.
+        var paramFile = Path.Combine(work, "params.json");
+        await File.WriteAllTextAsync(paramFile, BuildParamsJson(name, number));
+
+        var bodyTask = RunOpenScad(oscad, scadFile, "body", bodyFile, paramFile);
+        var inlayTask = RunOpenScad(oscad, scadFile, "inlay", inlayFile, paramFile);
         await Task.WhenAll(bodyTask, inlayTask);
 
         var bodyErr = await bodyTask; var inlayErr = await inlayTask;
@@ -137,7 +143,7 @@ static string? ResolveOpenScad(string? preferred)
     return "openscad"; // Linux/macOS: PATH
 }
 
-static async Task<string?> RunOpenScad(string openscad, string scadFile, string mode, string outFile, string name, string number)
+static async Task<string?> RunOpenScad(string openscad, string scadFile, string mode, string outFile, string paramFile)
 {
     var psi = new ProcessStartInfo
     {
@@ -150,10 +156,10 @@ static async Task<string?> RunOpenScad(string openscad, string scadFile, string 
     };
     psi.ArgumentList.Add("-o");
     psi.ArgumentList.Add(outFile);
+    // Text-Parameter kommen aus der UTF-8-JSON (Umlaut-sicher); nur render_mode via -D (ASCII).
+    psi.ArgumentList.Add("-p"); psi.ArgumentList.Add(paramFile);
+    psi.ArgumentList.Add("-P"); psi.ArgumentList.Add("fw");
     psi.ArgumentList.Add("-D"); psi.ArgumentList.Add($"render_mode=\"{mode}\"");
-    psi.ArgumentList.Add("-D"); psi.ArgumentList.Add($"name_text=\"{Esc(name)}\"");
-    psi.ArgumentList.Add("-D"); psi.ArgumentList.Add($"number_text=\"{Esc(number)}\"");
-    psi.ArgumentList.Add("-D"); psi.ArgumentList.Add($"qr_content=\"{Esc(number)}\"");
     psi.ArgumentList.Add(scadFile);
 
     using var proc = new Process { StartInfo = psi };
@@ -184,7 +190,23 @@ static void AddToZip(ZipArchive zip, string entryName, string sourceFile)
     fs.CopyTo(es);
 }
 
-static string Esc(string s) => (s ?? string.Empty).Replace("\\", "\\\\").Replace("\"", "\\\"");
+// OpenSCAD-Customizer-Parameterdatei (Set "fw"). System.Text.Json escaped Nicht-ASCII
+// (ü -> ü) -> reine ASCII-Datei; OpenSCAD dekodiert sie als UTF-8. Loest das Umlaut-Problem.
+static string BuildParamsJson(string name, string number)
+{
+    var set = new Dictionary<string, string>
+    {
+        ["name_text"] = name ?? string.Empty,
+        ["number_text"] = number ?? string.Empty,
+        ["qr_content"] = number ?? string.Empty,
+    };
+    var doc = new Dictionary<string, object>
+    {
+        ["fileFormatVersion"] = "1",
+        ["parameterSets"] = new Dictionary<string, object> { ["fw"] = set },
+    };
+    return System.Text.Json.JsonSerializer.Serialize(doc);
+}
 
 static string Safe(string s)
 {
