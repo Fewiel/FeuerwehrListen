@@ -8,15 +8,11 @@ public class GeocodingService
 {
     private readonly HttpClient _httpClient;
 
-    public GeocodingService()
+    // Ueber IHttpClientFactory injiziert (kein new HttpClient() je Scope -> keine
+    // Socket-Exhaustion). Konfiguration (BaseAddress, UA-Header) erfolgt in Program.cs.
+    public GeocodingService(HttpClient httpClient)
     {
-        _httpClient = new HttpClient
-        {
-            BaseAddress = new Uri("https://nominatim.openstreetmap.org/")
-        };
-        _httpClient.DefaultRequestHeaders.UserAgent.Clear();
-        _httpClient.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("FeuerwehrListen", "1.0"));
-        _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        _httpClient = httpClient;
     }
 
     public async Task<(double? lat, double? lon)> GeocodeAsync(string address, CancellationToken cancellationToken = default)

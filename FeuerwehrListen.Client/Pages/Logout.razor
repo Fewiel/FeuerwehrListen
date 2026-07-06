@@ -1,17 +1,16 @@
 @page "/logout"
 @layout MainLayout
-@inject HttpClient Http
 @inject NavigationManager Nav
 
 <PageTitle>Abmelden</PageTitle>
 <div class="container mt-5 text-center"><p>Du wirst abgemeldet…</p></div>
 
 @code {
-    protected override async Task OnAfterRenderAsync(bool firstRender)
+    protected override void OnAfterRender(bool firstRender)
     {
         if (!firstRender) return;
-        try { await Http.PostAsync("client-api/auth/logout", null); } catch { }
-        // forceLoad: kompletter Reload -> Auth-Status ueberall frisch (abgemeldet).
-        Nav.NavigateTo("/", forceLoad: true);
+        // Echte Browser-Navigation (GET): der Server loescht via /client-api/auth/logout-redirect
+        // das Cookie und redirectet auf /. So greift das Cookie-Loeschen in beiden Render-Modi.
+        Nav.NavigateTo("client-api/auth/logout-redirect", forceLoad: true);
     }
 }

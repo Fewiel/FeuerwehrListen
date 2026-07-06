@@ -2,6 +2,7 @@
 @layout MainLayout
 @using System.Net.Http.Json
 @inject HttpClient Http
+@inject IJSRuntime JS
 
 <PageTitle>API Keys - Admin</PageTitle>
 
@@ -26,6 +27,8 @@
         {
             <div class="alert alert-success"><strong>Neuer Key (nur jetzt sichtbar):</strong> <code>@_newKey</code></div>
         }
+
+        @if (_error is not null) { <div class="alert alert-danger">@_error</div> }
 
         <div class="card"><div class="card-body">
             @if (_items is null) { <p><em>Lade…</em></p> }
@@ -60,26 +63,42 @@
     private bool _showForm, _saving;
     private string _desc = "";
     private string? _newKey;
+    private string? _error;
 
     protected override async Task OnInitializedAsync() => await Load();
     private async Task Load() { try { _items = await Http.GetFromJsonAsync<List<KeyDto>>("client-api/admin/apikeys"); } catch { _items = new(); } }
 
     private async Task Create()
     {
+        _error = null;
         _saving = true;
         try
         {
             var resp = await Http.PostAsJsonAsync("client-api/admin/apikeys", new { Description = _desc });
+            if (!resp.IsSuccessStatusCode) { _error = "Erstellen fehlgeschlagen."; return; }
             var r = await resp.Content.ReadFromJsonAsync<CreatedKey>();
             _newKey = r?.Key;
             _desc = ""; _showForm = false;
             await Load();
         }
+        catch { _error = "Erstellen fehlgeschlagen."; }
         finally { _saving = false; }
     }
 
-    private async Task Toggle(int id) { await Http.PostAsync($"client-api/admin/apikeys/{id}/toggle", null); await Load(); }
-    private async Task Delete(int id) { await Http.DeleteAsync($"client-api/admin/apikeys/{id}"); await Load(); }
+    private async Task Toggle(int id)
+    {
+        _error = null;
+        try { await Http.PostAsync($"client-api/admin/apikeys/{id}/toggle", null); await Load(); }
+        catch { _error = "Aktion fehlgeschlagen."; }
+    }
+
+    private async Task Delete(int id)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", "Diesen API Key wirklich löschen?")) return;
+        _error = null;
+        try { await Http.DeleteAsync($"client-api/admin/apikeys/{id}"); await Load(); }
+        catch { _error = "Löschen fehlgeschlagen."; }
+    }
 
     private record KeyDto(int Id, string Key, string Description, bool IsActive, DateTime CreatedAt);
     private record CreatedKey(int Id, string Key);

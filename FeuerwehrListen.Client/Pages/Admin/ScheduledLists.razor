@@ -3,10 +3,11 @@
 @using System.Net.Http.Json
 @using FeuerwehrListen.Client.Models
 @inject HttpClient Http
+@inject IJSRuntime JS
 
 <PageTitle>Geplante Listen - Admin</PageTitle>
 
-<AuthGuard>
+<AuthGuard RequireAdmin="true">
     <div class="container mt-4">
         <div class="row mb-4">
             <div class="col"><h1>Geplante Listen</h1></div>
@@ -40,10 +41,13 @@
                     <div class="col-md-6 mb-3"><label class="form-label">Ereigniszeit</label><input type="datetime-local" class="form-control" @bind="_eventTime" /></div>
                     <div class="col-md-6 mb-3"><label class="form-label">Minuten vor Ereignis öffnen</label><input type="number" class="form-control" @bind="_minutesBefore" /></div>
                 </div>
+                @if (_error is not null) { <div class="alert alert-danger py-2">@_error</div> }
                 <button class="btn btn-primary me-2" @onclick="Save" disabled="@_saving">Speichern</button>
                 <button class="btn btn-secondary" @onclick="() => _showForm = false">Abbrechen</button>
             </div></div>
         }
+
+        @if (!_showForm && _error is not null) { <div class="alert alert-danger">@_error</div> }
 
         <div class="card"><div class="card-body">
             @if (_items is null) { <p><em>Lade…</em></p> }
@@ -79,6 +83,7 @@
     private string _type = "Attendance", _title = "", _unit = "", _description = "", _operationNumber = "", _keyword = "", _unitNumber = "";
     private DateTime _eventTime = DateTime.Now.AddDays(1);
     private int _minutesBefore = 30;
+    private string? _error;
 
     protected override async Task OnInitializedAsync()
     {
@@ -88,19 +93,28 @@
     private async Task Load() { try { _items = await Http.GetFromJsonAsync<List<ScheduledDto>>("client-api/admin/scheduled"); } catch { _items = new(); } }
     private string UnitLabel(int n) => _unitLabels.FirstOrDefault(u => u.Number == n)?.Label ?? $"Einheit {n}";
 
-    private void ShowAdd() { _type = "Attendance"; _title = ""; _unit = ""; _description = ""; _operationNumber = ""; _keyword = ""; _unitNumber = ""; _eventTime = DateTime.Now.AddDays(1); _minutesBefore = 30; _showForm = true; }
+    private void ShowAdd() { _type = "Attendance"; _title = ""; _unit = ""; _description = ""; _operationNumber = ""; _keyword = ""; _unitNumber = ""; _eventTime = DateTime.Now.AddDays(1); _minutesBefore = 30; _error = null; _showForm = true; }
 
     private async Task Save()
     {
+        _error = null;
         _saving = true;
         try
         {
             int? un = int.TryParse(_unitNumber, out var n) ? n : null;
-            await Http.PostAsJsonAsync("client-api/admin/scheduled", new { Type = _type, Title = _title, Unit = _unit, Description = _description, UnitNumber = un, OperationNumber = _operationNumber, Keyword = _keyword, EventTime = _eventTime, MinutesBefore = _minutesBefore });
+            var resp = await Http.PostAsJsonAsync("client-api/admin/scheduled", new { Type = _type, Title = _title, Unit = _unit, Description = _description, UnitNumber = un, OperationNumber = _operationNumber, Keyword = _keyword, EventTime = _eventTime, MinutesBefore = _minutesBefore });
+            if (!resp.IsSuccessStatusCode) { _error = "Speichern fehlgeschlagen."; return; }
             _showForm = false; await Load();
         }
+        catch { _error = "Speichern fehlgeschlagen."; }
         finally { _saving = false; }
     }
 
-    private async Task Delete(int id) { await Http.DeleteAsync($"client-api/admin/scheduled/{id}"); await Load(); }
+    private async Task Delete(int id)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", "Diese geplante Liste wirklich löschen?")) return;
+        _error = null;
+        try { await Http.DeleteAsync($"client-api/admin/scheduled/{id}"); await Load(); }
+        catch { _error = "Löschen fehlgeschlagen."; }
+    }
 }

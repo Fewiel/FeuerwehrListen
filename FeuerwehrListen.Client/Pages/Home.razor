@@ -3,6 +3,7 @@
 @using FeuerwehrListen.Client.Models
 @inject HttpClient Http
 @inject NavigationManager Nav
+@inject FeuerwehrListen.Client.Services.AppContextService AppCtx
 @implements IDisposable
 
 <PageTitle>Übersicht - Feuerwehr Listen</PageTitle>
@@ -229,6 +230,7 @@
     private OpenListsResponse? _data;
     private AppContextDto? _ctx;
     private System.Threading.Timer? _timer;
+    private bool _disposed;
 
     private ModuleFlags M => _ctx?.Modules ?? new ModuleFlags(true, true, true, true);
     private List<ListItem> Ops => _data?.Operations ?? new();
@@ -244,13 +246,19 @@
     private bool _sending;
     private string? _fbError;
     private bool _toast;
+    private CancellationTokenSource? _searchCts;
 
     protected override async Task OnInitializedAsync()
     {
-        try { _ctx = await Http.GetFromJsonAsync<AppContextDto>("client-api/app-context"); } catch { }
+        _ctx = await AppCtx.GetAsync();
         await LoadAsync();
-        _timer = new System.Threading.Timer(async _ => await InvokeAsync(LoadAsync), null,
-            TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+        // Timer erst nach den awaits anlegen; wurde die Komponente in der Zwischenzeit
+        // disposed (Nutzer weg-navigiert), keinen Timer starten -> sonst pollt er ewig weiter.
+        if (!_disposed)
+        {
+            _timer = new System.Threading.Timer(async _ => await InvokeAsync(LoadAsync), null,
+                TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+        }
     }
 
     private async Task LoadAsync()
@@ -271,14 +279,22 @@
 
     private async Task SearchAsync()
     {
+        // Vorherige (evtl. noch laufende) Suche abbrechen, damit eine aeltere Antwort
+        // eine neuere nicht ueberschreibt (@bind:after feuert pro Tastendruck).
+        _searchCts?.Cancel();
+        _searchCts?.Dispose();
+        var cts = new CancellationTokenSource();
+        _searchCts = cts;
         try
         {
             var url = string.IsNullOrWhiteSpace(_search)
                 ? "client-api/operations/recent"
                 : $"client-api/operations/recent?q={Uri.EscapeDataString(_search.Trim())}";
-            _ops = await Http.GetFromJsonAsync<List<FeedbackOperationDto>>(url) ?? new();
+            var ops = await Http.GetFromJsonAsync<List<FeedbackOperationDto>>(url, cts.Token) ?? new();
+            if (!cts.IsCancellationRequested) _ops = ops;
         }
-        catch { _ops = new(); }
+        catch (OperationCanceledException) { /* durch neueren Tastendruck ersetzt */ }
+        catch { if (!cts.IsCancellationRequested) _ops = new(); }
     }
 
     private void Select(FeedbackOperationDto op)
@@ -327,5 +343,11 @@
 
     private record FeedbackResult(string Result);
 
-    public void Dispose() => _timer?.Dispose();
+    public void Dispose()
+    {
+        _disposed = true;
+        _searchCts?.Cancel();
+        _searchCts?.Dispose();
+        _timer?.Dispose();
+    }
 }

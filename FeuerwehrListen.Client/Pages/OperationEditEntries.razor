@@ -7,9 +7,18 @@
 
 <AuthGuard>
     <div class="container mt-4">
-        @if (_data is null) { <p><em>Lade…</em></p> }
+        @if (_data is null)
+        {
+            @if (_loadError is not null)
+            {
+                <div class="alert alert-danger">@_loadError</div>
+                <button class="btn btn-secondary" @onclick="Load"><i class="bi bi-arrow-clockwise me-1"></i>Erneut versuchen</button>
+            }
+            else { <p><em>Lade…</em></p> }
+        }
         else
         {
+            @if (_loadError is not null) { <div class="alert alert-warning py-2"><i class="bi bi-exclamation-triangle me-1"></i>@_loadError</div> }
             <div class="mb-4"><h1>Einträge bearbeiten</h1><p class="lead">Einsatz @_data.Number — @_data.Keyword</p></div>
             @if (_msg is not null) { <div class="alert alert-info">@_msg</div> }
             <div class="card"><div class="card-header"><h5 class="mb-0">Einträge (@_data.Entries.Count)</h5></div><div class="card-body">
@@ -42,13 +51,38 @@
     [Parameter] public int Id { get; set; }
     private OpDto? _data;
     private string? _msg;
+    private string? _loadError;
 
     protected override async Task OnParametersSetAsync() => await Load();
-    private async Task Load() { try { _data = await Http.GetFromJsonAsync<OpDto>($"client-api/operation/{Id}"); } catch { _data = null; } }
+    private async Task Load()
+    {
+        var hadData = _data is not null;
+        try
+        {
+            _data = await Http.GetFromJsonAsync<OpDto>($"client-api/operation/{Id}");
+            _loadError = null;
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            _data = null;
+            _loadError = "Diese Einsatzliste wurde nicht gefunden.";
+        }
+        catch
+        {
+            _loadError = "Aktualisierung fehlgeschlagen – Netzwerkproblem.";
+            if (!hadData) _data = null;
+        }
+    }
 
     private async Task Delete(int entryId)
     {
-        try { await Http.DeleteAsync($"client-api/operation/{Id}/entry/{entryId}"); _msg = "Eintrag gelöscht."; await Load(); }
+        try
+        {
+            var resp = await Http.DeleteAsync($"client-api/operation/{Id}/entry/{entryId}");
+            if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized) { _msg = "Sitzung abgelaufen – bitte neu anmelden."; return; }
+            if (!resp.IsSuccessStatusCode) { _msg = "Fehler beim Löschen."; return; }
+            _msg = "Eintrag gelöscht."; await Load();
+        }
         catch { _msg = "Fehler beim Löschen."; }
     }
 

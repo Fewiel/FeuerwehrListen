@@ -3,6 +3,7 @@
 @using FeuerwehrListen.Client.Models
 @inject HttpClient Http
 @inject NavigationManager Nav
+@inject FeuerwehrListen.Client.Services.AppContextService AppCtx
 
 <PageTitle>Neue Anwesenheitsliste</PageTitle>
 
@@ -63,12 +64,8 @@
 
     protected override async Task OnInitializedAsync()
     {
-        try
-        {
-            var ctx = await Http.GetFromJsonAsync<AppContextDto>("client-api/app-context");
-            _unitLabels = ctx?.UnitLabels ?? new();
-        }
-        catch { }
+        var ctx = await AppCtx.GetAsync();
+        _unitLabels = ctx?.UnitLabels ?? new();
     }
 
     private async Task CreateList()

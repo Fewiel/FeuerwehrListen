@@ -49,42 +49,59 @@
     private int _scanCount;
     private string _lastScannedValue = string.Empty;
     private DateTime _lastScannedAt = DateTime.MinValue;
-    private bool _initialized;
+    private bool _rendered;
+    // Vom Nutzer per Pause-Button gewuenschter Zustand (unabhaengig von IsActive).
+    // Beim (Wieder-)Aktivieren via IsActive wird wieder auf "an" gesetzt.
+    private bool _wantScan;
 
     public override async Task SetParametersAsync(ParameterView parameters)
     {
         var previousActive = IsActive;
         await base.SetParametersAsync(parameters);
-        if (_initialized)
-        {
-            if (previousActive && !IsActive && _isScanning) await StopScanner();
-            else if (!previousActive && IsActive && !_isScanning) await StartScanner();
-        }
+        // Wunsch-Zustand aus IsActive ableiten. Ein false->true Wechsel soll den
+        // Scanner zuverlaessig (wieder) starten. Der eigentliche Start/Stop passiert
+        // nach dem Render in OnAfterRenderAsync (dort ist das <video> im DOM).
+        if (!previousActive && IsActive) _wantScan = true;
+        else if (previousActive && !IsActive) _wantScan = false;
+        if (_rendered) await SyncScannerState();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender && IsActive)
+        if (firstRender)
         {
-            _initialized = true;
-            await StartScanner();
+            _rendered = true;
+            _wantScan = IsActive;
         }
+        // Gewuenschten vs. tatsaechlichen Zustand angleichen - deckt auch den Fall ab,
+        // dass IsActive erst nach dem ersten Render true wird.
+        await SyncScannerState();
+    }
+
+    // Startet/stoppt den JS-Scanner so, dass er dem gewuenschten Zustand entspricht.
+    // Nur aktiv, wenn die Komponente sichtbar ist (IsActive) - sonst existiert kein <video>.
+    private async Task SyncScannerState()
+    {
+        if (!_rendered) return;
+        var shouldRun = IsActive && _wantScan;
+        if (shouldRun && !_isScanning) await StartScanner();
+        else if (!shouldRun && _isScanning) await StopScanner();
     }
 
     private async Task StartScanner()
     {
+        bool ok;
         try
         {
             _dotNetRef ??= DotNetObjectReference.Create(this);
-            await JS.InvokeVoidAsync("qrScanner.start", _videoElementId, _dotNetRef);
-            _isScanning = true;
-            _noCameraAccess = false;
+            ok = await JS.InvokeAsync<bool>("qrScanner.start", _videoElementId, _dotNetRef);
         }
         catch
         {
-            _noCameraAccess = true;
-            _isScanning = false;
+            ok = false;
         }
+        _isScanning = ok;
+        _noCameraAccess = !ok;
         StateHasChanged();
     }
 
@@ -97,8 +114,8 @@
 
     private async Task ToggleScanner()
     {
-        if (_isScanning) await StopScanner();
-        else await StartScanner();
+        _wantScan = !_isScanning;
+        await SyncScannerState();
     }
 
     [JSInvokable]

@@ -13,6 +13,7 @@
         else
         {
             @if (_saved) { <div class="alert alert-success">Gespeichert.</div> }
+            @if (_error is not null) { <div class="alert alert-danger">@_error</div> }
 
             <div class="card mb-4"><div class="card-header"><i class="bi bi-eye me-2"></i>Modul-Sichtbarkeit</div><div class="card-body">
                 @Switch("ModuleVisibility.Attendance", "Anwesenheitslisten")
@@ -74,6 +75,7 @@
 @code {
     private Dictionary<string, string>? _s;
     private bool _saving, _saved;
+    private string? _error;
 
     protected override async Task OnInitializedAsync()
     {
@@ -82,25 +84,39 @@
     }
 
     private string Get(string k) => _s != null && _s.TryGetValue(k, out var v) ? v : "";
-    private void Set(string k, string v) { if (_s != null) _s[k] = v ?? ""; _saved = false; }
+    private void Set(string k, string v) { if (_s != null) _s[k] = v ?? ""; _saved = false; _error = null; }
     private bool GetBool(string k, bool def = false) { var v = Get(k); return string.IsNullOrEmpty(v) ? def : v.Equals("true", StringComparison.OrdinalIgnoreCase); }
     // Default-Wert (an = true), wenn der Schluessel noch nicht gesetzt ist. In eigener Methode,
     // damit im @bind:get-Attribut keine verschachtelten Anfuehrungszeichen stehen (bricht Razor).
     private bool GetBoolDef(string k) => GetBool(k, k.StartsWith("ModuleVisibility") || k == "Sound.Enabled" || k == "Notifications.SkipEmptyLists" || k == "Smtp.UseSsl");
     private void SetBool(string k, bool v) => Set(k, v ? "true" : "false");
-    private int GetInt(string k) => int.TryParse(Get(k), out var n) ? n : 0;
-    private void SetInt(string k, int v) => Set(k, v.ToString());
+    // Numerische Felder als String behandeln, damit ein nie gesetzter Wert leer bleibt
+    // und beim Speichern NICHT als explizite "0" landet (z. B. Smtp.Port).
+    private string GetNumStr(string k) => Get(k);
+    private void SetNumStr(string k, string v)
+    {
+        v = v?.Trim() ?? "";
+        // Nur Ziffern zulassen; leerer Wert = "nicht konfiguriert" (leer durchreichen).
+        Set(k, string.IsNullOrEmpty(v) ? "" : (int.TryParse(v, out var n) ? n.ToString() : v));
+    }
 
     private RenderFragment Text(string key, string label) =>@<div class="mb-3"><label class="form-label">@label</label><input class="form-control" @bind:get="Get(key)" @bind:set="v => Set(key, v)" /></div>;
     private RenderFragment Pass(string key, string label) =>@<div class="mb-3"><label class="form-label">@label</label><input type="password" class="form-control" @bind:get="Get(key)" @bind:set="v => Set(key, v)" /></div>;
-    private RenderFragment Num(string key, string label) =>@<div class="mb-3"><label class="form-label">@label</label><input type="number" class="form-control" style="max-width:200px" @bind:get="GetInt(key)" @bind:set="v => SetInt(key, v)" /></div>;
+    private RenderFragment Num(string key, string label) =>@<div class="mb-3"><label class="form-label">@label</label><input type="number" class="form-control" style="max-width:200px" @bind:get="GetNumStr(key)" @bind:set="v => SetNumStr(key, v)" /></div>;
     private RenderFragment Switch(string key, string label) =>@<div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" @bind:get="GetBoolDef(key)" @bind:set="v => SetBool(key, v)" /><label class="form-check-label">@label</label></div>;
 
     private async Task Save()
     {
         if (_s is null) return;
+        _error = null; _saved = false;
         _saving = true;
-        try { await Http.PostAsJsonAsync("client-api/admin/settings", _s); _saved = true; }
+        try
+        {
+            var resp = await Http.PostAsJsonAsync("client-api/admin/settings", _s);
+            if (!resp.IsSuccessStatusCode) { _error = "Speichern fehlgeschlagen."; return; }
+            _saved = true;
+        }
+        catch { _error = "Speichern fehlgeschlagen."; }
         finally { _saving = false; }
     }
 }

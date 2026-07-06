@@ -19,7 +19,12 @@
     </div>
 
     <div class="card"><div class="card-body">
-        @if (_items is null) { <p><em>Lade…</em></p> }
+        @if (_loadError is not null)
+        {
+            <div class="alert alert-danger">@_loadError</div>
+            <button class="btn btn-secondary" @onclick="Load"><i class="bi bi-arrow-clockwise me-1"></i>Erneut versuchen</button>
+        }
+        else if (_items is null) { <p><em>Lade…</em></p> }
         else
         {
             var list = _filter is null ? _items : _items.Where(d => d.Status == _filter).ToList();
@@ -81,7 +86,7 @@
                 <div class="mb-2"><input class="form-control" placeholder="Kommentar (optional)" @bind="_comment" /></div>
                 <div class="mb-2"><input class="form-control" placeholder="Deine Mitgliedsnummer" @bind="_scNumber" /></div>
                 @if (_scError is not null) { <div class="alert alert-danger py-2">@_scError</div> }
-                <button class="btn btn-primary" @onclick="ChangeStatus">Speichern</button>
+                <button class="btn btn-primary" @onclick="ChangeStatus" disabled="@_scBusy">Speichern</button>
             }
         </div>
     </div></div></div>
@@ -101,13 +106,27 @@
     private List<HistDto> _history = new();
     private string _newStatus = "InProgress", _comment = "", _scNumber = "";
     private string? _scError;
+    private bool _scBusy;
+    private string? _loadError;
 
     protected override async Task OnInitializedAsync()
     {
         try { _vehicles = await Http.GetFromJsonAsync<List<VehDto>>("client-api/vehicles-active") ?? new(); } catch { }
         await Load();
     }
-    private async Task Load() { try { _items = await Http.GetFromJsonAsync<List<DefectDto>>("client-api/defects"); } catch { _items = new(); } }
+    private async Task Load()
+    {
+        try
+        {
+            _items = await Http.GetFromJsonAsync<List<DefectDto>>("client-api/defects");
+            _loadError = null;
+        }
+        catch
+        {
+            // Ladefehler nicht als "keine Mängel" tarnen -> klarer Hinweis + erneut versuchen.
+            _loadError = "Mängelliste konnte nicht geladen werden – erneut versuchen.";
+        }
+    }
 
     private void ShowReport() { _rDesc = ""; _rCustom = ""; _rNumber = ""; _rVehicleId = 0; _rError = null; _showReport = true; }
     private async Task Report()
@@ -138,6 +157,8 @@
         _scError = null;
         if (_detail is null) return;
         if (string.IsNullOrWhiteSpace(_scNumber)) { _scError = "Mitgliedsnummer erforderlich."; return; }
+        if (_scBusy) return;
+        _scBusy = true;
         try
         {
             var resp = await Http.PostAsJsonAsync($"client-api/defects/{_detail.Id}/status", new { NewStatus = _newStatus, Comment = _comment, MemberNumber = _scNumber });
@@ -146,6 +167,7 @@
             else _scError = "Mitglied nicht gefunden.";
         }
         catch { _scError = "Speichern fehlgeschlagen."; }
+        finally { _scBusy = false; }
     }
 
     private string StatusLabel(string s) => s switch { "Open" => "Offen", "InProgress" => "In Arbeit", "Done" => "Erledigt", _ => s };

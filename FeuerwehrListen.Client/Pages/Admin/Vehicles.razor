@@ -2,6 +2,7 @@
 @layout MainLayout
 @using System.Net.Http.Json
 @inject HttpClient Http
+@inject IJSRuntime JS
 
 <PageTitle>Fahrzeuge - Admin</PageTitle>
 
@@ -27,10 +28,13 @@
                     </select>
                 </div>
                 <div class="mb-3"><div class="form-check"><input class="form-check-input" type="checkbox" id="act" @bind="_isActive" /><label class="form-check-label" for="act">Aktiv</label></div></div>
+                @if (_error is not null) { <div class="alert alert-danger py-2">@_error</div> }
                 <button class="btn btn-primary me-2" @onclick="Save" disabled="@_saving">Speichern</button>
                 <button class="btn btn-secondary" @onclick="() => _showForm = false">Abbrechen</button>
             </div></div></div></div>
         }
+
+        @if (!_showForm && _error is not null) { <div class="alert alert-danger">@_error</div> }
 
         <div class="card"><div class="card-body">
             @if (_items is null) { <p><em>Lade…</em></p> }
@@ -64,29 +68,40 @@
     private int? _editId;
     private string _name = "", _callSign = "", _type = "LF";
     private bool _isActive = true;
+    private string? _error;
 
     protected override async Task OnInitializedAsync() => await Load();
     private async Task Load() { try { _items = await Http.GetFromJsonAsync<List<VehicleDto>>("client-api/admin/vehicles"); } catch { _items = new(); } }
 
-    private void ShowAdd() { _editId = null; _name = ""; _callSign = ""; _type = "LF"; _isActive = true; _showForm = true; }
-    private void Edit(VehicleDto v) { _editId = v.Id; _name = v.Name; _callSign = v.CallSign; _type = v.Type; _isActive = v.IsActive; _showForm = true; }
+    private void ShowAdd() { _editId = null; _name = ""; _callSign = ""; _type = "LF"; _isActive = true; _error = null; _showForm = true; }
+    private void Edit(VehicleDto v) { _editId = v.Id; _name = v.Name; _callSign = v.CallSign; _type = v.Type; _isActive = v.IsActive; _error = null; _showForm = true; }
 
     private async Task Save()
     {
-        if (string.IsNullOrWhiteSpace(_name) || string.IsNullOrWhiteSpace(_callSign)) return;
+        _error = null;
+        if (string.IsNullOrWhiteSpace(_name) || string.IsNullOrWhiteSpace(_callSign)) { _error = "Bitte Name und Funkrufname ausfüllen."; return; }
         _saving = true;
         try
         {
             var body = new { Name = _name, CallSign = _callSign, Type = _type, IsActive = _isActive };
-            if (_editId is int id) await Http.PutAsJsonAsync($"client-api/admin/vehicles/{id}", body);
-            else await Http.PostAsJsonAsync("client-api/admin/vehicles", body);
+            var resp = _editId is int id
+                ? await Http.PutAsJsonAsync($"client-api/admin/vehicles/{id}", body)
+                : await Http.PostAsJsonAsync("client-api/admin/vehicles", body);
+            if (!resp.IsSuccessStatusCode) { _error = "Speichern fehlgeschlagen."; return; }
             _showForm = false;
             await Load();
         }
+        catch { _error = "Speichern fehlgeschlagen."; }
         finally { _saving = false; }
     }
 
-    private async Task Delete(int id) { await Http.DeleteAsync($"client-api/admin/vehicles/{id}"); await Load(); }
+    private async Task Delete(int id)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", "Dieses Fahrzeug wirklich löschen?")) return;
+        _error = null;
+        try { await Http.DeleteAsync($"client-api/admin/vehicles/{id}"); await Load(); }
+        catch { _error = "Löschen fehlgeschlagen."; }
+    }
 
     private record VehicleDto(int Id, string Name, string CallSign, string Type, bool IsActive, DateTime CreatedAt);
 }

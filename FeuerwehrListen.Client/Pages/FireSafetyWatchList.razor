@@ -9,7 +9,12 @@
         <div class="col"><h1>Brandsicherheitswachen</h1></div>
     </div>
 
-    @if (_watches is null)
+    @if (_loadError is not null)
+    {
+        <div class="alert alert-danger">@_loadError</div>
+        <button class="btn btn-secondary" @onclick="Load"><i class="bi bi-arrow-clockwise me-1"></i>Erneut versuchen</button>
+    }
+    else if (_watches is null)
     {
         <p><em>Lade…</em></p>
     }
@@ -49,11 +54,23 @@
 
 @code {
     private List<WatchDto>? _watches;
+    private string? _loadError;
 
-    protected override async Task OnInitializedAsync()
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load()
     {
-        try { _watches = await Http.GetFromJsonAsync<List<WatchDto>>("client-api/firesafetywatches"); }
-        catch { _watches = new(); }
+        try
+        {
+            _watches = await Http.GetFromJsonAsync<List<WatchDto>>("client-api/firesafetywatches");
+            _loadError = null;
+        }
+        catch
+        {
+            // Kein "leere Liste" bei Ladefehler: eine geplante Wache darf nicht faelschlich
+            // als "keine geplant" erscheinen. Klarer Fehlerhinweis + erneut versuchen.
+            _loadError = "Brandsicherheitswachen konnten nicht geladen werden – erneut versuchen.";
+        }
     }
 
     private bool IsUrgent(WatchDto w) => w.Required != w.Assigned && (w.Time - DateTime.Now).TotalDays < 14;

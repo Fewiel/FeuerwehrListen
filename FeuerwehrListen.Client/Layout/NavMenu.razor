@@ -1,5 +1,6 @@
 @using FeuerwehrListen.Client.Models
-@inject HttpClient Http
+@using FeuerwehrListen.Client.Services
+@inject AppContextService AppCtx
 @inject NavigationManager Nav
 @inject AuthenticationStateProvider AuthProvider
 @implements IDisposable
@@ -86,7 +87,7 @@
 
 @if (_open == "mobile")
 {
-    <div class="tw-backdrop" @onclick="Close"></div>
+    @* Backdrop wird bereits oben fuer jedes offene Menue (inkl. "mobile") gerendert - hier nicht doppeln. *@
     <nav class="tw-mobile-menu">
         <div class="mm-head">
             <b>@(_ctx?.AppName ?? "Feuerwehr Listen")</b>
@@ -143,7 +144,7 @@
 
     protected override async Task OnInitializedAsync()
     {
-        try { _ctx = await Http.GetFromJsonAsync<AppContextDto>("client-api/app-context"); } catch { }
+        _ctx = await AppCtx.GetAsync();
         AuthProvider.AuthenticationStateChanged += OnAuthChanged;
         await RefreshAuth(await AuthProvider.GetAuthenticationStateAsync());
         Nav.LocationChanged += OnLocationChanged;

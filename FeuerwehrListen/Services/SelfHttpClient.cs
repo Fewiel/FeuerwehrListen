@@ -34,16 +34,58 @@ public sealed class SelfCookieHandler : DelegatingHandler
     private readonly IHttpContextAccessor _accessor;
     private readonly AuthenticationStateProvider _auth;
     private readonly InternalAuthSecret _secret;
+    private readonly AppBaseUrlProvider _baseUrl;
 
-    public SelfCookieHandler(IHttpContextAccessor accessor, AuthenticationStateProvider auth, InternalAuthSecret secret)
+    public SelfCookieHandler(IHttpContextAccessor accessor, AuthenticationStateProvider auth, InternalAuthSecret secret, AppBaseUrlProvider baseUrl)
     {
         _accessor = accessor;
         _auth = auth;
         _secret = secret;
+        _baseUrl = baseUrl;
+    }
+
+    /// <summary>Prueft, ob das Request-Ziel der eigene Host (Host+Port) ist. Nur dann duerfen
+    /// Auth-Cookie bzw. das prozess-geheime X-Fw-Internal angehaengt werden - sonst wuerde ein
+    /// Aufruf an eine frei konfigurierbare Fremd-URL (z. B. der 3D-Tag-Helfer) das Geheimnis
+    /// oder das Cookie leaken (SSRF/Secret-Leak).</summary>
+    private bool IsSelfHost(Uri? target)
+    {
+        if (target == null) return false;
+        // Eigenen Host bestimmen: bevorzugt aus dem aktuellen HttpContext (Prerender),
+        // sonst aus der beim ersten Request erfassten BaseUrl (gilt auch im Circuit).
+        var ctx = _accessor.HttpContext;
+        string? ownHost = null; int ownPort = -1; string? ownScheme = null;
+        if (ctx != null)
+        {
+            ownHost = ctx.Request.Host.Host;
+            ownPort = ctx.Request.Host.Port ?? -1;
+            ownScheme = ctx.Request.Scheme;
+        }
+        else if (!string.IsNullOrEmpty(_baseUrl.BaseUrl) && Uri.TryCreate(_baseUrl.BaseUrl, UriKind.Absolute, out var baseUri))
+        {
+            ownHost = baseUri.Host;
+            ownPort = baseUri.IsDefaultPort ? -1 : baseUri.Port;
+            ownScheme = baseUri.Scheme;
+        }
+        if (string.IsNullOrEmpty(ownHost)) return false;
+
+        if (!string.Equals(target.Host, ownHost, StringComparison.OrdinalIgnoreCase)) return false;
+        // Port vergleichen (Standard-Ports beruecksichtigen).
+        var targetPort = target.IsDefaultPort ? -1 : target.Port;
+        var normOwnPort = ownPort;
+        // Wenn eigener Port dem Standard-Port des Ziel-Schemas entspricht, als "default" behandeln.
+        if (normOwnPort != -1 && ownScheme != null &&
+            ((ownScheme == "https" && normOwnPort == 443) || (ownScheme == "http" && normOwnPort == 80)))
+            normOwnPort = -1;
+        return targetPort == normOwnPort;
     }
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
+        // Nur fuer den eigenen Host Auth weiterreichen - bei Fremdhosts NICHTS anhaengen.
+        if (!IsSelfHost(request.RequestUri))
+            return await base.SendAsync(request, cancellationToken);
+
         var ctx = _accessor.HttpContext;
         if (ctx != null)
         {

@@ -66,9 +66,11 @@
         try
         {
             var resp = await Http.PostAsJsonAsync("client-api/admin/firesafetywatches", new { Name = _name, Location = _location, EventTime = _eventTime, Requirements = reqs });
+            if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized) { _error = "Sitzung abgelaufen – bitte neu anmelden."; return; }
             if (resp.IsSuccessStatusCode) Nav.NavigateTo("/firesafetywatches", forceLoad: true);
             else _error = "Anlegen fehlgeschlagen.";
         }
+        catch { _error = "Anlegen fehlgeschlagen. Bitte erneut versuchen."; }
         finally { _saving = false; }
     }
 

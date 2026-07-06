@@ -2,6 +2,7 @@
 @layout MainLayout
 @using System.Net.Http.Json
 @inject HttpClient Http
+@inject IJSRuntime JS
 
 <PageTitle>Stichwörter - Admin</PageTitle>
 
@@ -18,11 +19,13 @@
                 <h5 class="card-title">@(_editId is null ? "Neues Stichwort" : "Stichwort bearbeiten")</h5>
                 <div class="mb-3"><label class="form-label">Name</label><input class="form-control" @bind="_name" /></div>
                 <div class="mb-3"><label class="form-label">Beschreibung</label><textarea class="form-control" rows="2" @bind="_desc"></textarea></div>
+                @if (_error is not null) { <div class="alert alert-danger py-2">@_error</div> }
                 <button class="btn btn-primary me-2" @onclick="Save" disabled="@_saving">Speichern</button>
                 <button class="btn btn-secondary" @onclick="() => _showForm = false">Abbrechen</button>
             </div></div>
         }
 
+        @if (!_showForm && _error is not null) { <div class="alert alert-danger">@_error</div> }
         @if (_items is null) { <p><em>Lade…</em></p> }
         else
         {
@@ -52,7 +55,9 @@
         <div class="modal fade show d-block" tabindex="-1" style="background:rgba(0,0,0,.5)">
             <div class="modal-dialog modal-lg modal-dialog-centered"><div class="modal-content">
                 <div class="modal-header"><h5 class="modal-title">Requirements: @_reqKeyword.Name</h5><button class="btn-close" @onclick="() => _reqKeyword = null"></button></div>
-                <div class="modal-body"><div class="row">
+                <div class="modal-body">
+                    @if (_reqError is not null) { <div class="alert alert-danger py-2">@_reqError</div> }
+                    <div class="row">
                     @foreach (var f in _functions)
                     {
                         var r = _reqEdit.FirstOrDefault(x => x.FunctionDefId == f.Id);
@@ -81,6 +86,8 @@
     private int? _editId;
     private string _name = "", _desc = "";
 
+    private string? _error, _reqError;
+
     private KwDto? _reqKeyword;
     private List<ReqDto> _reqEdit = new();
 
@@ -91,36 +98,52 @@
     }
     private async Task Load() { try { _items = await Http.GetFromJsonAsync<List<KwDto>>("client-api/admin/keywords"); } catch { _items = new(); } }
 
-    private void ShowAdd() { _editId = null; _name = ""; _desc = ""; _showForm = true; }
-    private void Edit(KwDto k) { _editId = k.Id; _name = k.Name; _desc = k.Description ?? ""; _showForm = true; }
+    private void ShowAdd() { _editId = null; _name = ""; _desc = ""; _error = null; _showForm = true; }
+    private void Edit(KwDto k) { _editId = k.Id; _name = k.Name; _desc = k.Description ?? ""; _error = null; _showForm = true; }
     private async Task Save()
     {
-        if (string.IsNullOrWhiteSpace(_name)) return;
+        _error = null;
+        if (string.IsNullOrWhiteSpace(_name)) { _error = "Name erforderlich."; return; }
         _saving = true;
         try
         {
             var body = new { Name = _name, Description = _desc };
-            if (_editId is int id) await Http.PutAsJsonAsync($"client-api/admin/keywords/{id}", body);
-            else await Http.PostAsJsonAsync("client-api/admin/keywords", body);
+            var resp = _editId is int id
+                ? await Http.PutAsJsonAsync($"client-api/admin/keywords/{id}", body)
+                : await Http.PostAsJsonAsync("client-api/admin/keywords", body);
+            if (!resp.IsSuccessStatusCode) { _error = "Speichern fehlgeschlagen."; return; }
             _showForm = false; await Load();
         }
+        catch { _error = "Speichern fehlgeschlagen."; }
         finally { _saving = false; }
     }
-    private async Task Delete(int id) { await Http.DeleteAsync($"client-api/admin/keywords/{id}"); await Load(); }
+    private async Task Delete(int id)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", "Dieses Stichwort wirklich löschen?")) return;
+        _error = null;
+        try { await Http.DeleteAsync($"client-api/admin/keywords/{id}"); await Load(); }
+        catch { _error = "Löschen fehlgeschlagen."; }
+    }
 
     private async Task OpenReq(KwDto k)
     {
-        _reqKeyword = k;
+        _reqKeyword = k; _reqError = null;
         try { _reqEdit = await Http.GetFromJsonAsync<List<ReqDto>>($"client-api/admin/keywords/{k.Id}/requirements") ?? new(); }
-        catch { _reqEdit = new(); }
+        catch { _reqEdit = new(); _reqError = "Requirements konnten nicht geladen werden."; }
     }
     private void SetCount(int fid, int c) { var r = _reqEdit.FirstOrDefault(x => x.FunctionDefId == fid); if (r != null) _reqEdit.Remove(r); _reqEdit.Add(new ReqDto(fid, c, r?.IsRequired ?? false)); }
     private void SetRequired(int fid, bool req) { var r = _reqEdit.FirstOrDefault(x => x.FunctionDefId == fid); if (r != null) _reqEdit.Remove(r); _reqEdit.Add(new ReqDto(fid, r?.MinimumCount ?? 0, req)); }
     private async Task SaveReq()
     {
         if (_reqKeyword is null) return;
-        await Http.PostAsJsonAsync($"client-api/admin/keywords/{_reqKeyword.Id}/requirements", _reqEdit);
-        _reqKeyword = null;
+        _reqError = null;
+        try
+        {
+            var resp = await Http.PostAsJsonAsync($"client-api/admin/keywords/{_reqKeyword.Id}/requirements", _reqEdit);
+            if (!resp.IsSuccessStatusCode) { _reqError = "Speichern fehlgeschlagen."; return; }
+            _reqKeyword = null;
+        }
+        catch { _reqError = "Speichern fehlgeschlagen."; }
     }
 
     private record KwDto(int Id, string Name, string? Description);

@@ -2,6 +2,7 @@
 @layout MainLayout
 @using System.Net.Http.Json
 @inject HttpClient Http
+@inject IJSRuntime JS
 
 <PageTitle>Funktionen - Admin</PageTitle>
 
@@ -18,10 +19,13 @@
                 <h5 class="card-title">@(_editId is null ? "Neue Funktion" : "Funktion bearbeiten")</h5>
                 <div class="mb-3"><label class="form-label">Name</label><input class="form-control" @bind="_name" /></div>
                 <div class="mb-3"><div class="form-check"><input class="form-check-input" type="checkbox" id="def" @bind="_isDefault" /><label class="form-check-label" for="def">Standard</label></div></div>
+                @if (_error is not null) { <div class="alert alert-danger py-2">@_error</div> }
                 <button class="btn btn-primary me-2" @onclick="Save" disabled="@_saving">Speichern</button>
                 <button class="btn btn-secondary" @onclick="() => _showForm = false">Abbrechen</button>
             </div></div></div></div>
         }
+
+        @if (!_showForm && _error is not null) { <div class="alert alert-danger">@_error</div> }
 
         <div class="card"><div class="card-body">
             @if (_items is null) { <p><em>Lade…</em></p> }
@@ -55,28 +59,39 @@
     private int? _editId;
     private string _name = "";
     private bool _isDefault;
+    private string? _error;
 
     protected override async Task OnInitializedAsync() => await Load();
     private async Task Load() { try { _items = await Http.GetFromJsonAsync<List<FuncDto>>("client-api/admin/functions"); } catch { _items = new(); } }
 
-    private void ShowAdd() { _editId = null; _name = ""; _isDefault = false; _showForm = true; }
-    private void Edit(FuncDto f) { _editId = f.Id; _name = f.Name; _isDefault = f.IsDefault; _showForm = true; }
+    private void ShowAdd() { _editId = null; _name = ""; _isDefault = false; _error = null; _showForm = true; }
+    private void Edit(FuncDto f) { _editId = f.Id; _name = f.Name; _isDefault = f.IsDefault; _error = null; _showForm = true; }
 
     private async Task Save()
     {
-        if (string.IsNullOrWhiteSpace(_name)) return;
+        _error = null;
+        if (string.IsNullOrWhiteSpace(_name)) { _error = "Name erforderlich."; return; }
         _saving = true;
         try
         {
             var body = new { Name = _name, IsDefault = _isDefault };
-            if (_editId is int id) await Http.PutAsJsonAsync($"client-api/admin/functions/{id}", body);
-            else await Http.PostAsJsonAsync("client-api/admin/functions", body);
+            var resp = _editId is int id
+                ? await Http.PutAsJsonAsync($"client-api/admin/functions/{id}", body)
+                : await Http.PostAsJsonAsync("client-api/admin/functions", body);
+            if (!resp.IsSuccessStatusCode) { _error = "Speichern fehlgeschlagen."; return; }
             _showForm = false; await Load();
         }
+        catch { _error = "Speichern fehlgeschlagen."; }
         finally { _saving = false; }
     }
 
-    private async Task Delete(int id) { await Http.DeleteAsync($"client-api/admin/functions/{id}"); await Load(); }
+    private async Task Delete(int id)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", "Diese Funktion wirklich löschen?")) return;
+        _error = null;
+        try { await Http.DeleteAsync($"client-api/admin/functions/{id}"); await Load(); }
+        catch { _error = "Löschen fehlgeschlagen."; }
+    }
 
     private record FuncDto(int Id, string Name, bool IsDefault);
 }

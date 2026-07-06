@@ -100,6 +100,8 @@ builder.Services.AddSwaggerGen(c =>
 
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<DownloadTokenService>();
+// Einmal-Login-Tickets fuer den Cookie-SignIn per Browser-GET (Server-Modus, s. AuthTicketService).
+builder.Services.AddSingleton<AuthTicketService>();
 
 var dbProvider = builder.Configuration["DatabaseSettings:Provider"];
 var connectionString = Environment.GetEnvironmentVariable("DATABASE_CONNECTION_STRING") 
@@ -155,7 +157,15 @@ builder.Services.AddScoped<DefectRepository>();
 builder.Services.AddScoped<OperationReportRepository>();
 builder.Services.AddScoped<StatisticsService>();
 builder.Services.AddScoped<PdfExportService>();
-builder.Services.AddScoped<GeocodingService>();
+// GeocodingService ueber IHttpClientFactory (typed client) - kein new HttpClient() je Scope.
+// OSM/Nominatim verlangt einen aussagekraeftigen User-Agent.
+builder.Services.AddHttpClient<GeocodingService>(client =>
+{
+    client.BaseAddress = new Uri("https://nominatim.openstreetmap.org/");
+    client.DefaultRequestHeaders.UserAgent.Clear();
+    client.DefaultRequestHeaders.UserAgent.Add(new System.Net.Http.Headers.ProductInfoHeaderValue("FeuerwehrListen", "1.0"));
+    client.DefaultRequestHeaders.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
+});
 builder.Services.AddScoped<PersonalRequirementsService>();
 builder.Services.AddScoped<UnitAssignmentService>();
 builder.Services.AddScoped<EmailSenderService>();
@@ -175,18 +185,29 @@ builder.Services.AddScoped<HttpClient>(sp =>
     var baseProvider = sp.GetRequiredService<FeuerwehrListen.Services.AppBaseUrlProvider>();
     var authState = sp.GetRequiredService<AuthenticationStateProvider>();
     var secret = sp.GetRequiredService<FeuerwehrListen.Services.InternalAuthSecret>();
-    var handler = new FeuerwehrListen.Services.SelfCookieHandler(accessor, authState, secret)
-    {
-        InnerHandler = new HttpClientHandler
-        {
-            ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
-        }
-    };
-    var client = new HttpClient(handler);
     var ctx = accessor.HttpContext;
     // BaseAddress zuerst aus dem HttpContext (Prerender), sonst aus dem beim ersten Request
     // erfassten Provider (gilt auch waehrend des Circuits, wo kein HttpContext existiert).
     var baseUrl = ctx != null ? $"{ctx.Request.Scheme}://{ctx.Request.Host}" : baseProvider.BaseUrl;
+    // Eigenen Host fuer die Zertifikatspruefung merken (s. u.).
+    string? ownHost = null;
+    if (!string.IsNullOrEmpty(baseUrl) && Uri.TryCreate(baseUrl, UriKind.Absolute, out var buri)) ownHost = buri.Host;
+    var handler = new FeuerwehrListen.Services.SelfCookieHandler(accessor, authState, secret, baseProvider)
+    {
+        InnerHandler = new HttpClientHandler
+        {
+            // Selbstsignierte/beliebige Zertifikate NUR fuer den eigenen Host akzeptieren
+            // (Self-Calls). Fremd-Hosts (z. B. der 3D-Tag-Helfer) werden regulaer geprueft.
+            ServerCertificateCustomValidationCallback = (message, cert, chain, errors) =>
+            {
+                var targetHost = message.RequestUri?.Host;
+                if (ownHost != null && string.Equals(targetHost, ownHost, StringComparison.OrdinalIgnoreCase))
+                    return true;
+                return errors == System.Net.Security.SslPolicyErrors.None;
+            }
+        }
+    };
+    var client = new HttpClient(handler);
     if (!string.IsNullOrEmpty(baseUrl)) client.BaseAddress = new Uri(baseUrl.TrimEnd('/') + "/");
     return client;
 });
@@ -228,12 +249,17 @@ if (!app.Environment.IsDevelopment())
 {
     app.UseHttpsRedirection();
 }
-// Basis-URL (scheme://host) beim ersten Request einmalig erfassen - fuer server-seitige
-// Self-Calls waehrend eines Blazor-Server-Circuits (dort gibt es keinen HttpContext).
+// Basis-URL (scheme://host) fuer server-seitige Self-Calls waehrend eines Blazor-Server-
+// Circuits (dort gibt es keinen HttpContext). Bevorzugt einen konfigurierten Wert
+// (AppSettings:BaseUrl) - schuetzt vor Host-Header-Poisoning; nur als Fallback der Host-Header.
+var configuredBaseUrl = app.Configuration["AppSettings:BaseUrl"];
 app.Use(async (ctx, next) =>
 {
     var p = ctx.RequestServices.GetRequiredService<FeuerwehrListen.Services.AppBaseUrlProvider>();
-    if (string.IsNullOrEmpty(p.BaseUrl)) p.BaseUrl = $"{ctx.Request.Scheme}://{ctx.Request.Host}";
+    if (string.IsNullOrEmpty(p.BaseUrl))
+        p.BaseUrl = !string.IsNullOrWhiteSpace(configuredBaseUrl)
+            ? configuredBaseUrl.TrimEnd('/')
+            : $"{ctx.Request.Scheme}://{ctx.Request.Host}";
     await next();
 });
 
@@ -270,11 +296,17 @@ app.UseMiddleware<ApiKeyAuthMiddleware>();
 app.UseAntiforgery();
 
 app.MapControllers();
+// Download-Token nur fuer angemeldete Nutzer und nur fuer Export-Pfade ausstellen.
+// Frueher anonym + beliebiger Pfad -> jeder konnte Export-PDFs (inkl. Mitgliederliste)
+// per Token abrufen. Interaktive Nutzer nutzen zusaetzlich die neuen Inline-PDF-Endpoints
+// (/client-api/export/*), dieser Token-Weg bleibt fuer den externen /api/export-Zugriff.
 app.MapGet("/token", (HttpContext ctx, DownloadTokenService tokenSvc, string path) =>
 {
+    if (string.IsNullOrEmpty(path) || !path.StartsWith("/api/export/", StringComparison.Ordinal))
+        return Results.BadRequest("Ungueltiger Pfad");
     var token = tokenSvc.CreateToken(path);
     return Results.Text(token, "text/plain");
-});
+}).RequireAuthorization();
 
 // --- Client-API (Proof-of-Concept) ---------------------------------------------------
 // Zustandslose JSON-Endpoints fuer einen circuit-freien Client (kein SignalR).
@@ -359,16 +391,19 @@ app.MapGet("/client-api/app-context", (SettingsService settings) =>
 });
 
 // --- Auth (Cookie) fuer den WASM-Admin-Bereich ---
-app.MapPost("/client-api/auth/login", async (HttpContext ctx, UserRepository users, AuthLoginRequest req) =>
+// WICHTIG: Login/QR setzen NICHT mehr direkt den Cookie, sondern geben ein Einmal-Ticket
+// zurueck. Der eigentliche Cookie-SignIn passiert in einer echten Browser-GET-Navigation
+// (/client-api/auth/complete). Grund: Im Server-Modus (SignalR) laeuft dieser POST
+// server-intern (SelfHttpClient) -> das Set-Cookie erreicht den Browser sonst nie.
+app.MapPost("/client-api/auth/login", async (UserRepository users, AuthTicketService tickets, AuthLoginRequest req) =>
 {
     var user = await users.GetByUsernameAsync(req.Username ?? "");
-    if (user == null || user.PasswordHash != FeuerwehrListen.Services.AuthenticationService.HashPassword(req.Password ?? ""))
+    if (user == null || !FeuerwehrListen.Services.AuthenticationService.VerifyPassword(user.PasswordHash, req.Password))
         return Results.Json(new { ok = false });
-    await SignInUser(ctx, user);
-    return Results.Json(new { ok = true });
+    return Results.Json(new { ok = true, ticket = tickets.CreateTicket(user.Id) });
 }).DisableAntiforgery();
 
-app.MapPost("/client-api/auth/qr", async (HttpContext ctx, UserRepository users, AuthQrRequest req) =>
+app.MapPost("/client-api/auth/qr", async (UserRepository users, AuthTicketService tickets, AuthQrRequest req) =>
 {
     var user = await users.GetByQrAuthCodeAsync((req.Code ?? "").Trim());
     if (user == null) return Results.Json(new { status = "invalid" });
@@ -377,8 +412,19 @@ app.MapPost("/client-api/auth/qr", async (HttpContext ctx, UserRepository users,
         if (string.IsNullOrWhiteSpace(req.Pin)) return Results.Json(new { status = "pin" });
         if (user.AdminPin != req.Pin.Trim()) return Results.Json(new { status = "badpin" });
     }
+    return Results.Json(new { status = "ok", ticket = tickets.CreateTicket(user.Id) });
+}).DisableAntiforgery();
+
+// Login-ABSCHLUSS: echte Top-Level-Browser-GET -> hier wird der Cookie gesetzt, sodass
+// das Set-Cookie im Server-Modus tatsaechlich im Browser ankommt. Kein RequireAuthorization
+// (das ist ja der Anmeldevorgang selbst). Ticket ist einmalig und 60s gueltig.
+app.MapGet("/client-api/auth/complete", async (HttpContext ctx, UserRepository users, AuthTicketService tickets, string? ticket) =>
+{
+    if (!tickets.TryConsume(ticket, out var userId)) return Results.Redirect("/login");
+    var user = await users.GetByIdAsync(userId);
+    if (user == null) return Results.Redirect("/login");
     await SignInUser(ctx, user);
-    return Results.Json(new { status = "ok" });
+    return Results.Redirect("/");
 }).DisableAntiforgery();
 
 app.MapPost("/client-api/auth/logout", async (HttpContext ctx) =>
@@ -387,12 +433,20 @@ app.MapPost("/client-api/auth/logout", async (HttpContext ctx) =>
     return Results.Ok();
 }).DisableAntiforgery();
 
+// Logout-ABSCHLUSS als echte Browser-GET: nur so wird der Cookie-Loesch-Header im Browser
+// wirksam (analog complete, damit auch der Server-Modus den Cookie tatsaechlich entfernt).
+app.MapGet("/client-api/auth/logout-redirect", async (HttpContext ctx) =>
+{
+    await ctx.SignOutAsync("FwCookie");
+    return Results.Redirect("/");
+}).DisableAntiforgery();
+
 app.MapPost("/client-api/auth/change-password", async (HttpContext ctx, UserRepository users, ChangePwRequest req) =>
 {
     if (ctx.User?.Identity?.IsAuthenticated != true) return Results.Unauthorized();
     var user = await users.GetByUsernameAsync(ctx.User.Identity!.Name ?? "");
     if (user == null) return Results.Unauthorized();
-    if (user.PasswordHash != FeuerwehrListen.Services.AuthenticationService.HashPassword(req.OldPassword ?? ""))
+    if (!FeuerwehrListen.Services.AuthenticationService.VerifyPassword(user.PasswordHash, req.OldPassword))
         return Results.Json(new { ok = false });
     user.PasswordHash = FeuerwehrListen.Services.AuthenticationService.HashPassword(req.NewPassword ?? "");
     await users.UpdateAsync(user);
@@ -411,6 +465,44 @@ app.MapGet("/client-api/auth/me", (HttpContext ctx) =>
         lastName = ctx.User.FindFirst("LastName")?.Value
     });
 });
+
+// ================== Inline-PDF fuer interaktive (per Cookie angemeldete) Nutzer ==========
+// Inline-PDF fuer interaktive Nutzer, ohne Token-await - behebt iOS-WASM-Download.
+// Grund: Die Client-Seiten mussten bisher erst `await Http.GetStringAsync("token?...")`
+// und DANN oeffnen; der await zerstoert auf iOS die User-Aktivierung und die
+// Content-Disposition:attachment-Antwort wird blockiert. Diese Endpoints brauchen kein
+// Token (Cookie-Auth reicht) und liefern das PDF INLINE (Results.File ohne Dateiname ->
+// Content-Disposition: inline), sodass die Seite es direkt in der Klick-Geste oeffnen kann.
+// Der externe /api/export-Weg (Token + Content-Disposition:attachment) bleibt unveraendert.
+app.MapGet("/client-api/export/attendance/{id:int}/pdf", async (int id, PdfExportService pdf) =>
+    Results.File(await pdf.ExportAttendanceListAsync(id), "application/pdf"))
+    .RequireAuthorization();
+
+app.MapGet("/client-api/export/operation/{id:int}/pdf", async (int id, PdfExportService pdf) =>
+    Results.File(await pdf.ExportOperationListAsync(id), "application/pdf"))
+    .RequireAuthorization();
+
+app.MapGet("/client-api/export/operation-report/{id:int}/pdf", async (int id, PdfExportService pdf) =>
+    Results.File(await pdf.ExportOperationReportAsync(id), "application/pdf"))
+    .RequireAuthorization();
+
+app.MapGet("/client-api/export/members/pdf", async (PdfExportService pdf) =>
+    Results.File(await pdf.ExportMemberListAsync(), "application/pdf"))
+    .RequireAuthorization("Admin");
+
+app.MapGet("/client-api/export/statistics/pdf", async (PdfExportService pdf,
+    int? listType, DateTime? from, DateTime? to, int? unit) =>
+{
+    var lt = listType ?? 3; // Default wie ExportController.ExportStatisticsPdf
+    var filter = new StatsFilter
+    {
+        ListType = Enum.IsDefined(typeof(StatListType), lt) ? (StatListType)lt : StatListType.All,
+        From = from,
+        To = to,
+        Unit = unit ?? 0
+    };
+    return Results.File(await pdf.ExportStatisticsReportAsync(filter), "application/pdf");
+}).RequireAuthorization("Admin");
 
 // ================== Listen-Verwaltung (angemeldete Nutzer) ==================
 var listMgmt = app.MapGroup("/client-api").RequireAuthorization().DisableAntiforgery();
@@ -649,7 +741,8 @@ admin.MapPost("/settings", async (SettingsService settings, IWebHostEnvironment 
 {
     foreach (var kv in body)
         await settings.UpdateSettingAsync(kv.Key, kv.Value ?? "");
-    // manifest.json App-Name aktualisieren
+    // manifest.json App-Name aktualisieren. Per System.Text.Json (JsonNode) statt Regex -
+    // sonst koennen Sonderzeichen im Namen ($0, Anfuehrungszeichen) die Datei korrumpieren.
     if (body.TryGetValue(SettingKeys.BrandingAppName, out var appName))
     {
         try
@@ -657,13 +750,21 @@ admin.MapPost("/settings", async (SettingsService settings, IWebHostEnvironment 
             var path = Path.Combine(env.WebRootPath, "manifest.json");
             if (File.Exists(path))
             {
-                var json = await File.ReadAllTextAsync(path);
-                json = System.Text.RegularExpressions.Regex.Replace(json, "\"name\":\\s*\"[^\"]*\"",
-                    $"\"name\": \"{(string.IsNullOrWhiteSpace(appName) ? "Feuerwehr Listen" : appName)}\"");
-                await File.WriteAllTextAsync(path, json);
+                var raw = await File.ReadAllTextAsync(path);
+                var node = System.Text.Json.Nodes.JsonNode.Parse(raw);
+                if (node is System.Text.Json.Nodes.JsonObject obj)
+                {
+                    obj["name"] = string.IsNullOrWhiteSpace(appName) ? "Feuerwehr Listen" : appName;
+                    var opts = new System.Text.Json.JsonSerializerOptions { WriteIndented = true };
+                    await File.WriteAllTextAsync(path, obj.ToJsonString(opts));
+                }
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            // Read-only Container o. ae.: tolerant fangen, aber loggen statt still schlucken.
+            app.Logger.LogWarning(ex, "manifest.json konnte nicht aktualisiert werden");
+        }
     }
     return Results.Ok();
 });
@@ -888,6 +989,7 @@ app.MapDelete("/client-api/operation/{id:int}/entry/{entryId:int}", async (int e
 { await repo.DeleteAsync(entryId); return Results.Ok(); }).RequireAuthorization().DisableAntiforgery();
 
 // Mitglied fuer Einsatz-Eintrag aufloesen (danach waehlt der Client Fahrzeug + Funktionen)
+// Bewusst anonym fuer Kiosk-LAN; bei oeffentlicher Erreichbarkeit absichern (DSGVO).
 app.MapPost("/client-api/operation/{id:int}/resolve", async (int id, MemberRepository memberRepo, OperationResolveRequest req) =>
 {
     var input = (req.Code ?? "").Trim();
@@ -912,10 +1014,12 @@ app.MapPost("/client-api/operation/{id:int}/resolve", async (int id, MemberRepos
 }).DisableAntiforgery();
 
 // Einsatz-Eintrag speichern (mit Fahrzeug + Funktionen)
-app.MapPost("/client-api/operation/{id:int}/add", async (int id, OperationListRepository repo, OperationEntryRepository entryRepo, OperationEntryFunctionRepository efRepo, MemberRepository memberRepo, VehicleRepository vehicleRepo, OperationAddRequest req) =>
+app.MapPost("/client-api/operation/{id:int}/add", async (int id, HttpContext http, OperationListRepository repo, OperationEntryRepository entryRepo, OperationEntryFunctionRepository efRepo, MemberRepository memberRepo, VehicleRepository vehicleRepo, OperationAddRequest req) =>
 {
     var list = await repo.GetByIdAsync(id);
     if (list == null) return Results.NotFound();
+    // Geschlossene Listen: Nachtragen nur fuer angemeldete Benutzer (analog attendance/add).
+    if (list.Status != ListStatus.Open && !(http.User.Identity?.IsAuthenticated ?? false)) return Results.Forbid();
     var member = await memberRepo.GetByIdAsync(req.MemberId);
     if (member == null) return Results.Json(new { status = "notfound" });
 
@@ -979,19 +1083,26 @@ app.MapPost("/client-api/defects", async (DefectRepository repo, VehicleReposito
 }).DisableAntiforgery();
 app.MapGet("/client-api/defects/{id:int}/history", async (int id, DefectRepository repo) =>
     Results.Json((await repo.GetStatusChangesAsync(id)).Select(c => new { oldStatus = c.OldStatus.ToString(), newStatus = c.NewStatus.ToString(), changedByName = c.ChangedByName, changedAt = c.ChangedAt, comment = c.Comment })));
-app.MapPost("/client-api/defects/{id:int}/status", async (int id, DefectRepository repo, MemberRepository mRepo, DefectStatusRequest r) =>
+// Statusaenderung erfordert Anmeldung (frueher genuegte eine beliebige gueltige Mitglieds-
+// nummer -> jeder konnte jeden Mangel-Status setzen). Die Mitgliedsnummer/der Name bleibt
+// nur als "bearbeitet durch"-Info, ist aber KEIN Auth-Merkmal mehr. Das anonyme MELDEN
+// (POST /client-api/defects) bleibt bewusst unveraendert (Kiosk-Flow).
+app.MapPost("/client-api/defects/{id:int}/status", async (int id, HttpContext http, DefectRepository repo, MemberRepository mRepo, DefectStatusRequest r) =>
 {
     var d = await repo.GetByIdAsync(id); if (d == null) return Results.NotFound();
-    var member = await mRepo.GetByMemberNumberAsync((r.MemberNumber ?? "").Trim());
-    if (member == null) return Results.Json(new { status = "notfound" });
     if (!Enum.TryParse<DefectStatus>(r.NewStatus, out var ns)) return Results.BadRequest();
-    var disp = $"{member.FirstName} {member.LastName} ({member.MemberNumber})";
+    // Optionale "bearbeitet durch"-Info: bevorzugt die angegebene Mitgliedsnummer, sonst der
+    // angemeldete Benutzername. Nicht mehr autorisierungsrelevant.
+    var member = await mRepo.GetByMemberNumberAsync((r.MemberNumber ?? "").Trim());
+    var disp = member != null
+        ? $"{member.FirstName} {member.LastName} ({member.MemberNumber})"
+        : (http.User.Identity?.Name ?? "Unbekannt");
     await repo.AddStatusChangeAsync(new DefectStatusChange { DefectId = id, OldStatus = d.Status, NewStatus = ns, ChangedByName = disp, ChangedAt = DateTime.Now, Comment = string.IsNullOrWhiteSpace(r.Comment) ? null : r.Comment.Trim() });
     d.Status = ns;
-    if (ns == DefectStatus.Done) { d.ResolvedAt = DateTime.Now; d.ResolvedByMemberId = member.Id; d.ResolvedByName = disp; }
+    if (ns == DefectStatus.Done) { d.ResolvedAt = DateTime.Now; d.ResolvedByMemberId = member?.Id; d.ResolvedByName = disp; }
     await repo.UpdateAsync(d);
     return Results.Json(new { status = "ok" });
-}).DisableAntiforgery();
+}).RequireAuthorization().DisableAntiforgery();
 
 // Brandsicherheitswache: Detail (öffentlich) + Registrieren/Austragen/Abschließen
 app.MapGet("/client-api/firesafetywatch/{id:int}", async (int id, FireSafetyWatchRepository repo, FireSafetyWatchRequirementRepository reqRepo, FireSafetyWatchEntryRepository entryRepo) =>
@@ -1011,8 +1122,13 @@ app.MapGet("/client-api/firesafetywatch/{id:int}", async (int id, FireSafetyWatc
     });
 });
 
-app.MapPost("/client-api/firesafetywatch/{id:int}/register", async (int id, FireSafetyWatchEntryRepository entryRepo, MemberRepository memberRepo, FswRegisterRequest req) =>
+app.MapPost("/client-api/firesafetywatch/{id:int}/register", async (int id, HttpContext http, FireSafetyWatchRepository watchRepo, FireSafetyWatchEntryRepository entryRepo, MemberRepository memberRepo, FswRegisterRequest req) =>
 {
+    // Geschlossene Wachen: Nachtragen nur fuer angemeldete Benutzer (analog attendance/add).
+    var watch = await watchRepo.GetByIdAsync(id);
+    if (watch == null) return Results.NotFound();
+    if (watch.Status != ListStatus.Open && !(http.User.Identity?.IsAuthenticated ?? false)) return Results.Forbid();
+
     Member? member = null;
     if (req.MemberId is int mid) member = await memberRepo.GetByIdAsync(mid);
     else if (!string.IsNullOrWhiteSpace(req.Code))
@@ -1123,6 +1239,7 @@ app.MapGet("/client-api/keywords", async (KeywordRepository kw) =>
     Results.Json((await kw.GetAllAsync()).Select(k => new { name = k.Name, description = k.Description })));
 
 // Anwesenheitsliste anlegen
+// Bewusst anonym fuer Kiosk-LAN; bei oeffentlicher Erreichbarkeit absichern (DSGVO).
 app.MapPost("/client-api/attendance/create", async (AttendanceListRepository repo, CreateAttendanceRequest req) =>
 {
     if (string.IsNullOrWhiteSpace(req.Title) || string.IsNullOrWhiteSpace(req.Unit)) return Results.BadRequest();
@@ -1139,6 +1256,7 @@ app.MapPost("/client-api/attendance/create", async (AttendanceListRepository rep
 }).DisableAntiforgery();
 
 // Einsatzliste anlegen (Stichwort anlegen falls neu)
+// Bewusst anonym fuer Kiosk-LAN; bei oeffentlicher Erreichbarkeit absichern (DSGVO).
 app.MapPost("/client-api/operation/create", async (OperationListRepository repo, KeywordRepository kw, CreateOperationRequest req) =>
 {
     if (string.IsNullOrWhiteSpace(req.OperationNumber) || string.IsNullOrWhiteSpace(req.Keyword)) return Results.BadRequest();
@@ -1187,6 +1305,7 @@ app.MapGet("/client-api/operations/recent", async (OperationListRepository opRep
 });
 
 // Feedback absenden (wie bisher: an in den Settings hinterlegte Empfaenger).
+// Bewusst anonym fuer Kiosk-LAN; bei oeffentlicher Erreichbarkeit absichern (DSGVO).
 app.MapPost("/client-api/feedback", async (OperationListRepository opRepo, FeedbackService feedback, FeedbackRequest req) =>
 {
     var op = await opRepo.GetByIdAsync(req.OperationId);

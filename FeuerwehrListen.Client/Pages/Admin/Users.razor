@@ -2,6 +2,7 @@
 @layout MainLayout
 @using System.Net.Http.Json
 @inject HttpClient Http
+@inject IJSRuntime JS
 
 <PageTitle>Benutzer - Admin</PageTitle>
 
@@ -32,6 +33,8 @@
                 <button class="btn btn-secondary" @onclick="() => _showForm = false">Abbrechen</button>
             </div></div></div></div>
         }
+
+        @if (!_showForm && _error is not null) { <div class="alert alert-danger">@_error</div> }
 
         <div class="card"><div class="card-body">
             @if (_items is null) { <p><em>Lade…</em></p> }
@@ -90,7 +93,13 @@
         finally { _saving = false; }
     }
 
-    private async Task Delete(int id) { await Http.DeleteAsync($"client-api/admin/users/{id}"); await Load(); }
+    private async Task Delete(int id)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", "Diesen Benutzer wirklich löschen?")) return;
+        _error = null;
+        try { await Http.DeleteAsync($"client-api/admin/users/{id}"); await Load(); }
+        catch { _error = "Löschen fehlgeschlagen."; }
+    }
 
     private record UserDto(int Id, string Username, string FirstName, string LastName, string Role, bool HasQr, bool HasPin);
 }

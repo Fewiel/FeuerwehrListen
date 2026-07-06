@@ -9,11 +9,22 @@
 
 @if (_data is null)
 {
-    <div class="container mt-4"><p><em>Lade…</em></p></div>
+    <div class="container mt-4">
+        @if (_loadError is not null)
+        {
+            <div class="alert alert-danger">@_loadError</div>
+            <button class="btn btn-secondary" @onclick="Load"><i class="bi bi-arrow-clockwise me-1"></i>Erneut versuchen</button>
+        }
+        else
+        {
+            <p><em>Lade…</em></p>
+        }
+    </div>
 }
 else
 {
     <div class="container mt-4">
+        @if (_loadError is not null) { <div class="alert alert-warning py-2"><i class="bi bi-exclamation-triangle me-1"></i>@_loadError</div> }
         <div class="mb-4">
             <h1>Einsatz @_data.Number</h1>
             <p class="lead">Stichwort: @_data.Keyword</p>
@@ -138,9 +149,9 @@ else
                     <button class="btn btn-outline-secondary" @onclick="() => _showAddress = !_showAddress"><i class="bi bi-geo-alt me-1"></i>Einsatzadresse @(string.IsNullOrWhiteSpace(_data.Address) ? "hinzufügen" : "ändern")</button>
                     @if (_showAddress)
                     {
-                        <div class="input-group"><input class="form-control" placeholder="Straße, Ort" @bind="_addressInput" @onkeyup="@(async e => { if (e.Key == "Enter") await SaveAddress(); })" /><button class="btn btn-secondary" @onclick="SaveAddress">Speichern</button></div>
+                        <div class="input-group"><input class="form-control" placeholder="Straße, Ort" @bind="_addressInput" @onkeyup="@(async e => { if (e.Key == "Enter") await SaveAddress(); })" /><button class="btn btn-secondary" @onclick="SaveAddress" disabled="@_busy">Speichern</button></div>
                     }
-                    <button class="btn btn-warning btn-lg" @onclick="Close"><i class="bi bi-lock me-2"></i>Einsatz abschließen</button>
+                    <button class="btn btn-warning btn-lg" @onclick="Close" disabled="@_busy"><i class="bi bi-lock me-2"></i>Einsatz abschließen</button>
                 }
                 <button class="btn btn-primary btn-lg" @onclick="ExportPdf"><i class="bi bi-file-earmark-pdf me-2"></i>PDF Export</button>
             </div>
@@ -154,6 +165,9 @@ else
     [Parameter] public int Id { get; set; }
 
     private OpDto? _data;
+    private string? _loadError;
+    private bool _busy;
+    private int _confirmSeq;
     private string _step = "scan";
     private bool _showManual;
     private string _manual = "";
@@ -178,8 +192,22 @@ else
 
     private async Task Load()
     {
-        try { _data = await Http.GetFromJsonAsync<OpDto>($"client-api/operation/{Id}"); }
-        catch { _data = null; }
+        var hadData = _data is not null;
+        try
+        {
+            _data = await Http.GetFromJsonAsync<OpDto>($"client-api/operation/{Id}");
+            _loadError = null;
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            _data = null;
+            _loadError = "Diese Einsatzliste wurde nicht gefunden.";
+        }
+        catch
+        {
+            _loadError = "Aktualisierung fehlgeschlagen – Netzwerkproblem.";
+            if (!hadData) _data = null;
+        }
     }
 
     private async Task Resolve(string code)
@@ -253,8 +281,9 @@ else
         await Sound("success");
         _confirmationName = name ?? "";
         _confirmationVisible = true;
+        var seq = ++_confirmSeq;
         StateHasChanged();
-        _ = Task.Run(async () => { await Task.Delay(2000); await InvokeAsync(() => { _confirmationVisible = false; StateHasChanged(); }); });
+        _ = Task.Run(async () => { await Task.Delay(2000); await InvokeAsync(() => { if (_confirmSeq == seq) { _confirmationVisible = false; StateHasChanged(); } }); });
     }
 
     private async Task Sound(string type) { try { await JS.InvokeVoidAsync("playSound", type); } catch { } }
@@ -262,25 +291,42 @@ else
     private async Task SaveAddress()
     {
         if (string.IsNullOrWhiteSpace(_addressInput)) return;
-        try { await Http.PostAsJsonAsync($"client-api/operation/{Id}/address", new { Address = _addressInput.Trim() }); _showAddress = false; _addressInput = ""; await Load(); }
+        if (_busy) return;
+        _busy = true;
+        try
+        {
+            var resp = await Http.PostAsJsonAsync($"client-api/operation/{Id}/address", new { Address = _addressInput.Trim() });
+            if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized) { _error = "Sitzung abgelaufen – bitte neu anmelden."; return; }
+            if (!resp.IsSuccessStatusCode) { _error = "Speichern fehlgeschlagen."; return; }
+            _showAddress = false; _addressInput = ""; await Load();
+        }
         catch { _error = "Speichern fehlgeschlagen."; }
+        finally { _busy = false; }
     }
 
     private async Task Close()
     {
-        try { await Http.PostAsJsonAsync($"client-api/operation/{Id}/close", new { Address = (string?)null }); await Load(); }
+        if (_busy) return;
+        _busy = true;
+        try
+        {
+            var resp = await Http.PostAsJsonAsync($"client-api/operation/{Id}/close", new { Address = (string?)null });
+            if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized) { _error = "Sitzung abgelaufen – bitte neu anmelden."; return; }
+            if (!resp.IsSuccessStatusCode) { _error = "Abschließen fehlgeschlagen."; return; }
+            await Load();
+        }
         catch { _error = "Abschließen fehlgeschlagen."; }
+        finally { _busy = false; }
     }
 
     private async Task ExportPdf()
     {
+        // Inline-Endpoint direkt oeffnen (Cookie-Auth, kein Token, User-Geste bleibt erhalten).
         try
         {
-            var path = $"/api/export/operation/{Id}/pdf";
-            var token = await Http.GetStringAsync($"token?path={Uri.EscapeDataString(path)}");
-            await JS.InvokeVoidAsync("openPdf", $"{Nav.BaseUri.TrimEnd('/')}{path}?token={Uri.EscapeDataString(token)}");
+            await JS.InvokeVoidAsync("openPdf", $"{Nav.BaseUri}client-api/export/operation/{Id}/pdf");
         }
-        catch { }
+        catch { _error = "PDF konnte nicht geöffnet werden."; }
     }
 
     private record OpDto(int Id, string Number, string Keyword, string? Address, bool IsOpen, List<EntryDto> Entries, List<VehicleDto> Vehicles, List<FuncDto> Functions);

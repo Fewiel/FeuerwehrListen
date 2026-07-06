@@ -11,6 +11,9 @@ builder.Services.AddScoped(sp => new HttpClient
     BaseAddress = new Uri(builder.HostEnvironment.BaseAddress)
 });
 
+// App-Kontext (AppName/Logo/Module) einmal laden und cachen statt pro Seite/NavMenu neu.
+builder.Services.AddScoped<AppContextService>();
+
 builder.Services.AddAuthorizationCore();
 builder.Services.AddScoped<CookieAuthStateProvider>();
 builder.Services.AddScoped<AuthenticationStateProvider>(sp => sp.GetRequiredService<CookieAuthStateProvider>());

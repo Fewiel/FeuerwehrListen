@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "feuerwehr-listen",
-      "runtimeExecutable": "/usr/bin/bash.exe",
-      "runtimeArgs": ["run-dev.sh"],
+      "runtimeExecutable": "C:\\Program Files\\dotnet\\dotnet.exe",
+      "runtimeArgs": ["run", "--project", "FeuerwehrListen/FeuerwehrListen.csproj", "--no-launch-profile", "--urls", "http://localhost:5000"],
       "env": {
         "ASPNETCORE_ENVIRONMENT": "Development",
         "ASPNETCORE_URLS": "http://localhost:5000"

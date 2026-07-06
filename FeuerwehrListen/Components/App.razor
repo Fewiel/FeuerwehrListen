@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#E4002B"/>
     <link rel="icon" type="image/png" href="favicon.png"/>
     <link rel="manifest" href="manifest.json"/>
-    <link rel="apple-touch-icon" href="favicon.png"/>
+    <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png"/>
     <base href="/"/>
     <link rel="stylesheet" href="bootstrap/bootstrap.min.css"/>
     <link rel="stylesheet" href="lib/bootstrap-icons/bootstrap-icons.min.css"/>
@@ -25,10 +25,48 @@
     <script>
         (function () {
             var ok = (typeof WebAssembly !== "undefined") && (typeof Promise !== "undefined") && (typeof BigInt === "function");
-            if (ok) return;
-            if (document.cookie.indexOf("fw_srv=1") === -1) {
+            var hasSrv = document.cookie.indexOf("fw_srv=1") !== -1;
+
+            if (ok) {
+                // Umkehr-Fall: Geraet kann jetzt WASM (z.B. iPad von iOS 13 auf 15 aktualisiert),
+                // aber fw_srv=1 steckt noch -> Cookie loeschen, damit wieder WASM genutzt wird.
+                // KEIN reload noetig: Der Server rendert diesen Request evtl. noch im Server-Modus,
+                // ab dem naechsten normalen Seitenaufruf greift dann wieder WASM.
+                if (hasSrv) {
+                    document.cookie = "fw_srv=;path=/;max-age=0";
+                }
+                return;
+            }
+
+            // Altgeraet ohne WASM: Server-Modus erzwingen. Gegen Endlos-Reload absichern,
+            // falls Cookies blockiert sind (das Cookie waere nach reload wieder weg).
+            if (!hasSrv) {
+                var TRIED = "fw_srv_try";
+                var already = false;
+                try { already = sessionStorage.getItem(TRIED) === "1"; } catch (e) { }
+
                 document.cookie = "fw_srv=1;path=/;max-age=31536000";
-                location.reload();
+
+                // Prueft, ob das Cookie tatsaechlich gesetzt werden konnte.
+                var cookieStuck = document.cookie.indexOf("fw_srv=1") !== -1;
+
+                if (cookieStuck && !already) {
+                    try { sessionStorage.setItem(TRIED, "1"); } catch (e) { }
+                    location.reload();
+                } else if (!cookieStuck) {
+                    // Cookies blockiert -> statt Endlosschleife eine klare Meldung anzeigen.
+                    document.addEventListener("DOMContentLoaded", function () {
+                        try {
+                            var d = document.createElement("div");
+                            d.style.cssText = "font-family:-apple-system,Helvetica,Arial,sans-serif;max-width:34em;margin:12vh auto;padding:24px;color:#171B21;line-height:1.5;text-align:center";
+                            d.innerHTML = "<h2 style='color:#B3001F;margin:0 0 12px'>Cookies erforderlich</h2>"
+                                + "<p>Dieses Geraet ist zu alt fuer die schnelle App-Variante. Fuer die volle Funktion muessen Cookies aktiviert sein.</p>"
+                                + "<p>Bitte aktivieren Sie in den Safari-Einstellungen &bdquo;Cookies zulassen&ldquo; und laden Sie die Seite neu.</p>";
+                            document.body.appendChild(d);
+                        } catch (e) { }
+                    });
+                }
+                // already === true: nicht erneut reloaden (Endlosschutz).
             }
         })();
     </script>
@@ -41,7 +79,9 @@
 
     <script src="lib/barcode-detector/polyfill.min.js"></script>
     <script>
-        // WASM des Barcode-Polyfills lokal laden (statt CDN) – für Altgeräte / falls das CDN ausfällt
+        // WASM des Barcode-Polyfills lokal laden (statt CDN) – für Altgeräte / falls das CDN ausfällt.
+        // Projektregel: ALLES lokal, kein CDN. Fehlt der Override-Hook, laut failen (console.error)
+        // statt still - sonst faellt der Polyfill unbemerkt auf die einkompilierte jsdelivr-URL zurueck.
         try {
             if (window.BarcodeDetectionAPI && window.BarcodeDetectionAPI.setZXingModuleOverrides) {
                 window.BarcodeDetectionAPI.setZXingModuleOverrides({
@@ -49,6 +89,8 @@
                         return (path && path.endsWith('.wasm')) ? '/lib/barcode-detector/' + path : (prefix || '') + path;
                     }
                 });
+            } else {
+                console.error('BarcodeDetector: setZXingModuleOverrides fehlt - WASM koennte vom CDN geladen werden (verletzt "alles lokal"). Polyfill-Version pruefen.');
             }
         } catch (e) { console.error('BarcodeDetector WASM override failed', e); }
     </script>
@@ -123,17 +165,23 @@
 
     // Render-Modus je Request: ?rmode=server/wasm (Test-Override) > Cookie fw_srv=1
     // (Client-BigInt-Check) > server-seitige UA-Erkennung (iOS 10-13) > sonst WASM.
+    // Prerender bewusst deaktiviert (prerender:false): sonst rendert der Server jede Seite
+    // einmal statisch vor UND die interaktive Runtime laedt die Daten danach erneut ->
+    // doppelte Datenladung (im Server-Modus doppelt teuer) und Flackern.
+    private static readonly IComponentRenderMode ServerMode = new InteractiveServerRenderMode(prerender: false);
+    private static readonly IComponentRenderMode WasmMode = new InteractiveWebAssemblyRenderMode(prerender: false);
+
     private IComponentRenderMode Mode
     {
         get
         {
             var ctx = HttpContext;
-            if (ctx is null) return InteractiveWebAssembly;
+            if (ctx is null) return WasmMode;
             var rmode = ctx.Request.Query["rmode"].ToString();
-            if (rmode == "server") return InteractiveServer;
-            if (rmode == "wasm") return InteractiveWebAssembly;
-            if (ctx.Request.Cookies.TryGetValue("fw_srv", out var c) && c == "1") return InteractiveServer;
-            return IsOldBrowser(ctx.Request.Headers.UserAgent.ToString()) ? InteractiveServer : InteractiveWebAssembly;
+            if (rmode == "server") return ServerMode;
+            if (rmode == "wasm") return WasmMode;
+            if (ctx.Request.Cookies.TryGetValue("fw_srv", out var c) && c == "1") return ServerMode;
+            return IsOldBrowser(ctx.Request.Headers.UserAgent.ToString()) ? ServerMode : WasmMode;
         }
     }
 

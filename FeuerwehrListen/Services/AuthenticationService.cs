@@ -80,7 +80,11 @@ public class AuthenticationService : AuthenticationStateProvider, IHostEnvironme
         var claims = new[]
         {
             new Claim(ClaimTypes.Name, _currentUser.Username),
-            new Claim(ClaimTypes.Role, _currentUser.Role.ToString())
+            new Claim(ClaimTypes.Role, _currentUser.Role.ToString()),
+            // Vor-/Nachname mitgeben, damit das NavMenu im Server-Modus die richtigen
+            // Initialen zeigt (konsistent zu /client-api/auth/me und SeedFromPrincipal).
+            new Claim("FirstName", _currentUser.FirstName ?? string.Empty),
+            new Claim("LastName", _currentUser.LastName ?? string.Empty)
         };
         var identity = new ClaimsIdentity(claims, "apiauth");
         return new AuthenticationState(new ClaimsPrincipal(identity));
@@ -148,8 +152,7 @@ public class AuthenticationService : AuthenticationStateProvider, IHostEnvironme
         if (user == null)
             return false;
 
-        var passwordHash = HashPassword(password);
-        if (user.PasswordHash != passwordHash)
+        if (!VerifyPassword(user.PasswordHash, password))
             return false;
 
         _currentUser = user;
@@ -223,8 +226,7 @@ public class AuthenticationService : AuthenticationStateProvider, IHostEnvironme
         if (_currentUser == null)
             return false;
 
-        var oldPasswordHash = HashPassword(oldPassword);
-        if (_currentUser.PasswordHash != oldPasswordHash)
+        if (!VerifyPassword(_currentUser.PasswordHash, oldPassword))
             return false;
 
         using var scope = _serviceProvider.CreateScope();
@@ -245,11 +247,52 @@ public class AuthenticationService : AuthenticationStateProvider, IHostEnvironme
         return true;
     }
 
+    // TODO F27: Passwoerter werden mit ungesalzenem SHA256 gehasht. Wuenschenswert waere
+    // PBKDF2 (Rfc2898DeriveBytes, ~100k Iter., 16-Byte-Salt). Ein transparentes Re-Hashing
+    // beim Login wurde hier BEWUSST NICHT umgesetzt, weil der Restore-Pfad
+    // (TryRestoreSessionAsync) den in ProtectedLocalStorage gespeicherten Hash 1:1 gegen
+    // User.PasswordHash vergleicht (Hash-gegen-Hash, nicht Passwort-gegen-Hash). Ein Wechsel
+    // des DB-Hashes auf PBKDF2 (zufaelliges Salt -> anderer Wert) wuerde diesen Vergleich
+    // brechen und angemeldete Nutzer beim naechsten Seitenaufruf ausloggen. Eine Migration
+    // muesste zuerst den localStorage-Restore von "gespeicherter Hash == DB-Hash" auf einen
+    // stabilen Session-Token entkoppeln; erst danach ist PBKDF2 gefahrlos einfuehrbar.
+    // Bis dahin bleibt HashPassword bei SHA256; VerifyPassword ist bereits vorwaerts-
+    // kompatibel und erkennt kuenftige "pbkdf2$"-Hashes.
     public static string HashPassword(string password)
     {
         using var sha256 = SHA256.Create();
         var bytes = Encoding.UTF8.GetBytes(password);
         var hash = sha256.ComputeHash(bytes);
         return Convert.ToBase64String(hash);
+    }
+
+    /// <summary>
+    /// Prueft ein Klartext-Passwort gegen einen gespeicherten Hash. Erkennt sowohl das
+    /// (aktuelle) Legacy-SHA256-Format als auch ein zukuenftiges PBKDF2-Format
+    /// ("pbkdf2$&lt;iter&gt;$&lt;salt-b64&gt;$&lt;hash-b64&gt;"). Vorwaerts-kompatibel, damit
+    /// alle Vergleichsstellen bereits jetzt einheitlich VerifyPassword nutzen koennen.
+    /// </summary>
+    public static bool VerifyPassword(string? storedHash, string? inputPassword)
+    {
+        if (string.IsNullOrEmpty(storedHash)) return false;
+        inputPassword ??= string.Empty;
+
+        if (storedHash.StartsWith("pbkdf2$", StringComparison.Ordinal))
+        {
+            var parts = storedHash.Split('$');
+            if (parts.Length != 4) return false;
+            if (!int.TryParse(parts[1], out var iterations) || iterations <= 0) return false;
+            byte[] salt, expected;
+            try { salt = Convert.FromBase64String(parts[2]); expected = Convert.FromBase64String(parts[3]); }
+            catch (FormatException) { return false; }
+            using var pbkdf2 = new Rfc2898DeriveBytes(inputPassword, salt, iterations, HashAlgorithmName.SHA256);
+            var actual = pbkdf2.GetBytes(expected.Length);
+            return CryptographicOperations.FixedTimeEquals(actual, expected);
+        }
+
+        // Legacy: ungesalzenes SHA256 (Base64). Zeitkonstanter Vergleich.
+        var a = Encoding.UTF8.GetBytes(HashPassword(inputPassword));
+        var b = Encoding.UTF8.GetBytes(storedHash);
+        return CryptographicOperations.FixedTimeEquals(a, b);
     }
 }

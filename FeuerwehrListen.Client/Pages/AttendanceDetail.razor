@@ -9,11 +9,22 @@
 
 @if (_list is null)
 {
-    <div class="container mt-4"><p><em>Lade…</em></p></div>
+    <div class="container mt-4">
+        @if (_loadError is not null)
+        {
+            <div class="alert alert-danger">@_loadError</div>
+            <button class="btn btn-secondary" @onclick="Load"><i class="bi bi-arrow-clockwise me-1"></i>Erneut versuchen</button>
+        }
+        else
+        {
+            <p><em>Lade…</em></p>
+        }
+    </div>
 }
 else
 {
     <div class="container mt-4">
+        @if (_loadError is not null) { <div class="alert alert-warning py-2"><i class="bi bi-exclamation-triangle me-1"></i>@_loadError</div> }
         <div class="mb-4">
             <h1>@_list.Title</h1>
             <p class="lead">@_list.Unit</p>
@@ -73,9 +84,9 @@ else
                     <AuthorizeView Roles="Admin" Context="adm"><button class="btn btn-outline-warning btn-lg" @onclick="() => _showExcuse = !_showExcuse"><i class="bi bi-person-exclamation me-2"></i>Als Entschuldigt eintragen</button></AuthorizeView>
                     @if (_showExcuse)
                     {
-                        <div class="input-group"><input class="form-control" placeholder="Mitgliedsnummer/Name" @bind="_excuseInput" @onkeyup="@(async e => { if (e.Key == "Enter") await Excuse(); })" /><button class="btn btn-warning" @onclick="Excuse">Eintragen</button></div>
+                        <div class="input-group"><input class="form-control" placeholder="Mitgliedsnummer/Name" @bind="_excuseInput" @onkeyup="@(async e => { if (e.Key == "Enter") await Excuse(); })" /><button class="btn btn-warning" @onclick="Excuse" disabled="@_busy">Eintragen</button></div>
                     }
-                    <button class="btn btn-warning btn-lg" @onclick="Close"><i class="bi bi-lock me-2"></i>Liste abschließen</button>
+                    <button class="btn btn-warning btn-lg" @onclick="Close" disabled="@_busy"><i class="bi bi-lock me-2"></i>Liste abschließen</button>
                 }
                 <button class="btn btn-primary btn-lg" @onclick="ExportPdf"><i class="bi bi-file-earmark-pdf me-2"></i>PDF Export</button>
             </div>
@@ -89,6 +100,9 @@ else
     [Parameter] public int Id { get; set; }
 
     private ListDto? _list;
+    private string? _loadError;
+    private bool _busy;
+    private int _confirmSeq;
     private bool _showManual;
     private string _manualInput = string.Empty;
     private string _error = "", _info = "";
@@ -101,7 +115,28 @@ else
     private List<EntryDto> Excused => _list?.Entries.Where(e => e.IsExcused).ToList() ?? new();
 
     protected override async Task OnParametersSetAsync() => await Load();
-    private async Task Load() { try { _list = await Http.GetFromJsonAsync<ListDto>($"client-api/attendance/{Id}"); } catch { _list = null; } }
+    private async Task Load()
+    {
+        var hadData = _list is not null;
+        try
+        {
+            _list = await Http.GetFromJsonAsync<ListDto>($"client-api/attendance/{Id}");
+            _loadError = null;
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            // 404: Liste gibt es nicht (mehr) -> klare Meldung, alte Daten verwerfen.
+            _list = null;
+            _loadError = "Diese Anwesenheitsliste wurde nicht gefunden.";
+        }
+        catch
+        {
+            // Netzfehler: bei bereits geladener Liste die funktionierende Anzeige behalten
+            // und nur einen Hinweis zeigen; sonst (Erstladung) Fehlerzustand.
+            _loadError = "Aktualisierung fehlgeschlagen – Netzwerkproblem.";
+            if (!hadData) _list = null;
+        }
+    }
 
     private RenderFragment EntryUi =>@<div>
         <QrScanner IsActive="true" OnCodeScanned="HandleCode" OnManualEntryRequested="() => _showManual = !_showManual" />
@@ -109,7 +144,7 @@ else
         {
             <div class="input-group mb-3">
                 <input class="form-control" placeholder="Mitgliedsnummer oder Name" @bind="_manualInput" @bind:event="oninput" @onkeyup="@(async e => { if (e.Key == "Enter") await HandleCode(_manualInput); })" />
-                <button class="btn btn-success" @onclick="() => HandleCode(_manualInput)">Eintragen</button>
+                <button class="btn btn-success" @onclick="() => HandleCode(_manualInput)" disabled="@_busy">Eintragen</button>
             </div>
         }
     </div>;
@@ -133,10 +168,13 @@ else
 
     private async Task Post(object body)
     {
+        if (_busy) return;
+        _busy = true;
         _error = ""; _info = ""; _chooseMembers = null; _chooseLists = null;
         try
         {
             var resp = await Http.PostAsJsonAsync($"client-api/attendance/{Id}/add", body);
+            if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized) { _error = "Sitzung abgelaufen – bitte neu anmelden."; return; }
             if (!resp.IsSuccessStatusCode) { _error = "Eintragen fehlgeschlagen."; return; }
             var r = await resp.Content.ReadFromJsonAsync<AddResult>();
             switch (r?.Status)
@@ -151,38 +189,72 @@ else
             }
         }
         catch { _error = "Eintragen fehlgeschlagen. Bitte erneut versuchen."; }
+        finally { _busy = false; }
     }
 
     private async Task Excuse()
     {
         if (string.IsNullOrWhiteSpace(_excuseInput)) return;
+        if (_busy) return;
+        _busy = true;
         _error = "";
         try
         {
             var resp = await Http.PostAsJsonAsync($"client-api/attendance/{Id}/excuse", new { Code = _excuseInput.Trim() });
+            if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized) { _error = "Sitzung abgelaufen – bitte neu anmelden."; return; }
             var r = await resp.Content.ReadFromJsonAsync<AddResult>();
             if (r?.Status == "added") { await Confirm(r.Name); _excuseInput = ""; _showExcuse = false; await Load(); }
             else if (r?.Status == "duplicate") _error = $"{r.Name} ist bereits eingetragen!";
             else _error = "Mitglied nicht gefunden!";
         }
         catch { _error = "Eintragen fehlgeschlagen."; }
+        finally { _busy = false; }
     }
 
-    private async Task DeleteEntry(int entryId) { try { await Http.DeleteAsync($"client-api/attendance/{Id}/entry/{entryId}"); await Load(); } catch { _error = "Löschen fehlgeschlagen."; } }
-    private async Task Close() { try { await Http.PostAsync($"client-api/attendance/{Id}/close", null); await Load(); } catch { _error = "Abschließen fehlgeschlagen."; } }
-
-    private async Task ExportPdf()
+    private async Task DeleteEntry(int entryId)
     {
         try
         {
-            var path = $"/api/export/attendance/{Id}/pdf";
-            var token = await Http.GetStringAsync($"token?path={Uri.EscapeDataString(path)}");
-            await JS.InvokeVoidAsync("openPdf", $"{Nav.BaseUri.TrimEnd('/')}{path}?token={Uri.EscapeDataString(token)}");
+            var resp = await Http.DeleteAsync($"client-api/attendance/{Id}/entry/{entryId}");
+            if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized) { _error = "Sitzung abgelaufen – bitte neu anmelden."; return; }
+            if (!resp.IsSuccessStatusCode) { _error = "Löschen fehlgeschlagen."; return; }
+            await Load();
         }
-        catch { }
+        catch { _error = "Löschen fehlgeschlagen."; }
     }
 
-    private async Task Confirm(string? name) { await Sound("success"); _confirmationName = name ?? ""; _confirmationVisible = true; StateHasChanged(); _ = Task.Run(async () => { await Task.Delay(2000); await InvokeAsync(() => { _confirmationVisible = false; StateHasChanged(); }); }); }
+    private async Task Close()
+    {
+        try
+        {
+            var resp = await Http.PostAsync($"client-api/attendance/{Id}/close", null);
+            if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized) { _error = "Sitzung abgelaufen – bitte neu anmelden."; return; }
+            if (!resp.IsSuccessStatusCode) { _error = "Abschließen fehlgeschlagen."; return; }
+            await Load();
+        }
+        catch { _error = "Abschließen fehlgeschlagen."; }
+    }
+
+    private async Task ExportPdf()
+    {
+        // Inline-Endpoint direkt in der Klick-Geste oeffnen (kein vorheriges await -> iOS-WASM
+        // behaelt die User-Geste, Cookie-Auth statt Token).
+        try
+        {
+            await JS.InvokeVoidAsync("openPdf", $"{Nav.BaseUri}client-api/export/attendance/{Id}/pdf");
+        }
+        catch { _error = "PDF konnte nicht geöffnet werden."; }
+    }
+
+    private async Task Confirm(string? name)
+    {
+        await Sound("success");
+        _confirmationName = name ?? "";
+        _confirmationVisible = true;
+        var seq = ++_confirmSeq;
+        StateHasChanged();
+        _ = Task.Run(async () => { await Task.Delay(2000); await InvokeAsync(() => { if (_confirmSeq == seq) { _confirmationVisible = false; StateHasChanged(); } }); });
+    }
     private async Task Sound(string type) { try { await JS.InvokeVoidAsync("playSound", type); } catch { } }
 
     private record ListDto(int Id, string Title, string Unit, int? UnitNumber, string? UnitAlias, string? Description, DateTime CreatedAt, bool IsOpen, List<EntryDto> Entries);

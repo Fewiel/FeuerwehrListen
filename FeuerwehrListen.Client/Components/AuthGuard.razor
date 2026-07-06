@@ -1,6 +1,5 @@
 @using Microsoft.AspNetCore.Components.Authorization
 @inject NavigationManager Nav
-@inject AuthenticationStateProvider AuthProvider
 
 @if (_ready)
 {
@@ -23,20 +22,32 @@
     [Parameter] public RenderFragment? ChildContent { get; set; }
     [Parameter] public bool RequireAdmin { get; set; }
 
+    // Kaskadierender Auth-State (aus CascadingAuthenticationState) -> ein geteilter Fetch.
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
     private bool _ready;
     private bool _ok;
 
-    protected override async Task OnInitializedAsync()
+    protected override async Task OnParametersSetAsync()
     {
-        var state = await AuthProvider.GetAuthenticationStateAsync();
+        if (AuthState is null)
+        {
+            // Kein kaskadierender State verfuegbar -> pending lassen (kein Flackern zum Login).
+            _ready = false;
+            return;
+        }
+
+        var state = await AuthState;
         var u = state.User;
         var authed = u.Identity?.IsAuthenticated == true;
         _ok = authed && (!RequireAdmin || u.IsInRole("Admin"));
         _ready = true;
+
         if (!_ok && !authed)
         {
-            // Nicht angemeldet -> direkt zum Login
-            Nav.NavigateTo("login", forceLoad: false);
+            // Nicht angemeldet -> zum Login, mit Ruecksprungziel (F33).
+            var returnUrl = Uri.EscapeDataString(Nav.ToBaseRelativePath(Nav.Uri));
+            Nav.NavigateTo($"login?returnUrl={returnUrl}", forceLoad: false);
         }
     }
 }

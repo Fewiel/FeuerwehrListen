@@ -10,6 +10,7 @@
     <div class="container mt-4">
         <div class="row mb-4"><div class="col"><h1>Abgeschlossene Listen</h1><p class="text-muted mb-0">Kategorie aufklappen.</p></div></div>
 
+        @if (_error is not null) { <div class="alert alert-danger">@_error</div> }
         @if (_data is null) { <p><em>Lade…</em></p> }
         else
         {
@@ -50,6 +51,7 @@
 @code {
     private ListMgmtDto? _data;
     private readonly HashSet<string> _open = new();
+    private string? _error;
 
     protected override async Task OnInitializedAsync() => await Load();
     private async Task Load() { try { _data = await Http.GetFromJsonAsync<ListMgmtDto>("client-api/closed-lists"); } catch { } }
@@ -65,5 +67,10 @@
 
     private bool IsOpen(string t) => _open.Contains(t);
     private void Toggle(string t) { if (!_open.Add(t)) _open.Remove(t); }
-    private async Task Archive(string type, int id) { await Http.PostAsync($"client-api/list/{type}/{id}/archive", null); await Load(); }
+    private async Task Archive(string type, int id)
+    {
+        _error = null;
+        try { await Http.PostAsync($"client-api/list/{type}/{id}/archive", null); await Load(); }
+        catch { _error = "Archivieren fehlgeschlagen."; }
+    }
 }

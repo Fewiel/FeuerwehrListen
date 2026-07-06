@@ -4,6 +4,10 @@ window.qrScanner = (() => {
     let detector = null;
     let canvas = null;
     let ctx = null;
+    // Generations-Token: jeder start()/stop() erhoeht gen. Asynchrone detect()-Callbacks,
+    // die nach einem stop()/erneutem start() zurueckkommen, pruefen ihr myGen gegen gen
+    // und feuern dann NICHT mehr ins .NET (verhindert Ghost-Scans nach dem Schliessen).
+    let gen = 0;
 
     // facing: 'user' (Frontkamera, Standard) oder 'environment' (Rueckkamera).
     // facingMode ist stabil und uebersteht Updates - anders als eine deviceId.
@@ -50,38 +54,65 @@ window.qrScanner = (() => {
         return imageData;
     }
 
+    // Feuert ein erkanntes Ergebnis nur, wenn diese Scan-Generation noch aktuell ist
+    // (kein stop()/neuer start() dazwischen). invokeMethodAsync ist gegen Fehler
+    // (z.B. bereits disposte .NET-Referenz) abgesichert.
+    function fireDetected(dotNetRef, myGen, value) {
+        if (myGen !== gen || !activeStream) return false;
+        console.log('QR detected:', value);
+        try {
+            var p = dotNetRef.invokeMethodAsync('OnQrCodeDetected', value);
+            if (p && typeof p.catch === 'function') p.catch(function () { });
+        } catch (e) { }
+        return true;
+    }
+
+    // Gibt true zurueck, wenn der Scanner tatsaechlich laeuft (Kamera offen + play()),
+    // sonst false (kein BarcodeDetector, Video-Element fehlt, Kamera verweigert/Fehler).
+    // Das .NET (QrScanner.razor) wertet den Rueckgabewert aus, um "Kein Kamerazugriff"
+    // anzuzeigen statt eines schwarzen Rechtecks.
     async function start(videoElementId, dotNetRef, facing) {
         await stop();
+
+        var myGen = ++gen;
 
         // BarcodeDetector is either native (Android) or polyfilled (Desktop via WASM)
         if (!('BarcodeDetector' in window)) {
             console.error('QR scanner: BarcodeDetector not available');
-            return;
+            return false;
         }
 
         detector = new BarcodeDetector({ formats: ['qr_code'] });
         console.log('QR scanner: BarcodeDetector ready');
 
-        const videoEl = document.getElementById(videoElementId);
+        var videoEl = document.getElementById(videoElementId);
         if (!videoEl) {
             console.warn('QR scanner: video element not found:', videoElementId);
-            return;
+            detector = null;
+            return false;
         }
 
         try {
             activeStream = await getCameraStream(facing || loadFacing());
+            // Zwischen await und hier koennte bereits ein stop()/neuer start() gelaufen sein.
+            if (myGen !== gen) {
+                try { activeStream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) { }
+                activeStream = null;
+                return false;
+            }
             videoEl.srcObject = activeStream;
             await videoEl.play();
+            if (myGen !== gen) return false;
 
             canvas = document.createElement('canvas');
             ctx = canvas.getContext('2d', { willReadFrequently: true });
 
-            let frameCount = 0;
+            var frameCount = 0;
             console.log('QR scanner: scan loop started');
 
             function scanLoop() {
-                if (!activeStream || !detector) return;
-                const vid = document.getElementById(videoElementId);
+                if (myGen !== gen || !activeStream || !detector) return;
+                var vid = document.getElementById(videoElementId);
                 if (!vid || vid.readyState < 2 || !vid.videoWidth) {
                     scanTimeout = setTimeout(scanLoop, 300);
                     return;
@@ -91,9 +122,9 @@ window.qrScanner = (() => {
 
                 // Primary: detect directly from video element (native resolution)
                 detector.detect(vid).then(function (barcodes) {
+                    if (myGen !== gen) return;
                     if (barcodes.length > 0) {
-                        console.log('QR detected:', barcodes[0].rawValue);
-                        dotNetRef.invokeMethodAsync('OnQrCodeDetected', barcodes[0].rawValue);
+                        fireDetected(dotNetRef, myGen, barcodes[0].rawValue);
                         scanTimeout = setTimeout(scanLoop, 800);
                         return;
                     }
@@ -112,31 +143,46 @@ window.qrScanner = (() => {
                         ctx.putImageData(imageData, 0, 0);
 
                         detector.detect(canvas).then(function (barcodes2) {
+                            if (myGen !== gen) return;
                             if (barcodes2.length > 0) {
-                                console.log('QR detected (color-enhanced):', barcodes2[0].rawValue);
-                                dotNetRef.invokeMethodAsync('OnQrCodeDetected', barcodes2[0].rawValue);
+                                console.log('QR detected (color-enhanced)');
+                                fireDetected(dotNetRef, myGen, barcodes2[0].rawValue);
                                 scanTimeout = setTimeout(scanLoop, 800);
                             } else {
                                 scanTimeout = setTimeout(scanLoop, 150);
                             }
                         }).catch(function () {
+                            if (myGen !== gen) return;
                             scanTimeout = setTimeout(scanLoop, 150);
                         });
                     } else {
                         scanTimeout = setTimeout(scanLoop, 150);
                     }
                 }).catch(function () {
+                    if (myGen !== gen) return;
                     scanTimeout = setTimeout(scanLoop, 200);
                 });
             }
 
             scanLoop();
+            return true;
         } catch (ex) {
             console.error('QR scanner start failed:', ex);
+            // Aufraeumen, damit ein spaeterer Start sauber neu beginnt.
+            if (activeStream) {
+                try { activeStream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) { }
+                activeStream = null;
+            }
+            detector = null;
+            canvas = null;
+            ctx = null;
+            return false;
         }
     }
 
     async function stop() {
+        // Generation erhoehen: laufende detect()-Callbacks feuern danach nicht mehr.
+        gen++;
         if (scanTimeout) {
             clearTimeout(scanTimeout);
             scanTimeout = null;

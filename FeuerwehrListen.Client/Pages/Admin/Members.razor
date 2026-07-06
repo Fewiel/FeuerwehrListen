@@ -25,7 +25,7 @@
     .tagm-settings input { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
 </style>
 
-<AuthGuard>
+<AuthGuard RequireAdmin="true">
     <div class="container mt-4">
         <div class="row mb-4">
             <div class="col"><h1>Mitgliederverwaltung</h1></div>
@@ -70,6 +70,8 @@
                 <button class="btn btn-secondary" @onclick="() => _showForm = false">Abbrechen</button>
             </div></div>
         }
+
+        @if (!_showForm && _error is not null) { <div class="alert alert-danger">@_error</div> }
 
         <div class="card"><div class="card-body">
             @if (_items is null) { <p><em>Lade…</em></p> }
@@ -122,13 +124,23 @@
                     </div>
                 }
 
-                @* Status des lokalen Renderers *@
-                <div class="tagm-status @HelperCssClass">
-                    <i class="bi @HelperIcon me-1"></i>@HelperStatusText
-                    <button type="button" class="btn btn-link btn-sm p-0 ms-2" @onclick="() => _showSettings = !_showSettings">Einstellungen</button>
-                </div>
+                @* Status des lokalen Renderers – nur im WASM-Browser (localhost-Renderer läuft auf dem Admin-PC) *@
+                @if (!IsBrowser)
+                {
+                    <div class="alert alert-info py-2 mb-0 small">
+                        <i class="bi bi-info-circle me-1"></i>Der 3D-Tag-Download ist nur auf modernen Geräten (Desktop-Browser) verfügbar.
+                        Öffnen Sie diese Seite dort, um Tags zu rendern und herunterzuladen.
+                    </div>
+                }
+                else
+                {
+                    <div class="tagm-status @HelperCssClass">
+                        <i class="bi @HelperIcon me-1"></i>@HelperStatusText
+                        <button type="button" class="btn btn-link btn-sm p-0 ms-2" @onclick="() => _showSettings = !_showSettings">Einstellungen</button>
+                    </div>
+                }
 
-                @if (_showSettings)
+                @if (IsBrowser && _showSettings)
                 {
                     <div class="tagm-settings">
                         <label class="form-label small mb-1">Renderer-URL</label>
@@ -142,7 +154,7 @@
                     </div>
                 }
 
-                @if (_helperStatus == "down")
+                @if (IsBrowser && _helperStatus == "down")
                 {
                     <div class="alert alert-warning py-2 mt-2 mb-0 small">
                         Der lokale Renderer läuft nicht.
@@ -155,7 +167,7 @@
             </div>
             <div class="tagm-foot">
                 <button type="button" class="btn btn-secondary" @onclick="CloseTag" disabled="@_tagDownloading">Schließen</button>
-                <button type="button" class="btn btn-danger" @onclick="DownloadTag" disabled="@(_tagDownloading || _helperStatus == "down")">
+                <button type="button" class="btn btn-danger" @onclick="DownloadTag" disabled="@(_tagDownloading || !IsBrowser || _helperStatus == "down")">
                     @if (_tagDownloading)
                     {
                         <span class="spinner-border spinner-border-sm me-1"></span>
@@ -186,13 +198,14 @@
 
     private async Task ExportPdf()
     {
+        _error = null;
         try
         {
-            var path = "/api/export/members/pdf";
-            var token = await Http.GetStringAsync($"token?path={Uri.EscapeDataString(path)}");
-            await JS.InvokeVoidAsync("openPdf", $"{Nav.BaseUri.TrimEnd('/')}{path}?token={Uri.EscapeDataString(token)}");
+            // Neuer cookie-authentifizierter Inline-Endpoint: kein Token-Umweg mehr,
+            // Aufruf direkt in der Klick-Geste (behebt iOS-Download-Bug).
+            await JS.InvokeVoidAsync("openPdf", $"{Nav.BaseUri}client-api/export/members/pdf");
         }
-        catch { }
+        catch { _error = "PDF konnte nicht geöffnet werden."; }
     }
 
     // --- Tag (3D-Druck) - Rendern via lokalem Helfer (fwtag-helper) ---
@@ -209,6 +222,13 @@
     private string _scadPath = "";
     private string _helperStatus = "checking"; // checking | ok | no-openscad | down
 
+    // Der lokale Renderer (localhost:47800) laeuft nur auf dem Admin-PC. Im WASM-Client
+    // (OperatingSystem.IsBrowser() == true) geht der Fetch vom Browser aus -> ok.
+    // Im Server-Render-Modus (alte iPads) liefe der Aufruf auf dem SERVER (immer "down",
+    // potenzielles SSRF) -> daher dort ganz unterbinden. Der 3D-Tag-Download ist ein
+    // Desktop-Admin-Feature.
+    private static bool IsBrowser => OperatingSystem.IsBrowser();
+
     private string HelperCssClass => _helperStatus switch { "ok" => "tagm-ok", "no-openscad" => "tagm-warn", "down" => "tagm-down", _ => "tagm-check" };
     private string HelperIcon => _helperStatus switch { "ok" => "bi-check-circle-fill", "no-openscad" => "bi-exclamation-triangle-fill", "down" => "bi-x-circle-fill", _ => "bi-hourglass-split" };
     private string HelperStatusText => _helperStatus switch
@@ -223,12 +243,16 @@
     {
         _tagMember = m; _tagPreview = null; _tagError = null; _tagDownloading = false; _showSettings = false;
         _tagNumber = m.MemberNumber; _tagName = "";
-        await LoadTagSettings();
         try { _tagPreview = await Http.GetStringAsync($"client-api/admin/members/{m.Id}/tag-preview"); }
         catch { _tagError = "Vorschau konnte nicht geladen werden."; }
         try { var info = await Http.GetFromJsonAsync<TagInfo>($"client-api/admin/members/{m.Id}/tag-info"); if (info is not null) { _tagNumber = info.Number; _tagName = info.Name; } }
         catch { }
-        await CheckHelper();
+        // Renderer-Interaktion (localStorage + localhost-Fetch) nur im WASM-Browser.
+        if (IsBrowser)
+        {
+            await LoadTagSettings();
+            await CheckHelper();
+        }
     }
 
     private void CloseTag() { if (_tagDownloading) return; _tagMember = null; _tagPreview = null; _tagError = null; _showSettings = false; }
@@ -252,6 +276,7 @@
 
     private async Task CheckHelper()
     {
+        if (!IsBrowser) { _helperStatus = "down"; return; }
         _helperStatus = "checking"; StateHasChanged();
         try
         {
@@ -264,6 +289,7 @@
     private async Task DownloadTag()
     {
         if (_tagMember is null) return;
+        if (!IsBrowser) { _tagError = "3D-Tag-Download nur auf modernen Geräten (Desktop-Browser) verfügbar."; return; }
         _tagDownloading = true; _tagError = null;
         try
         {
@@ -309,14 +335,23 @@
         try
         {
             var body = new { MemberNumber = _number, FirstName = _firstName, LastName = _lastName, IsActive = _isActive, Units = _units.ToList() };
-            if (_editId is int id) await Http.PutAsJsonAsync($"client-api/admin/members/{id}", body);
-            else await Http.PostAsJsonAsync("client-api/admin/members", body);
+            var resp = _editId is int id
+                ? await Http.PutAsJsonAsync($"client-api/admin/members/{id}", body)
+                : await Http.PostAsJsonAsync("client-api/admin/members", body);
+            if (!resp.IsSuccessStatusCode) { _error = "Speichern fehlgeschlagen."; return; }
             _showForm = false; await Load();
         }
+        catch { _error = "Speichern fehlgeschlagen."; }
         finally { _saving = false; }
     }
 
-    private async Task Delete(int id) { await Http.DeleteAsync($"client-api/admin/members/{id}"); await Load(); }
+    private async Task Delete(int id)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", "Dieses Mitglied wirklich löschen?")) return;
+        _error = null;
+        try { await Http.DeleteAsync($"client-api/admin/members/{id}"); await Load(); }
+        catch { _error = "Löschen fehlgeschlagen."; }
+    }
 
     private async Task ImportCsv()
     {
