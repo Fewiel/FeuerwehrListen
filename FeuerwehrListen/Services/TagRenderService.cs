@@ -15,11 +15,17 @@ namespace FeuerwehrListen.Services;
 /// </summary>
 public class TagRenderService
 {
-    // Name-Format wie in der SCAD-Pipeline (export_all.sh): "V. Nachname"
+    // Name-Format wie in der SCAD-Pipeline (export_all.sh): "V. Nachname".
+    // Robust fuer unvollstaendige Daten: nur-Nachname -> Nachname; nur-Vorname -> ganzer
+    // Vorname (statt einzelner Initiale); gar kein Name -> leer (Datenpflege noetig).
     public static string DisplayName(Member m)
     {
-        var initial = string.IsNullOrWhiteSpace(m.FirstName) ? "" : m.FirstName.Trim()[..1] + ". ";
-        return (initial + (m.LastName ?? string.Empty).Trim()).Trim();
+        var first = (m.FirstName ?? string.Empty).Trim();
+        var last = (m.LastName ?? string.Empty).Trim();
+        if (first.Length > 0 && last.Length > 0) return $"{first[..1]}. {last}";
+        if (last.Length > 0) return last;
+        if (first.Length > 0) return first;
+        return string.Empty;
     }
 
     // ---- Tag-Geometrie (muss mit feuerwehr_tag.scad uebereinstimmen) ----

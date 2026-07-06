@@ -114,6 +114,14 @@
                 </div>
                 <p class="text-muted small mt-2 mb-2">Draufsicht – <span style="color:#1657b0;font-weight:600">Body blau</span>, <span style="color:#e4002b;font-weight:600">Inlay rot</span>. Das ZIP enthält <strong>body.stl</strong> + <strong>inlay.stl</strong> für den Zweifarbdruck.</p>
 
+                @if (_tagPreview is not null && string.IsNullOrWhiteSpace(_tagName))
+                {
+                    <div class="alert alert-warning py-2 mb-2 small">
+                        <i class="bi bi-exclamation-triangle me-1"></i>Für dieses Mitglied ist <strong>kein Name</strong> hinterlegt – der Tag würde ohne Namenszeile gedruckt.
+                        Bitte oben per „Bearbeiten" Vor-/Nachname ergänzen.
+                    </div>
+                }
+
                 @* Status des lokalen Renderers *@
                 <div class="tagm-status @HelperCssClass">
                     <i class="bi @HelperIcon me-1"></i>@HelperStatusText
