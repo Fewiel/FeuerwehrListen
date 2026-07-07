@@ -216,6 +216,12 @@ builder.Services.AddScoped<NextcloudService>();
 builder.Services.AddSingleton<SidebarService>();
 builder.Services.AddSingleton<SettingsService>();
 builder.Services.AddScoped<TagRenderService>();
+// AppContextService wird von Client-Komponenten (NavMenu, Home, …) injiziert. Beim
+// Server-Rendering (iOS-12-/Server-Modus + Prerender) rendert der SERVER diese Komponenten,
+// daher MUSS der Service auch in der Server-DI registriert sein - sonst wirft NavMenu beim
+// Render "no registered service of type AppContextService" -> Circuit stirbt -> weisse Seite.
+// Nutzt den server-seitigen scoped HttpClient (SelfCookieHandler).
+builder.Services.AddScoped<FeuerwehrListen.Client.Services.AppContextService>();
 builder.Services.AddHostedService<ScheduledListBackgroundService>();
 
 var app = builder.Build();

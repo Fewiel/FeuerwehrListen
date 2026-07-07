@@ -168,8 +168,8 @@
     // Prerender bewusst deaktiviert (prerender:false): sonst rendert der Server jede Seite
     // einmal statisch vor UND die interaktive Runtime laedt die Daten danach erneut ->
     // doppelte Datenladung (im Server-Modus doppelt teuer) und Flackern.
-    private static readonly IComponentRenderMode ServerMode = new InteractiveServerRenderMode(prerender: false);
-    private static readonly IComponentRenderMode WasmMode = new InteractiveWebAssemblyRenderMode(prerender: false);
+    private static readonly IComponentRenderMode ServerMode = new InteractiveServerRenderMode(prerender: true);
+    private static readonly IComponentRenderMode WasmMode = new InteractiveWebAssemblyRenderMode(prerender: true);
 
     private IComponentRenderMode Mode
     {
