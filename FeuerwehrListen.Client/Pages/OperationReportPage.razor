@@ -11,8 +11,8 @@
 
 <PageTitle>Einsatzbericht</PageTitle>
 
-<AuthGuard>
-    <div class="container mt-4 mb-5">
+@* Einsatzbericht bewusst ohne Login erreichbar (Kiosk-Wunsch): kein AuthGuard mehr. *@
+<div class="container mt-4 mb-5">
         @if (_b is null)
         {
             @if (_loadError is not null)
@@ -291,7 +291,6 @@
             }
         }
     </div>
-</AuthGuard>
 
 @code {
     [Parameter] public int OperationListId { get; set; }

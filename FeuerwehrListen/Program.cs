@@ -424,13 +424,16 @@ app.MapPost("/client-api/auth/qr", async (UserRepository users, AuthTicketServic
 // Login-ABSCHLUSS: echte Top-Level-Browser-GET -> hier wird der Cookie gesetzt, sodass
 // das Set-Cookie im Server-Modus tatsaechlich im Browser ankommt. Kein RequireAuthorization
 // (das ist ja der Anmeldevorgang selbst). Ticket ist einmalig und 60s gueltig.
-app.MapGet("/client-api/auth/complete", async (HttpContext ctx, UserRepository users, AuthTicketService tickets, string? ticket) =>
+app.MapGet("/client-api/auth/complete", async (HttpContext ctx, UserRepository users, AuthTicketService tickets, string? ticket, string? returnUrl) =>
 {
+    // Nach dem Cookie-SignIn zurueck zur Ausgangsseite (returnUrl) - so bleibt der QR-Direktlogin
+    // auf einer Detailseite dort, statt auf / zu springen. Nur lokale Pfade (Open-Redirect-Schutz).
+    var back = (!string.IsNullOrEmpty(returnUrl) && returnUrl.StartsWith("/") && !returnUrl.StartsWith("//")) ? returnUrl : "/";
     if (!tickets.TryConsume(ticket, out var userId)) return Results.Redirect("/login");
     var user = await users.GetByIdAsync(userId);
     if (user == null) return Results.Redirect("/login");
     await SignInUser(ctx, user);
-    return Results.Redirect("/");
+    return Results.Redirect(back);
 }).DisableAntiforgery();
 
 app.MapPost("/client-api/auth/logout", async (HttpContext ctx) =>
@@ -1238,7 +1241,7 @@ app.MapGet("/client-api/operation/{id:int}/report", async (int id, OperationList
         gesamtStaerke = gesamt,
         nextcloud = new { configured = nc.IsConfigured, folder = nc.IsConfigured ? nc.BuildOperationFolder(list.AlertTime.Year, list.OperationNumber) : "" }
     });
-}).RequireAuthorization().DisableAntiforgery();
+}).DisableAntiforgery(); // Einsatzbericht bewusst ohne Login (Kiosk-Wunsch)
 
 // Einsatzbericht: speichern (Report + externe Kräfte + Mittel + Fahrzeug-Stärken)
 app.MapPost("/client-api/operation/{id:int}/report", async (int id, OperationReportRepository repo, ReportSaveRequest req) =>
@@ -1256,7 +1259,7 @@ app.MapPost("/client-api/operation/{id:int}/report", async (int id, OperationRep
     await repo.ReplaceMittelAsync(existing.Id, (req.Mittel ?? new()).Select(m => new OperationReportMittel { Name = m.Name, Anzahl = m.Anzahl, Dauer = m.Dauer, IsCustom = m.IsCustom }));
     await repo.ReplaceVehicleStrengthsAsync(existing.Id, (req.VehicleStrengths ?? new()).Select(v => new OperationReportVehicleStrength { VehicleName = v.VehicleName, Staerke = v.Staerke }));
     return Results.Ok();
-}).RequireAuthorization().DisableAntiforgery();
+}).DisableAntiforgery(); // Einsatzbericht bewusst ohne Login (Kiosk-Wunsch)
 
 // B8: Gesamtstaerke live neu berechnen. Nimmt die aktuellen (noch ungespeicherten) externen
 // Kraefte + Fahrzeug-Staerken aus dem Body; die gescannten Einsatz-Eintraege + funcMap holt der
@@ -1271,7 +1274,7 @@ app.MapPost("/client-api/operation/{id:int}/report/strength", async (int id, Ope
         (req.VehicleStrengths ?? new()).Select(v => (v.VehicleName, v.Staerke)),
         (req.ExternalForces ?? new()).Select(e => e.Staerke));
     return Results.Json(new { gesamt });
-}).RequireAuthorization().DisableAntiforgery();
+}).DisableAntiforgery(); // Einsatzbericht bewusst ohne Login (Kiosk-Wunsch)
 
 // Einsatzbericht: Bildanzahl (Nextcloud)
 app.MapGet("/client-api/operation/{id:int}/report/image-count", async (int id, OperationListRepository opRepo, NextcloudService nc) =>
@@ -1281,7 +1284,7 @@ app.MapGet("/client-api/operation/{id:int}/report/image-count", async (int id, O
     var folder = nc.BuildOperationFolder(list.AlertTime.Year, list.OperationNumber);
     var count = await nc.CountFilesAsync(folder);
     return Results.Json(new { count = count >= 0 ? count : 0 });
-}).RequireAuthorization().DisableAntiforgery();
+}).DisableAntiforgery(); // Einsatzbericht bewusst ohne Login (Kiosk-Wunsch)
 
 // Einsatzbericht: Bilder hochladen (Nextcloud)
 app.MapPost("/client-api/operation/{id:int}/report/images", async (int id, HttpRequest http, OperationListRepository opRepo, NextcloudService nc) =>
@@ -1301,7 +1304,7 @@ app.MapPost("/client-api/operation/{id:int}/report/images", async (int id, HttpR
     }
     var count = await nc.CountFilesAsync(folder);
     return Results.Json(new { ok, skipped, errors, count = count >= 0 ? count : ok });
-}).RequireAuthorization().DisableAntiforgery();
+}).DisableAntiforgery(); // Einsatzbericht bewusst ohne Login (Kiosk-Wunsch)
 
 // Einsatz-Eintrag loeschen (Bearbeiten-Seite, angemeldet)
 app.MapDelete("/client-api/operation/{id:int}/entry/{entryId:int}", async (int entryId, OperationEntryRepository repo) =>
@@ -1518,7 +1521,7 @@ app.MapPost("/client-api/attendance/{id:int}/close", async (int id, AttendanceLi
 app.MapDelete("/client-api/attendance/{id:int}/entry/{entryId:int}", async (int entryId, AttendanceEntryRepository repo) =>
 { await repo.DeleteAsync(entryId); return Results.Ok(); }).RequireAuthorization().DisableAntiforgery();
 
-// Anwesenheitsliste: als entschuldigt eintragen (Admin)
+// Anwesenheitsliste: als entschuldigt eintragen (jeder angemeldete Nutzer)
 app.MapPost("/client-api/attendance/{id:int}/excuse", async (int id, AttendanceEntryRepository entryRepo, MemberRepository memberRepo, ExcuseReq req) =>
 {
     var member = await memberRepo.FindByNameOrNumberAsync((req.Code ?? "").Trim());
@@ -1527,7 +1530,43 @@ app.MapPost("/client-api/attendance/{id:int}/excuse", async (int id, AttendanceE
     if (entries.Any(e => e.NameOrId.Contains($"({member.MemberNumber})"))) return Results.Json(new { status = "duplicate", name = $"{member.FirstName} {member.LastName}" });
     await entryRepo.CreateAsync(new AttendanceEntry { AttendanceListId = id, NameOrId = $"{member.FirstName} {member.LastName} ({member.MemberNumber})", EnteredAt = DateTime.Now, IsExcused = true });
     return Results.Json(new { status = "added", name = $"{member.FirstName} {member.LastName}" });
-}).RequireAuthorization("Admin").DisableAntiforgery();
+}).RequireAuthorization().DisableAntiforgery();
+
+// Entschuldigt-Kandidaten fuer die Switch-Liste: alle aktiven Mitglieder (nach Nachname a-z)
+// mit aktuellem Status fuer diese Liste. Angemeldet.
+app.MapGet("/client-api/attendance/{id:int}/excuse-candidates", async (int id, AttendanceEntryRepository entryRepo, MemberRepository memberRepo) =>
+{
+    var members = (await memberRepo.GetAllAsync()).Where(m => m.IsActive);
+    var entries = await entryRepo.GetByListIdAsync(id);
+    return Results.Json(members
+        .OrderBy(m => m.LastName).ThenBy(m => m.FirstName)
+        .Select(m => new
+        {
+            id = m.Id,
+            name = $"{m.LastName}, {m.FirstName}",
+            number = m.MemberNumber,
+            isExcused = entries.Any(e => e.NameOrId.Contains($"({m.MemberNumber})") && e.IsExcused),
+            isPresent = entries.Any(e => e.NameOrId.Contains($"({m.MemberNumber})") && !e.IsExcused)
+        }));
+}).RequireAuthorization().DisableAntiforgery();
+
+// Entschuldigt umschalten (Switch): fuegt einen Entschuldigt-Eintrag hinzu oder entfernt ihn.
+// Anwesenheits-Eintraege werden dabei NICHT geloescht. Angemeldet.
+app.MapPost("/client-api/attendance/{id:int}/excuse-toggle", async (int id, AttendanceEntryRepository entryRepo, MemberRepository memberRepo, ExcuseToggleReq req) =>
+{
+    var member = await memberRepo.GetByIdAsync(req.MemberId);
+    if (member == null) return Results.NotFound();
+    var entries = await entryRepo.GetByListIdAsync(id);
+    var existing = entries.FirstOrDefault(e => e.NameOrId.Contains($"({member.MemberNumber})"));
+    if (req.Excused)
+    {
+        if (existing != null) return Results.Json(new { status = existing.IsExcused ? "already" : "present", excused = existing.IsExcused });
+        await entryRepo.CreateAsync(new AttendanceEntry { AttendanceListId = id, NameOrId = $"{member.FirstName} {member.LastName} ({member.MemberNumber})", EnteredAt = DateTime.Now, IsExcused = true });
+        return Results.Json(new { status = "added", excused = true });
+    }
+    if (existing != null && existing.IsExcused) await entryRepo.DeleteAsync(existing.Id);
+    return Results.Json(new { status = "removed", excused = false });
+}).RequireAuthorization().DisableAntiforgery();
 
 // Einsatzliste: abschliessen (angemeldet) - inkl. Fahrzeug-Staerken-Korrektur im Bericht
 app.MapPost("/client-api/operation/{id:int}/close", async (int id, OperationListRepository repo, OperationEntryRepository entryRepo, OperationEntryFunctionRepository efRepo, OperationReportRepository reportRepo, ListNotificationService notif, OpCloseReq req) =>
@@ -1687,6 +1726,7 @@ public record CreateOperationRequest(string OperationNumber, string Keyword, Dat
 public record AttendanceAddRequest(string? Code, int? MemberId, int? TargetListId);
 public record OperationResolveRequest(string? Code);
 public record ExcuseReq(string? Code);
+public record ExcuseToggleReq(int MemberId, bool Excused);
 public record OpCloseReq(string? Address);
 public record OperationAddRequest(int MemberId, int? VehicleId, bool NoVehicle, bool BreathingApparatus, List<int>? FunctionIds);
 public record ReportSaveRequest(OperationReport Report, List<ExtForceReq>? ExternalForces, List<MittelReq>? Mittel, List<VsReq>? VehicleStrengths);

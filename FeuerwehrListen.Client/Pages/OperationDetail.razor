@@ -187,12 +187,14 @@ else
             </div>
         </div>
 
+        @* Einsatzbericht bewusst ohne Login erreichbar (Kiosk-Wunsch). *@
+        <div class="d-grid gap-2 mt-4" style="max-width:500px;">
+            <a class="btn btn-outline-danger" href="@($"/operation/{Id}/bericht")"><i class="bi bi-file-earmark-text me-1"></i>Einsatzbericht öffnen</a>
+        </div>
+
         <AuthorizeView>
             <div class="d-grid gap-2 mt-4" style="max-width:500px;">
-                <div class="d-flex gap-2">
-                    <a class="btn btn-outline-secondary flex-grow-1" href="@($"/operation/{Id}/edit-entries")"><i class="bi bi-pencil me-1"></i>Einträge bearbeiten</a>
-                    <a class="btn btn-outline-danger flex-grow-1" href="@($"/operation/{Id}/bericht")"><i class="bi bi-file-earmark-text me-1"></i>Einsatzbericht</a>
-                </div>
+                <a class="btn btn-outline-secondary" href="@($"/operation/{Id}/edit-entries")"><i class="bi bi-pencil me-1"></i>Einträge bearbeiten</a>
                 @if (_data.IsOpen)
                 {
                     <button class="btn btn-outline-secondary" @onclick="() => _showAddress = !_showAddress"><i class="bi bi-geo-alt me-1"></i>Einsatzadresse @(string.IsNullOrWhiteSpace(_data.Address) ? "hinzufügen" : "ändern")</button>
