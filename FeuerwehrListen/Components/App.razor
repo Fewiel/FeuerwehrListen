@@ -148,9 +148,54 @@
                 configureSignalR: function (builder) {
                     try { builder.withUrl('_blazor', { transport: 4 }); } catch (e) { }
                     try { builder.withServerTimeout(120000).withKeepAliveInterval(15000); } catch (e) { }
-                }
+                },
+                // Mehr/laenger reconnecten, bevor aufgegeben wird (Alt-iPads brauchen laenger).
+                reconnectionOptions: { maxRetries: 30, retryIntervalMilliseconds: 3000 }
             }
         });
+
+        // iOS 12 / Server-Modus: der SignalR-Circuit (Long-Polling) kann nach Inaktivitaet
+        // abreissen (Safari drosselt/suspendiert Timer im Hintergrund) -> Buttons/Navigation
+        // reagieren nicht mehr, bis manuell neu geladen wird. Recovery automatisieren.
+        // Betrifft nur den Server-Modus (das Reconnect-Modal existiert nur bei einem Circuit;
+        // auf WASM-Geraeten bleibt der Watcher wirkungslos). Reines ES5, iOS-12-tauglich.
+        (function () {
+            function modalHas(cls) {
+                var m = document.getElementById('components-reconnect-modal');
+                return !!(m && m.classList && m.classList.contains(cls));
+            }
+            function connDown() {
+                return modalHas('components-reconnect-show')
+                    || modalHas('components-reconnect-failed')
+                    || modalHas('components-reconnect-rejected');
+            }
+            function connFailed() {
+                return modalHas('components-reconnect-failed') || modalHas('components-reconnect-rejected');
+            }
+            // (1) Zurueck im Vordergrund und Circuit ist unten -> erst reconnecten, sonst neu laden.
+            document.addEventListener('visibilitychange', function () {
+                if (document.visibilityState !== 'visible' || !connDown()) return;
+                try {
+                    if (window.Blazor && typeof Blazor.reconnect === 'function') {
+                        var p = Blazor.reconnect();
+                        if (p && typeof p.then === 'function') {
+                            p.then(function (ok) { if (ok === false) location.reload(); }, function () { location.reload(); });
+                        }
+                    } else { location.reload(); }
+                } catch (e) { location.reload(); }
+            });
+            // (2) Scheitert der Reconnect endgueltig (Circuit serverseitig verworfen) -> neu laden.
+            var tries = 0;
+            (function watch() {
+                var m = document.getElementById('components-reconnect-modal');
+                if (!m) { if (tries++ < 30) setTimeout(watch, 1000); return; }
+                try {
+                    new MutationObserver(function () {
+                        if (connFailed()) setTimeout(function () { location.reload(); }, 800);
+                    }).observe(m, { attributes: true, attributeFilter: ['class'] });
+                } catch (e) { }
+            })();
+        })();
 
         // PWA Service Worker
         if ('serviceWorker' in navigator) {
