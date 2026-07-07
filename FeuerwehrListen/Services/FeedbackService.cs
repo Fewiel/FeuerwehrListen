@@ -25,7 +25,7 @@ public class FeedbackService
     /// <summary>
     /// Sendet ein Feedback zu einem Einsatz an die in den Settings hinterlegten Empfänger.
     /// </summary>
-    public async Task<FeedbackResult> SendFeedbackAsync(OperationList operation, string feedback)
+    public async Task<FeedbackResult> SendFeedbackAsync(OperationList operation, string feedback, string? submitterName = null, string? submitterNumber = null)
     {
         var recipients = _settings.GetSetting(SettingKeys.NotificationFeedbackRecipients);
         if (string.IsNullOrWhiteSpace(recipients))
@@ -35,7 +35,12 @@ public class FeedbackService
         }
 
         var operationNumber = NextcloudService.StripLeadingYear(operation.OperationNumber, operation.AlertTime.Year);
-        var subject = $"Neues Feedback zu Einsatz {operationNumber}";
+        // Absender (nicht anonym): Name + optional Mitgliedsnummer.
+        var submitter = string.IsNullOrWhiteSpace(submitterName)
+            ? (submitterNumber ?? "").Trim()
+            : (string.IsNullOrWhiteSpace(submitterNumber) ? submitterName!.Trim() : $"{submitterName!.Trim()} ({submitterNumber!.Trim()})");
+        var subject = $"Neues Feedback zu Einsatz {operationNumber}"
+            + (string.IsNullOrWhiteSpace(submitter) ? "" : $" von {submitter}");
 
         // Normalisiere Zeilenumbrüche aus dem Textarea (kann \r\n, \r oder \n sein)
         var cleanFeedback = (feedback ?? string.Empty)
@@ -45,6 +50,7 @@ public class FeedbackService
 
         var body =
             "Neues Feedback zu:\n\n" +
+            $"Von: {(string.IsNullOrWhiteSpace(submitter) ? "—" : submitter)}\n" +
             $"Einsatz: {operationNumber}\n" +
             $"Stichwort: {operation.Keyword}\n" +
             $"Adresse: {operation.Address}\n" +

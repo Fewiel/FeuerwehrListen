@@ -1680,7 +1680,7 @@ app.MapPost("/client-api/feedback", async (OperationListRepository opRepo, Feedb
 {
     var op = await opRepo.GetByIdAsync(req.OperationId);
     if (op == null) return Results.NotFound();
-    var result = await feedback.SendFeedbackAsync(op, req.Text ?? "");
+    var result = await feedback.SendFeedbackAsync(op, req.Text ?? "", req.SubmitterName, req.SubmitterNumber);
     return Results.Json(new { result = result.ToString() });
 }).DisableAntiforgery();
 app.MapRazorComponents<App>()
@@ -1720,7 +1720,7 @@ public record ScheduledReq(string Type, string? Title, string? Unit, string? Des
 public record AuthLoginRequest(string? Username, string? Password);
 public record AuthQrRequest(string? Code, string? Pin);
 public record ChangePwRequest(string? OldPassword, string? NewPassword);
-public record FeedbackRequest(int OperationId, string? Text);
+public record FeedbackRequest(int OperationId, string? Text, string? SubmitterName, string? SubmitterNumber);
 public record CreateAttendanceRequest(string Title, string Unit, string? Description, int? UnitNumber);
 public record CreateOperationRequest(string OperationNumber, string Keyword, DateTime AlertTime, string? Address);
 public record AttendanceAddRequest(string? Code, int? MemberId, int? TargetListId);

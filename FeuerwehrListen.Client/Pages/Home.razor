@@ -198,6 +198,20 @@
                     <div class="fb-sel-meta">Einsatz @_selectedOp.Number · @(string.IsNullOrWhiteSpace(_selectedOp.Address) ? "— keine Adresse —" : _selectedOp.Address) · @_selectedOp.Time.ToString("dd.MM.yyyy HH:mm") Uhr</div>
                     <button type="button" class="fb-change" @onclick="() => _selectedOp = null"><i class="bi bi-arrow-left"></i> Anderen Einsatz wählen</button>
                 </div>
+                <div class="mb-2 position-relative">
+                    <label class="form-label">Dein Name / Mitgliedsnummer <span class="text-danger">*</span></label>
+                    <input class="form-control" placeholder="Name oder Mitgliedsnummer suchen…" value="@_fbName" @oninput="OnFbMemberInput" autocomplete="off" />
+                    @if (_fbMemberSuggestions is { Count: > 0 })
+                    {
+                        <div class="list-group position-absolute w-100 shadow" style="z-index:1055;">
+                            @foreach (var s in _fbMemberSuggestions)
+                            {
+                                <button type="button" class="list-group-item list-group-item-action" @onclick="() => PickFbMember(s)">@s.Name <span class="text-muted">(@s.Number)</span></button>
+                            }
+                        </div>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(_fbNumber)) { <div class="form-text">Mitgliedsnummer: <strong>@_fbNumber</strong></div> }
+                </div>
                 <div class="mb-1">
                     <label class="form-label">Dein Feedback</label>
                     <textarea class="form-control" rows="6" @bind="_feedbackText" @bind:event="oninput" placeholder="Feedback zum Einsatz…"></textarea>
@@ -212,7 +226,7 @@
         {
             <div class="fb-foot">
                 <button type="button" class="btn btn-secondary" @onclick="() => _selectedOp = null" disabled="@_sending">Zurück</button>
-                <button type="button" class="btn btn-success" @onclick="SendFeedback" disabled="@(_sending || string.IsNullOrWhiteSpace(_feedbackText))">
+                <button type="button" class="btn btn-success" @onclick="SendFeedback" disabled="@(_sending || string.IsNullOrWhiteSpace(_feedbackText) || string.IsNullOrWhiteSpace(_fbName))">
                     @if (_sending) { <span class="spinner-border spinner-border-sm me-1"></span> }
                     <i class="bi bi-send me-1"></i> Absenden
                 </button>
@@ -247,6 +261,11 @@
     private string? _fbError;
     private bool _toast;
     private CancellationTokenSource? _searchCts;
+    // Feedback-Absender (nicht anonym): Name + optional Mitgliedsnummer via Live-Suche.
+    private List<MemberSuggestion>? _fbMemberSuggestions;
+    private CancellationTokenSource? _fbMemberCts;
+    private string _fbName = string.Empty;
+    private string _fbNumber = string.Empty;
 
     protected override async Task OnInitializedAsync()
     {
@@ -273,9 +292,37 @@
         _selectedOp = null;
         _search = string.Empty;
         _feedbackText = string.Empty;
+        _fbName = string.Empty;
+        _fbNumber = string.Empty;
+        _fbMemberSuggestions = null;
         _fbError = null;
         await SearchAsync();
     }
+
+    // Live-Suche fuer den Feedback-Absender (Name/Mitgliedsnummer).
+    private async Task OnFbMemberInput(ChangeEventArgs e)
+    {
+        _fbName = e.Value?.ToString() ?? "";
+        _fbNumber = string.Empty; // bei freier Eingabe keine Nummer, bis ein Treffer gewaehlt wird
+        var term = _fbName.Trim();
+        _fbMemberCts?.Cancel();
+        if (term.Length < 2) { _fbMemberSuggestions = null; return; }
+        var cts = new CancellationTokenSource();
+        _fbMemberCts = cts;
+        try
+        {
+            var res = await Http.GetFromJsonAsync<List<MemberSuggestion>>($"client-api/members/search?q={Uri.EscapeDataString(term)}", cts.Token);
+            if (!cts.IsCancellationRequested) _fbMemberSuggestions = res;
+        }
+        catch { }
+    }
+
+    private void PickFbMember(MemberSuggestion s)
+    {
+        _fbName = s.Name; _fbNumber = s.Number; _fbMemberSuggestions = null;
+    }
+
+    private record MemberSuggestion(int Id, string Name, string Number);
 
     private async Task SearchAsync()
     {
@@ -305,12 +352,12 @@
 
     private async Task SendFeedback()
     {
-        if (_selectedOp is null || string.IsNullOrWhiteSpace(_feedbackText)) return;
+        if (_selectedOp is null || string.IsNullOrWhiteSpace(_feedbackText) || string.IsNullOrWhiteSpace(_fbName)) return;
         _sending = true;
         _fbError = null;
         try
         {
-            var resp = await Http.PostAsJsonAsync("client-api/feedback", new { OperationId = _selectedOp.Id, Text = _feedbackText });
+            var resp = await Http.PostAsJsonAsync("client-api/feedback", new { OperationId = _selectedOp.Id, Text = _feedbackText, SubmitterName = _fbName.Trim(), SubmitterNumber = _fbNumber?.Trim() });
             if (!resp.IsSuccessStatusCode) { _fbError = "Feedback konnte nicht gesendet werden."; }
             else
             {
