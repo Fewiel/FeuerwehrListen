@@ -72,9 +72,12 @@
     </script>
 </head>
 
-<body>
+<body data-enhance-nav="false">
     @* Render-Modus pro Geraet: moderne Geraete WebAssembly (client-seitig, kein SignalR);
-       alte Geraete (kein WASM moeglich) InteractiveServer (SignalR) -> volle App auf iOS 12. *@
+       alte Geraete (kein WASM moeglich) InteractiveServer (SignalR) -> volle App auf iOS 12.
+       data-enhance-nav="false": Blazors Enhanced Navigation global aus - sie ist auf alten
+       iPads (iOS 12-15/Safari) fehlerhaft und macht Links/Navigation kaputt. Alle Links
+       machen so eine normale Vollnavigation, zuverlaessig auf allen Geraeten. *@
     <FeuerwehrListen.Client.Routes @rendermode="Mode" />
 
     <script src="lib/barcode-detector/polyfill.min.js"></script>
