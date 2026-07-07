@@ -19,6 +19,15 @@
                 <h5 class="card-title">@(_editId is null ? "Neue Funktion" : "Funktion bearbeiten")</h5>
                 <div class="mb-3"><label class="form-label">Name</label><input class="form-control" @bind="_name" /></div>
                 <div class="mb-3"><div class="form-check"><input class="form-check-input" type="checkbox" id="def" @bind="_isDefault" /><label class="form-check-label" for="def">Standard</label></div></div>
+                <div class="mb-3">
+                    <label class="form-label">Zählstelle in der Stärke</label>
+                    <select class="form-select" @bind="_strengthPosition">
+                        <option value="1">Zugführer (1. Zahl)</option>
+                        <option value="2">Gruppenführer (2. Zahl)</option>
+                        <option value="3">Mannschaft (3. Zahl)</option>
+                    </select>
+                    <small class="text-muted">Bestimmt, an welcher Stelle der Stärke (Führer / Helfer / Mannschaft / Gesamt) diese Funktion gezählt wird.</small>
+                </div>
                 @if (_error is not null) { <div class="alert alert-danger py-2">@_error</div> }
                 <button class="btn btn-primary me-2" @onclick="Save" disabled="@_saving">Speichern</button>
                 <button class="btn btn-secondary" @onclick="() => _showForm = false">Abbrechen</button>
@@ -33,13 +42,14 @@
             else
             {
                 <div class="table-responsive"><table class="table table-hover">
-                    <thead><tr><th>Name</th><th>Standard</th><th>Aktionen</th></tr></thead>
+                    <thead><tr><th>Name</th><th>Standard</th><th>Zählstelle</th><th>Aktionen</th></tr></thead>
                     <tbody>
                         @foreach (var f in _items)
                         {
                             <tr>
                                 <td><strong>@f.Name</strong></td>
                                 <td>@if (f.IsDefault) { <span class="badge bg-primary">Standard</span> }</td>
+                                <td><span class="badge bg-info text-dark">@PosLabel(f.StrengthPosition)</span></td>
                                 <td>
                                     <button class="btn btn-sm btn-primary me-2" @onclick="() => Edit(f)">Bearbeiten</button>
                                     <button class="btn btn-sm btn-danger" @onclick="() => Delete(f.Id)">Löschen</button>
@@ -59,13 +69,21 @@
     private int? _editId;
     private string _name = "";
     private bool _isDefault;
+    private int _strengthPosition = 3;
     private string? _error;
+
+    private static string PosLabel(int p) => p switch
+    {
+        1 => "Zugführer",
+        2 => "Gruppenführer",
+        _ => "Mannschaft"
+    };
 
     protected override async Task OnInitializedAsync() => await Load();
     private async Task Load() { try { _items = await Http.GetFromJsonAsync<List<FuncDto>>("client-api/admin/functions"); } catch { _items = new(); } }
 
-    private void ShowAdd() { _editId = null; _name = ""; _isDefault = false; _error = null; _showForm = true; }
-    private void Edit(FuncDto f) { _editId = f.Id; _name = f.Name; _isDefault = f.IsDefault; _error = null; _showForm = true; }
+    private void ShowAdd() { _editId = null; _name = ""; _isDefault = false; _strengthPosition = 3; _error = null; _showForm = true; }
+    private void Edit(FuncDto f) { _editId = f.Id; _name = f.Name; _isDefault = f.IsDefault; _strengthPosition = f.StrengthPosition; _error = null; _showForm = true; }
 
     private async Task Save()
     {
@@ -74,7 +92,7 @@
         _saving = true;
         try
         {
-            var body = new { Name = _name, IsDefault = _isDefault };
+            var body = new { Name = _name, IsDefault = _isDefault, StrengthPosition = _strengthPosition };
             var resp = _editId is int id
                 ? await Http.PutAsJsonAsync($"client-api/admin/functions/{id}", body)
                 : await Http.PostAsJsonAsync("client-api/admin/functions", body);
@@ -93,5 +111,5 @@
         catch { _error = "Löschen fehlgeschlagen."; }
     }
 
-    private record FuncDto(int Id, string Name, bool IsDefault);
+    private record FuncDto(int Id, string Name, bool IsDefault, int StrengthPosition = 3);
 }

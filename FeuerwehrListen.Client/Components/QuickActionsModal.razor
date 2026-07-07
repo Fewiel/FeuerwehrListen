@@ -1,0 +1,102 @@
+@* Schnellaktionen-Modal fuer den WASM-Client.
+   Wird geoeffnet, wenn ein gescannter QR-Code als BENUTZER-Ausweis erkannt wurde
+   (via client-api/auth/qr-identify). Das Modal verleiht KEINE Rechte – es zeigt nur
+   die auf der jeweiligen Seite sinnvollen Aktionen an. Die eigentlichen Aktionen
+   laufen ueber die bestehenden, auth-geschuetzten Endpoints und funktionieren nur,
+   wenn der Nutzer ohnehin angemeldet ist. Deshalb sind die Buttons in AuthorizeView
+   gekapselt. *@
+
+@if (_visible)
+{
+    <div class="modal fade show" style="display: block; background-color: rgba(0,0,0,0.5);" @onclick="Hide">
+        <div class="modal-dialog modal-dialog-centered" @onclick:stopPropagation="true">
+            <div class="modal-content bg-dark text-light border-secondary">
+                <div class="modal-header border-secondary">
+                    <h5 class="modal-title">
+                        <i class="bi bi-shield-check me-2"></i>Schnellaktionen
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="Hide"></button>
+                </div>
+                <div class="modal-body">
+                    @if (!string.IsNullOrWhiteSpace(_userName))
+                    {
+                        <p class="text-muted mb-3">Ausweis erkannt: <strong>@_userName</strong></p>
+                    }
+                    <AuthorizeView>
+                        <Authorized>
+                            <div class="d-grid gap-2">
+                                @if (ShowAddExcused)
+                                {
+                                    <AuthorizeView Roles="Admin" Context="adm">
+                                        <button class="btn btn-outline-warning btn-lg" @onclick="() => TriggerAction(QuickAction.AddExcused)">
+                                            <i class="bi bi-person-exclamation me-2"></i>Als Entschuldigt eintragen
+                                        </button>
+                                    </AuthorizeView>
+                                }
+                                @if (ShowEditEntries)
+                                {
+                                    <button class="btn btn-outline-primary btn-lg" @onclick="() => TriggerAction(QuickAction.EditEntries)">
+                                        <i class="bi bi-pencil-square me-2"></i>Einträge bearbeiten
+                                    </button>
+                                }
+                                @if (ShowCloseList)
+                                {
+                                    <button class="btn btn-warning btn-lg" @onclick="() => TriggerAction(QuickAction.CloseList)">
+                                        <i class="bi bi-lock me-2"></i>@CloseLabel
+                                    </button>
+                                }
+                            </div>
+                        </Authorized>
+                        <NotAuthorized>
+                            <div class="alert alert-info mb-0">
+                                <i class="bi bi-info-circle me-1"></i>
+                                Dieser Ausweis identifiziert einen Benutzer. Für Aktionen wie
+                                „@CloseLabel“ musst du selbst angemeldet sein.
+                                <div class="mt-2"><a class="btn btn-sm btn-primary" href="login">Zum Login</a></div>
+                            </div>
+                        </NotAuthorized>
+                    </AuthorizeView>
+                </div>
+                <div class="modal-footer border-secondary">
+                    <button class="btn btn-secondary" @onclick="Hide">Abbrechen</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    public enum QuickAction { AddExcused, CloseList, EditEntries }
+
+    // Welche Aktionen sind auf der Host-Seite sinnvoll?
+    [Parameter] public bool ShowCloseList { get; set; } = true;
+    [Parameter] public bool ShowAddExcused { get; set; }
+    [Parameter] public bool ShowEditEntries { get; set; }
+
+    // Beschriftung des Abschluss-Buttons (z.B. "Liste abschließen" / "Wache abschließen").
+    [Parameter] public string CloseLabel { get; set; } = "Liste abschließen";
+
+    [Parameter] public EventCallback<QuickAction> OnActionSelected { get; set; }
+
+    private bool _visible;
+    private string _userName = string.Empty;
+
+    public void Show(string userName)
+    {
+        _userName = userName;
+        _visible = true;
+        StateHasChanged();
+    }
+
+    public void Hide()
+    {
+        _visible = false;
+        StateHasChanged();
+    }
+
+    private async Task TriggerAction(QuickAction action)
+    {
+        Hide();
+        await OnActionSelected.InvokeAsync(action);
+    }
+}

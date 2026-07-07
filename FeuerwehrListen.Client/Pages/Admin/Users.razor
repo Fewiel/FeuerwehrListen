@@ -13,6 +13,24 @@
             <div class="col-auto"><button class="btn btn-primary" @onclick="ShowAdd"><i class="bi bi-plus-circle"></i> Neuer Benutzer</button></div>
         </div>
 
+        @if (_showGeneratedPassword)
+        {
+            <div class="row mb-4"><div class="col-md-8 offset-md-2">
+                <div class="alert alert-success alert-dismissible fade show" role="alert">
+                    <h5 class="alert-heading">Benutzer erfolgreich angelegt!</h5>
+                    <hr>
+                    <p class="mb-2"><strong>Generiertes Passwort:</strong></p>
+                    <div class="d-flex align-items-center gap-2">
+                        <code class="fs-4 p-2 bg-dark text-light rounded">@_generatedPassword</code>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="CopyGeneratedPassword"><i class="bi bi-clipboard"></i> Kopieren</button>
+                    </div>
+                    <hr>
+                    <p class="mb-0"><small>Bitte teilen Sie dem Benutzer dieses Passwort mit. Es wird nicht erneut angezeigt!</small></p>
+                    <button type="button" class="btn-close" @onclick="() => _showGeneratedPassword = false"></button>
+                </div>
+            </div></div>
+        }
+
         @if (_showForm)
         {
             <div class="row mb-4"><div class="col-md-8 offset-md-2"><div class="card"><div class="card-body">
@@ -24,14 +42,66 @@
                     </div>
                     <div class="col-md-6 mb-3"><label class="form-label">Vorname</label><input class="form-control" @bind="_firstName" /></div>
                     <div class="col-md-6 mb-3"><label class="form-label">Nachname</label><input class="form-control" @bind="_lastName" /></div>
-                    <div class="col-md-6 mb-3"><label class="form-label">Passwort @(_editId is null ? "" : "(leer = unverändert)")</label><input type="password" class="form-control" @bind="_password" /></div>
-                    <div class="col-md-6 mb-3"><label class="form-label">QR-Code (optional)</label><input class="form-control" @bind="_qr" /></div>
-                    <div class="col-md-6 mb-3"><label class="form-label">Admin-PIN (optional)</label><input class="form-control" @bind="_pin" /></div>
+                    <div class="col-md-6 mb-3"><label class="form-label">Email</label><input type="email" class="form-control" @bind="_email" /></div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">Passwort @(_editId is null ? "" : "(leer = unverändert)")</label>
+                        <div class="input-group">
+                            <input type="text" class="form-control" @bind="_password" placeholder="@(_editId is null ? "generieren oder eintragen" : "")" />
+                            <button class="btn btn-outline-secondary" type="button" @onclick="GeneratePassword"><i class="bi bi-shuffle"></i> Generieren</button>
+                            @if (!string.IsNullOrEmpty(_password))
+                            {
+                                <button class="btn btn-outline-secondary" type="button" @onclick="CopyFormPassword"><i class="bi bi-clipboard"></i></button>
+                            }
+                        </div>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">QR-Code (optional)</label>
+                        <div class="input-group">
+                            <input class="form-control" @bind="_qr" placeholder="scannen oder manuell eintragen" />
+                            <button class="btn btn-outline-info" type="button" @onclick="() => _showQrScannerModal = true"><i class="bi bi-qr-code-scan"></i> Scannen</button>
+                            @if (!string.IsNullOrWhiteSpace(_qr))
+                            {
+                                <button class="btn btn-outline-danger" type="button" @onclick="() => _qr = string.Empty"><i class="bi bi-trash"></i></button>
+                            }
+                        </div>
+                    </div>
+                    @if (_role == "Admin")
+                    {
+                        <div class="col-md-6 mb-3"><label class="form-label">Admin-PIN (optional)</label><input class="form-control" @bind="_pin" maxlength="10" placeholder="z.B. 1234" /></div>
+                    }
+                    @if (_editId is null)
+                    {
+                        <div class="col-12 mb-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="welcomeMail" @bind="_sendWelcomeMail" />
+                                <label class="form-check-label" for="welcomeMail">Zugangsdaten per E-Mail senden</label>
+                            </div>
+                            <small class="text-muted">Sendet Benutzername und Passwort an die angegebene E-Mail-Adresse.</small>
+                        </div>
+                    }
                 </div>
                 @if (_error is not null) { <div class="alert alert-danger py-2">@_error</div> }
                 <button class="btn btn-primary me-2" @onclick="Save" disabled="@_saving">Speichern</button>
                 <button class="btn btn-secondary" @onclick="() => _showForm = false">Abbrechen</button>
             </div></div></div></div>
+        }
+
+        @if (_showQrScannerModal)
+        {
+            <div class="modal fade show" style="display: block; background-color: rgba(0,0,0,0.5);">
+                <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">QR-Code scannen</h5>
+                            <button type="button" class="btn-close" @onclick="() => _showQrScannerModal = false"></button>
+                        </div>
+                        <div class="modal-body">
+                            <p class="text-muted">Halte den QR-Code in die Kamera. Der Code wird automatisch übernommen.</p>
+                            <QrScanner IsActive="_showQrScannerModal" OnCodeScanned="HandleQrCodeScanned" />
+                        </div>
+                    </div>
+                </div>
+            </div>
         }
 
         @if (!_showForm && _error is not null) { <div class="alert alert-danger">@_error</div> }
@@ -42,15 +112,17 @@
             else
             {
                 <div class="table-responsive"><table class="table table-hover">
-                    <thead><tr><th>Benutzername</th><th>Name</th><th>Rolle</th><th>QR/PIN</th><th>Aktionen</th></tr></thead>
+                    <thead><tr><th>Benutzername</th><th>Name</th><th>Email</th><th>Rolle</th><th>QR/PIN</th>@if (_hasCreatedAt) { <th>Erstellt am</th> }<th>Aktionen</th></tr></thead>
                     <tbody>
                         @foreach (var u in _items)
                         {
                             <tr>
                                 <td><strong>@u.Username</strong></td>
                                 <td>@u.FirstName @u.LastName</td>
+                                <td>@u.Email</td>
                                 <td>@if (u.Role == "Admin") { <span class="badge bg-danger">Admin</span> } else { <span class="badge bg-secondary">Benutzer</span> }</td>
                                 <td>@if (u.HasQr) { <span class="badge bg-info me-1">QR</span> }@if (u.HasPin) { <span class="badge bg-warning">PIN</span> }</td>
+                                @if (_hasCreatedAt) { <td>@(u.CreatedAt?.ToString("dd.MM.yyyy"))</td> }
                                 <td>
                                     <button class="btn btn-sm btn-primary me-2" @onclick="() => Edit(u)">Bearbeiten</button>
                                     <button class="btn btn-sm btn-danger" @onclick="() => Delete(u.Id)">Löschen</button>
@@ -67,29 +139,98 @@
 @code {
     private List<UserDto>? _items;
     private bool _showForm, _saving;
+    private bool _showQrScannerModal;
+    private bool _showGeneratedPassword;
+    private bool _sendWelcomeMail;
+    private bool _hasCreatedAt;
     private int? _editId;
-    private string _username = "", _firstName = "", _lastName = "", _role = "User", _password = "", _qr = "", _pin = "";
+    private string _username = "", _firstName = "", _lastName = "", _email = "", _role = "User", _password = "", _qr = "", _pin = "";
+    private string _generatedPassword = "";
     private string? _error;
 
     protected override async Task OnInitializedAsync() => await Load();
-    private async Task Load() { try { _items = await Http.GetFromJsonAsync<List<UserDto>>("client-api/admin/users"); } catch { _items = new(); } }
 
-    private void ShowAdd() { _editId = null; _username = ""; _firstName = ""; _lastName = ""; _role = "User"; _password = ""; _qr = ""; _pin = ""; _error = null; _showForm = true; }
-    private void Edit(UserDto u) { _editId = u.Id; _username = u.Username; _firstName = u.FirstName; _lastName = u.LastName; _role = u.Role; _password = ""; _qr = ""; _pin = ""; _error = null; _showForm = true; }
+    private async Task Load()
+    {
+        try
+        {
+            _items = await Http.GetFromJsonAsync<List<UserDto>>("client-api/admin/users");
+            _hasCreatedAt = _items is not null && _items.Any(u => u.CreatedAt.HasValue);
+        }
+        catch { _items = new(); }
+    }
+
+    private void ShowAdd()
+    {
+        _editId = null; _username = ""; _firstName = ""; _lastName = ""; _email = ""; _role = "User"; _password = ""; _qr = ""; _pin = "";
+        _sendWelcomeMail = false; _showGeneratedPassword = false; _error = null; _showForm = true;
+    }
+
+    private void Edit(UserDto u)
+    {
+        _editId = u.Id; _username = u.Username; _firstName = u.FirstName; _lastName = u.LastName; _email = u.Email ?? "";
+        _role = u.Role; _password = ""; _qr = ""; _pin = ""; _sendWelcomeMail = false; _error = null; _showForm = true;
+    }
+
+    private static readonly string PwChars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+
+    private void GeneratePassword()
+    {
+        var rnd = new Random();
+        _password = new string(Enumerable.Range(0, 12).Select(_ => PwChars[rnd.Next(PwChars.Length)]).ToArray());
+    }
+
+    private async Task CopyFormPassword() => await CopyToClipboard(_password);
+    private async Task CopyGeneratedPassword() => await CopyToClipboard(_generatedPassword);
+
+    private async Task CopyToClipboard(string text)
+    {
+        try { await JS.InvokeVoidAsync("navigator.clipboard.writeText", text); } catch { }
+    }
+
+    private void HandleQrCodeScanned(string code)
+    {
+        _qr = code.Trim();
+        _showQrScannerModal = false;
+        StateHasChanged();
+    }
 
     private async Task Save()
     {
         _error = null;
         if (string.IsNullOrWhiteSpace(_username)) { _error = "Benutzername erforderlich."; return; }
-        if (_editId is null && string.IsNullOrWhiteSpace(_password)) { _error = "Passwort erforderlich."; return; }
+        if (_editId is null && string.IsNullOrWhiteSpace(_password)) { _error = "Passwort erforderlich (bitte generieren oder eintragen)."; return; }
+        var welcome = _editId is null && _sendWelcomeMail;
+        if (welcome && string.IsNullOrWhiteSpace(_email)) { _error = "Für die Willkommens-Mail ist eine E-Mail-Adresse erforderlich."; return; }
+
         _saving = true;
         try
         {
-            var body = new { Username = _username, FirstName = _firstName, LastName = _lastName, Role = _role, Password = _password, QrAuthCode = _qr, AdminPin = _pin };
+            var body = new
+            {
+                Username = _username,
+                FirstName = _firstName,
+                LastName = _lastName,
+                Email = _email,
+                Role = _role,
+                Password = _password,
+                QrAuthCode = _qr,
+                AdminPin = _role == "Admin" ? _pin : "",
+                SendWelcomeMail = welcome
+            };
             var resp = _editId is int id ? await Http.PutAsJsonAsync($"client-api/admin/users/{id}", body) : await Http.PostAsJsonAsync("client-api/admin/users", body);
             if (!resp.IsSuccessStatusCode) { _error = "Speichern fehlgeschlagen."; return; }
-            _showForm = false; await Load();
+
+            // Bei Neuanlage generiertes Passwort einmalig anzeigen.
+            if (_editId is null)
+            {
+                _generatedPassword = _password;
+                _showGeneratedPassword = true;
+            }
+            _showForm = false;
+            await Load();
         }
+        catch { _error = "Speichern fehlgeschlagen."; }
         finally { _saving = false; }
     }
 
@@ -101,5 +242,5 @@
         catch { _error = "Löschen fehlgeschlagen."; }
     }
 
-    private record UserDto(int Id, string Username, string FirstName, string LastName, string Role, bool HasQr, bool HasPin);
+    private record UserDto(int Id, string Username, string FirstName, string LastName, string? Email, string Role, bool HasQr, bool HasPin, DateTime? CreatedAt);
 }

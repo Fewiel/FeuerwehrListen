@@ -26,13 +26,13 @@
                 else
                 {
                     <div class="table-responsive"><table class="table table-hover">
-                        <thead><tr><th>#</th><th>Name/ID</th><th>Fahrzeug</th><th>Funktionen</th><th>AGT</th><th>Aktion</th></tr></thead>
+                        <thead><tr><th>#</th><th>Name/ID</th><th>Eingetragen</th><th>Fahrzeug</th><th>Funktionen</th><th>AGT</th><th>Aktion</th></tr></thead>
                         <tbody>
                             @{ var i = 1; }
                             @foreach (var e in _data.Entries)
                             {
                                 <tr>
-                                    <td>@(i++)</td><td><strong>@e.Name</strong></td><td>@e.Vehicle</td>
+                                    <td>@(i++)</td><td><strong>@e.Name</strong></td><td>@e.EnteredAt.ToString("HH:mm:ss")</td><td>@e.Vehicle</td>
                                     <td>@string.Join(", ", e.Functions)</td>
                                     <td>@if (e.Breathing) { <span class="badge bg-warning">Ja</span> } else { <span class="badge bg-secondary">Nein</span> }</td>
                                     <td><button class="btn btn-sm btn-outline-danger" @onclick="() => Delete(e.Id)"><i class="bi bi-trash"></i> Löschen</button></td>
@@ -87,5 +87,5 @@
     }
 
     private record OpDto(int Id, string Number, string Keyword, string? Address, bool IsOpen, List<EntryDto> Entries);
-    private record EntryDto(int Id, string Name, string? Vehicle, bool Breathing, List<string> Functions);
+    private record EntryDto(int Id, string Name, DateTime EnteredAt, string? Vehicle, bool Breathing, List<string> Functions);
 }

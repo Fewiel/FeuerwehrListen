@@ -59,6 +59,12 @@
     {
         _error = null;
         if (string.IsNullOrWhiteSpace(_name) || string.IsNullOrWhiteSpace(_location)) { _error = "Name und Ort erforderlich."; return; }
+        // Zeilen mit Anzahl > 0 aber ohne gewählte Funktion nicht still verwerfen, sondern melden.
+        if (_requirements.Any(r => r.Amount > 0 && r.FunctionDefId <= 0))
+        {
+            _error = "Bitte für jede Anforderung mit Anzahl > 0 eine Funktion wählen.";
+            return;
+        }
         var reqs = _requirements.Where(r => r.Amount > 0 && r.FunctionDefId > 0)
             .Select(r => new { FunctionDefId = r.FunctionDefId, Amount = r.Amount, VehicleId = string.IsNullOrEmpty(r.VehicleId) ? (int?)null : int.Parse(r.VehicleId) }).ToList();
         if (reqs.Count == 0) { _error = "Mindestens eine Anforderung mit Anzahl > 0."; return; }

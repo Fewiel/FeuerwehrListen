@@ -453,6 +453,21 @@ app.MapPost("/client-api/auth/change-password", async (HttpContext ctx, UserRepo
     return Results.Json(new { ok = true });
 }).RequireAuthorization().DisableAntiforgery();
 
+// B14: Gescannten Code als BENUTZER-Ausweis identifizieren OHNE Login (kein Cookie, keine
+// Anmeldung). Dient nur dazu, dem Client zu sagen, ob ein QR-Code zu einem User gehoert - damit
+// er entscheiden kann, ob er das QuickActions-Menue (z. B. "Liste schliessen") anbietet. Die
+// eigentlichen Admin-Aktionen laufen weiter ueber die normalen RequireAuthorization-Endpoints,
+// d. h. QuickActions funktionieren nur, wenn der Nutzer ohnehin per Cookie angemeldet ist.
+// Sicherheit: Bestaetigt lediglich Zugehoerigkeit + Rolle, verleiht KEINE Rechte.
+app.MapGet("/client-api/auth/qr-identify", async (UserRepository users, string? code) =>
+{
+    var c = (code ?? "").Trim();
+    if (c.Length == 0) return Results.Json(new { isUser = false });
+    var user = await users.GetByQrAuthCodeAsync(c);
+    if (user == null) return Results.Json(new { isUser = false });
+    return Results.Json(new { isUser = true, username = user.Username, role = user.Role.ToString() });
+});
+
 app.MapGet("/client-api/auth/me", (HttpContext ctx) =>
 {
     if (ctx.User?.Identity?.IsAuthenticated != true) return Results.Json(new { authenticated = false });
@@ -535,6 +550,10 @@ listMgmt.MapPost("/list/{type}/{id:int}/archive", async (string type, int id, At
     return Results.Ok();
 });
 
+// B6 (Sicherheit): Endgueltiges Loeschen ist Admin-only (Original: Archive.razor zeigte den
+// Loesch-Button nur bei AuthService.IsAdmin). Daher explizit RequireAuthorization("Admin").
+// Archivieren dagegen war im Original (ClosedLists.razor unter UserAuthCheck) fuer jeden
+// angemeldeten Nutzer erlaubt und bleibt deshalb bei RequireAuthorization() der Gruppe.
 listMgmt.MapDelete("/list/{type}/{id:int}", async (string type, int id, AttendanceListRepository att, OperationListRepository op, FireSafetyWatchRepository fsw) =>
 {
     switch (type)
@@ -545,7 +564,7 @@ listMgmt.MapDelete("/list/{type}/{id:int}", async (string type, int id, Attendan
         default: return Results.BadRequest();
     }
     return Results.Ok();
-});
+}).RequireAuthorization("Admin");
 
 // ================== ADMIN-CRUD (Cookie-Auth, Rolle Admin) ==================
 var admin = app.MapGroup("/client-api/admin").RequireAuthorization("Admin").DisableAntiforgery();
@@ -591,16 +610,29 @@ admin.MapPost("/keywords/{id:int}/requirements", async (int id, PersonalRequirem
 });
 
 // --- Funktionen ---
+// B1: StrengthPosition (Zaehlstelle) wird als int (1=Zugfuehrer, 2=Gruppenfuehrer, 3=Mannschaft)
+// uebertragen. Der PUT laedt den bestehenden Datensatz und aktualisiert nur die Felder, statt
+// ein neues OperationFunctionDef ohne StrengthPosition zu erzeugen (das setzte die Zaehlstelle
+// still auf den Default Mannschaft zurueck = Datenverlust-Bug).
 admin.MapGet("/functions", async (OperationFunctionRepository repo) =>
-    Results.Json((await repo.GetAllAsync()).Select(f => new { id = f.Id, name = f.Name, isDefault = f.IsDefault })));
+    Results.Json((await repo.GetAllAsync()).Select(f => new { id = f.Id, name = f.Name, isDefault = f.IsDefault, strengthPosition = (int)f.StrengthPosition })));
 admin.MapPost("/functions", async (OperationFunctionRepository repo, FunctionReq r) =>
 {
-    var id = await repo.CreateAsync(new OperationFunctionDef { Name = r.Name.Trim(), IsDefault = r.IsDefault });
+    var id = await repo.CreateAsync(new OperationFunctionDef
+    {
+        Name = r.Name.Trim(),
+        IsDefault = r.IsDefault,
+        StrengthPosition = Enum.IsDefined(typeof(StrengthPosition), r.StrengthPosition) ? (StrengthPosition)r.StrengthPosition : StrengthPosition.Mannschaft
+    });
     return Results.Json(new { id });
 });
 admin.MapPut("/functions/{id:int}", async (int id, OperationFunctionRepository repo, FunctionReq r) =>
 {
-    await repo.UpdateAsync(new OperationFunctionDef { Id = id, Name = r.Name.Trim(), IsDefault = r.IsDefault }); return Results.Ok();
+    var f = await repo.GetByIdAsync(id); if (f == null) return Results.NotFound();
+    f.Name = r.Name.Trim();
+    f.IsDefault = r.IsDefault;
+    f.StrengthPosition = Enum.IsDefined(typeof(StrengthPosition), r.StrengthPosition) ? (StrengthPosition)r.StrengthPosition : f.StrengthPosition;
+    await repo.UpdateAsync(f); return Results.Ok();
 });
 admin.MapDelete("/functions/{id:int}", async (int id, OperationFunctionRepository repo) => { await repo.DeleteAsync(id); return Results.Ok(); });
 
@@ -693,25 +725,54 @@ admin.MapPost("/members/import-csv", async (MemberRepository repo, CsvReq r) =>
 });
 
 // --- Benutzer ---
+// B15: GET liefert die Email mit. POST/PUT uebernehmen die Email. Beim Anlegen kann der Client
+// ein selbst generiertes Klartext-Passwort mitschicken (B17: einmalige Anzeige im Frontend);
+// ist SendWelcomeMail gesetzt und eine Email vorhanden, werden die Zugangsdaten (Benutzername +
+// Klartext-Passwort) per Mail versendet. Der Mail-Versand darf den Anlage-Vorgang nicht crashen.
 admin.MapGet("/users", async (UserRepository repo) =>
-    Results.Json((await repo.GetAllAsync()).Select(u => new { id = u.Id, username = u.Username, firstName = u.FirstName, lastName = u.LastName, role = u.Role.ToString(), hasQr = !string.IsNullOrEmpty(u.QrAuthCode), hasPin = !string.IsNullOrEmpty(u.AdminPin) })));
-admin.MapPost("/users", async (UserRepository repo, UserReq r) =>
+    Results.Json((await repo.GetAllAsync()).Select(u => new { id = u.Id, username = u.Username, firstName = u.FirstName, lastName = u.LastName, email = u.Email, role = u.Role.ToString(), hasQr = !string.IsNullOrEmpty(u.QrAuthCode), hasPin = !string.IsNullOrEmpty(u.AdminPin), createdAt = u.CreatedAt })));
+admin.MapPost("/users", async (UserRepository repo, EmailSenderService email, UserReq r) =>
 {
-    var id = await repo.CreateAsync(new User
+    var user = new User
     {
         Username = r.Username.Trim(),
         FirstName = r.FirstName?.Trim() ?? "", LastName = r.LastName?.Trim() ?? "",
+        Email = r.Email?.Trim() ?? "",
         Role = Enum.TryParse<UserRole>(r.Role, out var role) ? role : UserRole.User,
         PasswordHash = FeuerwehrListen.Services.AuthenticationService.HashPassword(r.Password ?? ""),
         QrAuthCode = string.IsNullOrWhiteSpace(r.QrAuthCode) ? null : r.QrAuthCode.Trim(),
-        AdminPin = string.IsNullOrWhiteSpace(r.AdminPin) ? null : r.AdminPin.Trim()
-    });
+        AdminPin = string.IsNullOrWhiteSpace(r.AdminPin) ? null : r.AdminPin.Trim(),
+        CreatedAt = DateTime.Now
+    };
+    var id = await repo.CreateAsync(user);
+
+    // Willkommens-Mail mit Zugangsdaten (nur wenn angefordert, Email + Klartext-Passwort vorhanden).
+    if (r.SendWelcomeMail && !string.IsNullOrWhiteSpace(user.Email) && !string.IsNullOrWhiteSpace(r.Password))
+    {
+        try
+        {
+            var body = "Hallo " + user.FirstName + " " + user.LastName + ",\n\n" +
+                "Ihr Konto bei Feuerwehr Listen wurde erfolgreich eingerichtet.\n\n" +
+                "Ihre Zugangsdaten:\n" +
+                "  Benutzername: " + user.Username + "\n" +
+                "  Passwort:     " + r.Password + "\n\n" +
+                "Bitte melden Sie sich an und ändern Sie Ihr Passwort unter \"Passwort ändern\" in der Navigation.\n\n" +
+                "Mit freundlichen Grüßen\n" +
+                "Feuerwehr Listen";
+            await email.SendAsync(new[] { user.Email }, "Ihre Zugangsdaten - Feuerwehr Listen", body);
+        }
+        catch (Exception ex)
+        {
+            app.Logger.LogWarning(ex, "Willkommens-Mail an {Email} konnte nicht versendet werden", user.Email);
+        }
+    }
     return Results.Json(new { id });
 });
 admin.MapPut("/users/{id:int}", async (int id, UserRepository repo, UserReq r) =>
 {
     var u = await repo.GetByIdAsync(id); if (u == null) return Results.NotFound();
     u.Username = r.Username.Trim(); u.FirstName = r.FirstName?.Trim() ?? ""; u.LastName = r.LastName?.Trim() ?? "";
+    u.Email = r.Email?.Trim() ?? "";
     u.Role = Enum.TryParse<UserRole>(r.Role, out var role) ? role : u.Role;
     if (!string.IsNullOrWhiteSpace(r.Password)) u.PasswordHash = FeuerwehrListen.Services.AuthenticationService.HashPassword(r.Password);
     u.QrAuthCode = string.IsNullOrWhiteSpace(r.QrAuthCode) ? null : r.QrAuthCode.Trim();
@@ -856,6 +917,145 @@ admin.MapPost("/scheduled", async (ScheduledListRepository repo, ScheduledReq r)
     return Results.Json(new { id });
 });
 admin.MapDelete("/scheduled/{id:int}", async (int id, ScheduledListRepository repo) => { await repo.DeleteAsync(id); return Results.Ok(); });
+// B5: Geplante Liste sofort "Jetzt oeffnen" - erzeugt sofort die echte Anwesenheits-/Einsatzliste
+// (gleiche Erzeugungslogik wie ScheduledListBackgroundService) und setzt IsProcessed=true.
+// Rueckgabe: neue Listen-Id + Typ ("attendance"/"operation"), damit der Client dorthin navigieren kann.
+admin.MapPost("/scheduled/{id:int}/process", async (int id, ScheduledListRepository repo, AttendanceListRepository att, OperationListRepository op) =>
+{
+    var s = await repo.GetByIdAsync(id);
+    if (s == null) return Results.NotFound();
+    if (s.IsProcessed) return Results.BadRequest(new { error = "Bereits verarbeitet." });
+
+    int newId; string type;
+    if (s.Type == ScheduledListType.Attendance)
+    {
+        newId = await att.CreateAsync(new AttendanceList
+        {
+            Title = s.Title,
+            Unit = s.Unit,
+            Description = s.Description,
+            UnitNumber = s.UnitNumber,
+            CreatedAt = DateTime.Now,
+            Status = ListStatus.Open
+        });
+        type = "attendance";
+    }
+    else
+    {
+        newId = await op.CreateAsync(new OperationList
+        {
+            OperationNumber = s.OperationNumber,
+            Keyword = s.Keyword,
+            AlertTime = s.ScheduledEventTime,
+            CreatedAt = DateTime.Now,
+            Status = ListStatus.Open
+        });
+        type = "operation";
+    }
+
+    s.IsProcessed = true;
+    await repo.UpdateAsync(s);
+    return Results.Json(new { id = newId, type });
+});
+
+// B4: Nextcloud "Verbindung testen". Body optional (url/user/pass); ohne Body werden die
+// gespeicherten Settings getestet (TestConnectionAsync faellt auf Config() zurueck).
+admin.MapPost("/nextcloud/test", async (NextcloudService nc, NextcloudTestReq? req) =>
+{
+    var (ok, message) = await nc.TestConnectionAsync(req?.Url, req?.User, req?.Pass);
+    return Results.Json(new { ok, message });
+});
+
+// B2/B3: Branding - Logo- und PWA-Icon-Upload (portiert aus Settings.razor).
+// Logo: schreibt wwwroot/custom-logo.<ext>, setzt Setting BrandingLogoUrl, gibt { logoUrl } zurueck.
+admin.MapPost("/branding/logo", async (HttpRequest http, IWebHostEnvironment env, SettingsService settings) =>
+{
+    var form = await http.ReadFormAsync();
+    var file = form.Files.FirstOrDefault();
+    if (file == null || file.Length == 0) return Results.BadRequest(new { error = "Keine Datei." });
+    if (file.Length > 5 * 1024 * 1024) return Results.BadRequest(new { error = "Datei zu gross (max. 5 MB)." });
+    var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+    if (ext is not ".png" and not ".jpg" and not ".jpeg" and not ".svg")
+        return Results.BadRequest(new { error = "Ungueltiger Dateityp (erlaubt: png, jpg, jpeg, svg)." });
+    try
+    {
+        var fileName = $"custom-logo{ext}";
+        var filePath = Path.Combine(env.WebRootPath, fileName);
+        await using (var fs = new FileStream(filePath, FileMode.Create))
+            await file.CopyToAsync(fs);
+        var logoUrl = $"/{fileName}";
+        await settings.UpdateSettingAsync(SettingKeys.BrandingLogoUrl, logoUrl);
+        return Results.Json(new { logoUrl });
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogWarning(ex, "Logo-Upload fehlgeschlagen (evtl. read-only Container)");
+        return Results.Problem("Logo konnte nicht gespeichert werden (Dateisystem schreibgeschuetzt?).");
+    }
+});
+admin.MapPost("/branding/logo/remove", async (IWebHostEnvironment env, SettingsService settings) =>
+{
+    try
+    {
+        var current = settings.GetSetting(SettingKeys.BrandingLogoUrl);
+        if (!string.IsNullOrWhiteSpace(current) && current.StartsWith("/custom-logo"))
+        {
+            var filePath = Path.Combine(env.WebRootPath, current.TrimStart('/'));
+            if (File.Exists(filePath)) File.Delete(filePath);
+        }
+        await settings.UpdateSettingAsync(SettingKeys.BrandingLogoUrl, "");
+        return Results.Ok();
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogWarning(ex, "Logo-Entfernen fehlgeschlagen");
+        return Results.Problem("Logo konnte nicht entfernt werden.");
+    }
+});
+// Icon: schreibt icon-192.png + icon-512.png (1:1 wie Original: dieselben Bytes) und regeneriert
+// manifest.json. Der App-Name im manifest wird aus dem gespeicherten Setting uebernommen.
+admin.MapPost("/branding/icon", async (HttpRequest http, IWebHostEnvironment env, SettingsService settings) =>
+{
+    var form = await http.ReadFormAsync();
+    var file = form.Files.FirstOrDefault();
+    if (file == null || file.Length == 0) return Results.BadRequest(new { error = "Keine Datei." });
+    if (file.Length > 5 * 1024 * 1024) return Results.BadRequest(new { error = "Datei zu gross (max. 5 MB)." });
+    if (!file.FileName.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
+        return Results.BadRequest(new { error = "Nur PNG erlaubt." });
+    try
+    {
+        await using var ms = new MemoryStream();
+        await file.CopyToAsync(ms);
+        var bytes = ms.ToArray();
+        await File.WriteAllBytesAsync(Path.Combine(env.WebRootPath, "icon-192.png"), bytes);
+        await File.WriteAllBytesAsync(Path.Combine(env.WebRootPath, "icon-512.png"), bytes);
+
+        var manifestPath = Path.Combine(env.WebRootPath, "manifest.json");
+        var appName = settings.GetSetting(SettingKeys.BrandingAppName);
+        if (string.IsNullOrWhiteSpace(appName)) appName = "Feuerwehr Listen";
+        var manifest = "{\n" +
+            "  \"name\": \"" + appName + "\",\n" +
+            "  \"short_name\": \"FW Listen\",\n" +
+            "  \"description\": \"Feuerwehr Anwesenheits- und Einsatzlisten\",\n" +
+            "  \"start_url\": \"/\",\n" +
+            "  \"id\": \"/\",\n" +
+            "  \"display\": \"standalone\",\n" +
+            "  \"background_color\": \"#F5F6F8\",\n" +
+            "  \"theme_color\": \"#E4002B\",\n" +
+            "  \"orientation\": \"portrait\",\n" +
+            "  \"icons\": [\n" +
+            "    { \"src\": \"icon-192.png\", \"sizes\": \"192x192\", \"type\": \"image/png\", \"purpose\": \"any\" },\n" +
+            "    { \"src\": \"icon-512.png\", \"sizes\": \"512x512\", \"type\": \"image/png\", \"purpose\": \"any\" }\n" +
+            "  ]\n}";
+        await File.WriteAllTextAsync(manifestPath, manifest);
+        return Results.Json(new { ok = true });
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogWarning(ex, "Icon-Upload fehlgeschlagen (evtl. read-only Container)");
+        return Results.Problem("Icon konnte nicht gespeichert werden (Dateisystem schreibgeschuetzt?).");
+    }
+});
 
 // Anwesenheitsliste: Detail + Eintraege
 app.MapGet("/client-api/attendance/{id:int}", async (int id, AttendanceListRepository repo, AttendanceEntryRepository entryRepo, SettingsService settings) =>
@@ -946,7 +1146,7 @@ app.MapPost("/client-api/attendance/{id:int}/add", async (int id, HttpContext ht
 }).DisableAntiforgery();
 
 // Einsatzliste: Detail + Fahrzeuge + Funktionen + Eintraege
-app.MapGet("/client-api/operation/{id:int}", async (int id, OperationListRepository repo, OperationEntryRepository entryRepo, OperationEntryFunctionRepository efRepo, VehicleRepository vehicleRepo, OperationFunctionRepository funcRepo) =>
+app.MapGet("/client-api/operation/{id:int}", async (int id, OperationListRepository repo, OperationEntryRepository entryRepo, OperationEntryFunctionRepository efRepo, VehicleRepository vehicleRepo, OperationFunctionRepository funcRepo, PersonalRequirementsService reqSvc) =>
 {
     var list = await repo.GetByIdAsync(id);
     if (list == null) return Results.NotFound();
@@ -954,23 +1154,53 @@ app.MapGet("/client-api/operation/{id:int}", async (int id, OperationListReposit
     var funcMap = await efRepo.GetFunctionsForEntriesAsync(entries.Select(e => e.Id).ToList());
     var vehicles = await vehicleRepo.GetActiveAsync();
     var funcs = await funcRepo.GetAllAsync();
+
+    // B10: Personal-Requirements-Status (nur wenn ein Stichwort mit definierten Requirements gesetzt
+    // ist). ValidateRequirementsAsync liefert bei fehlendem Stichwort/keinen Requirements eine leere
+    // MissingRequirements-Liste mit IsValid=true -> dann geben wir requirements=null zurueck.
+    object? requirements = null;
+    if (list.KeywordId.HasValue)
+    {
+        var validation = await reqSvc.ValidateRequirementsAsync(list.Id, list.KeywordId.Value);
+        // Nur ausgeben, wenn tatsaechlich Requirements definiert sind (sonst sind sowohl IsValid als
+        // auch die Missing-Liste leer/true und es gibt nichts anzuzeigen).
+        if (validation.MissingRequirements.Count > 0 || !validation.IsValid)
+        {
+            requirements = new
+            {
+                isValid = validation.IsValid,
+                missing = validation.MissingRequirements.Select(m => new
+                {
+                    functionName = m.FunctionName,
+                    currentCount = m.CurrentCount,
+                    requiredCount = m.RequiredCount,
+                    isRequired = m.IsRequired
+                })
+            };
+        }
+    }
+
     return Results.Json(new
     {
         id = list.Id,
         number = NextcloudService.StripLeadingYear(list.OperationNumber, list.AlertTime.Year),
         keyword = list.Keyword,
         address = list.Address,
+        alertTime = list.AlertTime,
+        createdAt = list.CreatedAt,
         isOpen = list.Status == ListStatus.Open,
         entries = entries.Select(e => new
         {
             id = e.Id,
             name = e.NameOrId,
+            enteredAt = e.EnteredAt,
             vehicle = e.Vehicle,
             breathing = e.WithBreathingApparatus,
             functions = funcMap.TryGetValue(e.Id, out var fl) ? fl.Select(f => f.Name).ToArray() : Array.Empty<string>()
         }),
         vehicles = vehicles.Select(v => new { id = v.Id, name = v.Name }),
-        functions = funcs.Select(f => new { id = f.Id, name = f.Name })
+        functions = funcs.Select(f => new { id = f.Id, name = f.Name }),
+        requirements
     });
 });
 
@@ -991,6 +1221,10 @@ app.MapGet("/client-api/operation/{id:int}/report", async (int id, OperationList
     return Results.Json(new
     {
         report,
+        // B7: Einsatz-Kopfdaten fuer die Berichtsanzeige (Einsatznummer, Stichwort, Alarmzeit).
+        operationNumber = NextcloudService.StripLeadingYear(list.OperationNumber, list.AlertTime.Year),
+        keyword = list.Keyword,
+        alertTime = list.AlertTime,
         externalForces = extForces.Select(f => new { id = f.Id, rufname = f.Rufname, staerke = f.Staerke }),
         mittel = mittel.Select(m => new { name = m.Name, anzahl = m.Anzahl, dauer = m.Dauer, isCustom = m.IsCustom }),
         vehicleStrengths = vehicles.Select(v => new { vehicleName = v.Name, staerke = strengths.FirstOrDefault(s => s.VehicleName == v.Name)?.Staerke }),
@@ -1016,6 +1250,21 @@ app.MapPost("/client-api/operation/{id:int}/report", async (int id, OperationRep
     await repo.ReplaceMittelAsync(existing.Id, (req.Mittel ?? new()).Select(m => new OperationReportMittel { Name = m.Name, Anzahl = m.Anzahl, Dauer = m.Dauer, IsCustom = m.IsCustom }));
     await repo.ReplaceVehicleStrengthsAsync(existing.Id, (req.VehicleStrengths ?? new()).Select(v => new OperationReportVehicleStrength { VehicleName = v.VehicleName, Staerke = v.Staerke }));
     return Results.Ok();
+}).RequireAuthorization().DisableAntiforgery();
+
+// B8: Gesamtstaerke live neu berechnen. Nimmt die aktuellen (noch ungespeicherten) externen
+// Kraefte + Fahrzeug-Staerken aus dem Body; die gescannten Einsatz-Eintraege + funcMap holt der
+// Endpoint selbst aus der DB (analog report-GET). Rueckgabe { gesamt } im "F/M/Gesamt"-Format.
+app.MapPost("/client-api/operation/{id:int}/report/strength", async (int id, OperationEntryRepository entryRepo, OperationEntryFunctionRepository efRepo, ReportStrengthReq req) =>
+{
+    var entries = await entryRepo.GetByListIdAsync(id);
+    var funcMap = await efRepo.GetFunctionsForEntriesAsync(entries.Select(e => e.Id).ToList());
+    var gesamt = StrengthCalc.CombinedTotal(
+        entries,
+        funcMap,
+        (req.VehicleStrengths ?? new()).Select(v => (v.VehicleName, v.Staerke)),
+        (req.ExternalForces ?? new()).Select(e => e.Staerke));
+    return Results.Json(new { gesamt });
 }).RequireAuthorization().DisableAntiforgery();
 
 // Einsatzbericht: Bildanzahl (Nextcloud)
@@ -1167,6 +1416,18 @@ app.MapPost("/client-api/defects/{id:int}/status", async (int id, HttpContext ht
     await repo.UpdateAsync(d);
     return Results.Json(new { status = "ok" });
 }).RequireAuthorization().DisableAntiforgery();
+
+// B18: Mitglieder-Namenssuche fuer den Maengel-Flow (Melden UND Status). Das Melden ist bewusst
+// anonym (Kiosk, keine Anmeldung), daher ist auch diese Suche anonym - analog zur bestehenden
+// anonymen Mitglieds-Aufloesung (z. B. /client-api/operation/{id}/resolve). Es werden nur wenige
+// Treffer (max 8) mit begrenzten Feldern (id, name, number) zurueckgegeben.
+app.MapGet("/client-api/members/search", async (MemberRepository repo, string? q) =>
+{
+    var term = (q ?? "").Trim();
+    if (term.Length < 2) return Results.Json(Array.Empty<object>());
+    var found = await repo.SearchAsync(term, 8);
+    return Results.Json(found.Select(m => new { id = m.Id, name = $"{m.FirstName} {m.LastName}", number = m.MemberNumber }));
+}).DisableAntiforgery();
 
 // Brandsicherheitswache: Detail (öffentlich) + Registrieren/Austragen/Abschließen
 app.MapGet("/client-api/firesafetywatch/{id:int}", async (int id, FireSafetyWatchRepository repo, FireSafetyWatchRequirementRepository reqRepo, FireSafetyWatchEntryRepository entryRepo) =>
@@ -1400,12 +1661,16 @@ static async Task SignInUser(HttpContext ctx, User user)
 
 public record VehicleReq(string Name, string CallSign, string Type, bool IsActive);
 public record KeywordReq(string Name, string? Description);
-public record FunctionReq(string Name, bool IsDefault);
+// B1: StrengthPosition als int (1=Zugfuehrer, 2=Gruppenfuehrer, 3=Mannschaft). Default 3.
+public record FunctionReq(string Name, bool IsDefault, int StrengthPosition = 3);
 public record ReqItem(int FunctionDefId, int MinimumCount, bool IsRequired);
 public record MemberReq(string MemberNumber, string FirstName, string LastName, bool IsActive, List<int>? Units);
 public record CsvReq(string? Csv);
 public record ApiKeyReq(string? Description);
-public record UserReq(string Username, string? FirstName, string? LastName, string Role, string? Password, string? QrAuthCode, string? AdminPin);
+// B15/B17: Email + optionaler Willkommens-Mail-Versand. Der Client generiert das Klartext-Passwort
+// (Password) und zeigt es einmalig an; ist SendWelcomeMail=true und Email gesetzt, versendet der
+// POST die Zugangsdaten (Benutzername + Klartext-Passwort) per Mail.
+public record UserReq(string Username, string? FirstName, string? LastName, string Role, string? Password, string? QrAuthCode, string? AdminPin, string? Email = null, bool SendWelcomeMail = false);
 public record ScheduledReq(string Type, string? Title, string? Unit, string? Description, int? UnitNumber, string? OperationNumber, string? Keyword, DateTime EventTime, int MinutesBefore);
 public record AuthLoginRequest(string? Username, string? Password);
 public record AuthQrRequest(string? Code, string? Pin);
@@ -1427,5 +1692,9 @@ public record FswReqItem(int FunctionDefId, int Amount, int? VehicleId);
 public record FswCreateRequest(string Name, string Location, DateTime EventTime, List<FswReqItem>? Requirements);
 public record DefectReportRequest(string Description, int? VehicleId, string? CustomVehicle, string? ReporterNumber);
 public record DefectStatusRequest(string NewStatus, string? Comment, string? MemberNumber);
+// B4: Nextcloud-Verbindungstest. Alle Felder optional -> null testet die gespeicherten Settings.
+public record NextcloudTestReq(string? Url, string? User, string? Pass);
+// B8: Live-Neuberechnung der Gesamtstaerke aus noch ungespeicherten externen Kraeften + Fahrzeug-Staerken.
+public record ReportStrengthReq(List<ExtForceReq>? ExternalForces, List<VsReq>? VehicleStrengths);
 
 public partial class Program { }

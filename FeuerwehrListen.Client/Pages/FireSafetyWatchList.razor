@@ -7,6 +7,11 @@
 <div class="container mt-4">
     <div class="row mb-4">
         <div class="col"><h1>Brandsicherheitswachen</h1></div>
+        <AuthorizeView Roles="Admin">
+            <div class="col-auto">
+                <a href="/firesafetywatches/create" class="btn btn-primary">Neue Wache anlegen</a>
+            </div>
+        </AuthorizeView>
     </div>
 
     @if (_loadError is not null)

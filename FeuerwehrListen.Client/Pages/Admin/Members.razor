@@ -1,9 +1,11 @@
 @page "/admin/members"
 @layout MainLayout
 @using System.Net.Http.Json
+@using FeuerwehrListen.Client.Models
 @inject HttpClient Http
 @inject IJSRuntime JS
 @inject NavigationManager Nav
+@inject FeuerwehrListen.Client.Services.AppContextService AppCtx
 
 <PageTitle>Mitglieder - Admin</PageTitle>
 
@@ -43,7 +45,18 @@
                 <p class="text-muted small">Format je Zeile (Semikolon): <code>Nummer;Vorname;Nachname;Aktiv(ja/nein);Einheiten(z.B. 1,3)</code>. Erste Zeile = Kopfzeile.</p>
                 <textarea class="form-control mb-2" rows="6" @bind="_csv" placeholder="Nummer;Vorname;Nachname;Aktiv;Einheiten&#10;1001;Max;Mustermann;ja;1,3"></textarea>
                 <button class="btn btn-primary" @onclick="ImportCsv" disabled="@_importing">@(_importing ? "Importiere…" : "Importieren")</button>
-                @if (_csvResult is not null) { <div class="alert alert-info mt-2 mb-0">@_csvResult</div> }
+                @if (_csvResult is not null)
+                {
+                    <div class="alert @(_csvErrors.Count > 0 ? "alert-warning" : "alert-info") mt-2 mb-0">
+                        @_csvResult
+                        @if (_csvErrors.Count > 0)
+                        {
+                            <ul class="mb-0 mt-2">
+                                @foreach (var err in _csvErrors) { <li>@err</li> }
+                            </ul>
+                        }
+                    </div>
+                }
             </div></div>
         }
 
@@ -60,7 +73,7 @@
                     @for (var i = 1; i <= 9; i++) { var u = i;
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox" id="u@(u)" checked="@_units.Contains(u)" @onchange="e => ToggleUnit(u, (bool)e.Value!)" />
-                            <label class="form-check-label" for="u@(u)">@u</label>
+                            <label class="form-check-label" for="u@(u)">@UnitLabel(u)</label>
                         </div>
                     }
                 </div></div>
@@ -86,7 +99,7 @@
                             <tr>
                                 <td>@m.MemberNumber</td>
                                 <td><strong>@m.LastName</strong>, @m.FirstName</td>
-                                <td>@if (m.Units.Count == 0) { <span class="text-muted">–</span> } else { @foreach (var u in m.Units) { <span class="badge bg-primary me-1">@u</span> } }</td>
+                                <td>@if (m.Units.Count == 0) { <span class="text-muted">–</span> } else { @foreach (var u in m.Units) { <span class="badge bg-primary me-1">@UnitLabel(u)</span> } }</td>
                                 <td>@if (m.IsActive) { <span class="badge bg-success">Aktiv</span> } else { <span class="badge bg-secondary">Inaktiv</span> }</td>
                                 <td>
                                     <button class="btn btn-sm btn-outline-danger me-2" @onclick="() => OpenTag(m)" title="Tag erstellen & herunterladen"><i class="bi bi-tag"></i> Tag</button>
@@ -192,8 +205,31 @@
     private bool _isActive = true;
     private readonly HashSet<int> _units = new();
     private string? _error, _csvResult;
+    private List<string> _csvErrors = new();
+    private Dictionary<int, string> _unitLabels = new();
 
-    protected override async Task OnInitializedAsync() => await Load();
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadUnitLabels();
+        await Load();
+    }
+
+    private async Task LoadUnitLabels()
+    {
+        try
+        {
+            var ctx = await AppCtx.GetAsync();
+            _unitLabels = ctx?.UnitLabels?.ToDictionary(l => l.Number, l => l.Label) ?? new();
+        }
+        catch { _unitLabels = new(); }
+    }
+
+    // Klartext-Label je Einheit (z.B. "1 – Löschzug 1"); Fallback auf die reine Nummer.
+    private string UnitLabel(int unit) =>
+        _unitLabels.TryGetValue(unit, out var label) && !string.IsNullOrWhiteSpace(label)
+            ? $"{unit} – {label}"
+            : unit.ToString();
+
     private async Task Load() { try { _items = await Http.GetFromJsonAsync<List<MemberDto>>("client-api/admin/members"); } catch { _items = new(); } }
 
     private async Task ExportPdf()
@@ -355,15 +391,16 @@
 
     private async Task ImportCsv()
     {
-        _importing = true; _csvResult = null;
+        _importing = true; _csvResult = null; _csvErrors = new();
         try
         {
             var resp = await Http.PostAsJsonAsync("client-api/admin/members/import-csv", new { Csv = _csv });
             var r = await resp.Content.ReadFromJsonAsync<CsvResult>();
-            _csvResult = $"Import: {r?.Imported} importiert, {r?.Skipped} übersprungen" + (r?.Errors?.Count > 0 ? $", {r.Errors.Count} Fehler." : ".");
+            _csvErrors = r?.Errors ?? new();
+            _csvResult = $"Import: {r?.Imported} importiert, {r?.Skipped} übersprungen" + (_csvErrors.Count > 0 ? $", {_csvErrors.Count} Fehler:" : ".");
             _csv = ""; await Load();
         }
-        catch { _csvResult = "Import fehlgeschlagen."; }
+        catch { _csvResult = "Import fehlgeschlagen."; _csvErrors = new(); }
         finally { _importing = false; }
     }
 

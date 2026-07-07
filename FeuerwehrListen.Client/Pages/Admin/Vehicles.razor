@@ -42,13 +42,14 @@
             else
             {
                 <div class="table-responsive"><table class="table table-hover">
-                    <thead><tr><th>Name</th><th>Funkrufname</th><th>Typ</th><th>Status</th><th>Aktionen</th></tr></thead>
+                    <thead><tr><th>Name</th><th>Funkrufname</th><th>Typ</th><th>Status</th><th>Erstellt am</th><th>Aktionen</th></tr></thead>
                     <tbody>
                         @foreach (var v in _items)
                         {
                             <tr>
-                                <td><strong>@v.Name</strong></td><td>@v.CallSign</td><td>@v.Type</td>
+                                <td><strong>@v.Name</strong></td><td>@v.CallSign</td><td>@GetVehicleTypeName(v.Type)</td>
                                 <td>@if (v.IsActive) { <span class="badge bg-success">Aktiv</span> } else { <span class="badge bg-secondary">Inaktiv</span> }</td>
+                                <td>@v.CreatedAt.ToString("dd.MM.yyyy")</td>
                                 <td>
                                     <button class="btn btn-sm btn-primary me-2" @onclick="() => Edit(v)">Bearbeiten</button>
                                     <button class="btn btn-sm btn-danger" @onclick="() => Delete(v.Id)">Löschen</button>
@@ -102,6 +103,18 @@
         try { await Http.DeleteAsync($"client-api/admin/vehicles/{id}"); await Load(); }
         catch { _error = "Löschen fehlgeschlagen."; }
     }
+
+    private static string GetVehicleTypeName(string type) => type switch
+    {
+        "LF" => "LF - Löschfahrzeug",
+        "TLF" => "TLF - Tanklöschfahrzeug",
+        "DLK" => "DLK - Drehleiter",
+        "RW" => "RW - Rüstwagen",
+        "MTW" => "MTW - Mannschaftstransportwagen",
+        "KdoW" => "KdoW - Kommandowagen",
+        "Sonstige" => "Sonstige",
+        _ => type
+    };
 
     private record VehicleDto(int Id, string Name, string CallSign, string Type, bool IsActive, DateTime CreatedAt);
 }

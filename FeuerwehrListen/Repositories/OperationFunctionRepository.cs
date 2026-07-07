@@ -18,6 +18,11 @@ public class OperationFunctionRepository
         return _db.OperationFunctionDefs.OrderBy(x => x.Name).ToListAsync();
     }
 
+    public Task<OperationFunctionDef?> GetByIdAsync(int id)
+    {
+        return _db.OperationFunctionDefs.FirstOrDefaultAsync(x => x.Id == id);
+    }
+
     public async Task<int> CreateAsync(OperationFunctionDef def)
     {
         return await _db.InsertWithInt32IdentityAsync(def);

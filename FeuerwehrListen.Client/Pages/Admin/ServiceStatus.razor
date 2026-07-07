@@ -38,11 +38,11 @@
             else
             {
                 <div class="table-responsive"><table class="table table-sm">
-                    <thead><tr><th>ID</th><th>Titel/Nummer</th><th>Ereigniszeit</th><th>Öffnet um</th><th>Verarbeitet?</th></tr></thead>
+                    <thead><tr><th>ID</th><th>Titel/Nummer</th><th>Ereigniszeit</th><th>Min. vorher</th><th>Öffnet um</th><th>Verarbeitet?</th></tr></thead>
                     <tbody>
                         @foreach (var s in _items)
                         {
-                            <tr><td>@s.Id</td><td>@(s.Type == "Attendance" ? s.Title : s.OperationNumber)</td><td>@s.EventTime.ToString("dd.MM. HH:mm")</td><td>@s.OpenTime.ToString("dd.MM. HH:mm")</td><td>@(s.IsProcessed ? "Ja" : "Nein")</td></tr>
+                            <tr><td>@s.Id</td><td>@(s.Type == "Attendance" ? s.Title : s.OperationNumber)</td><td>@s.EventTime.ToString("dd.MM. HH:mm")</td><td>@s.MinutesBefore</td><td>@s.OpenTime.ToString("dd.MM. HH:mm")</td><td>@(s.IsProcessed ? "Ja" : "Nein")</td></tr>
                         }
                     </tbody>
                 </table></div>

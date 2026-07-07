@@ -26,10 +26,22 @@
         {
             @if (_loadError is not null) { <div class="alert alert-warning py-2"><i class="bi bi-exclamation-triangle me-1"></i>@_loadError</div> }
             var r = _b.Report;
-            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-                <h1 class="mb-0">Einsatzbericht</h1>
-                <button class="btn btn-outline-danger" @onclick="ExportPdf"><i class="bi bi-file-earmark-pdf me-1"></i>PDF</button>
+            <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+                <div>
+                    <h1 class="mb-1">Einsatzbericht</h1>
+                    <p class="lead mb-0">Einsatz @_b.OperationNumber &middot; @_b.Keyword</p>
+                </div>
+                <div class="d-flex gap-2">
+                    <a class="btn btn-outline-secondary" href="/operation/@OperationListId"><i class="bi bi-arrow-left me-1"></i>Zurück zum Einsatz</a>
+                    <button class="btn btn-outline-danger" @onclick="ExportPdf"><i class="bi bi-file-earmark-pdf me-1"></i>PDF</button>
+                </div>
             </div>
+
+            <div class="card mb-4"><div class="card-header"><h5 class="mb-0"><i class="bi bi-info-circle me-2"></i>Einsatzdaten</h5></div><div class="card-body row g-3">
+                <div class="col-md-4"><label class="form-label">Nr.</label><input class="form-control" value="@_b.OperationNumber" disabled /></div>
+                <div class="col-md-4"><label class="form-label">Alarmstichwort</label><input class="form-control" value="@_b.Keyword" disabled /></div>
+                <div class="col-md-4"><label class="form-label">Alarmierungszeit</label><input class="form-control" value="@_b.AlertTime.ToString("dd.MM.yyyy HH:mm")" disabled /></div>
+            </div></div>
 
             <div class="card mb-4"><div class="card-header"><h5 class="mb-0">Allgemein</h5></div><div class="card-body row g-3">
                 <div class="col-md-4"><label class="form-label">Ort/Ortsteil</label><input class="form-control" @bind="r.OrtOrtsteil" /></div>
@@ -136,8 +148,8 @@
                             {
                                 <tr>
                                     <td><input class="form-control form-control-sm" @bind="f.Rufname" /></td>
-                                    <td style="width:30%"><input class="form-control form-control-sm" @bind="f.Staerke" /></td>
-                                    <td style="width:1%"><button class="btn btn-sm btn-outline-danger" @onclick="() => _b.ExternalForces.Remove(f)"><i class="bi bi-trash"></i></button></td>
+                                    <td style="width:30%"><input class="form-control form-control-sm" @bind="f.Staerke" @bind:after="RecalcGesamt" /></td>
+                                    <td style="width:1%"><button class="btn btn-sm btn-outline-danger" @onclick="() => RemoveExt(f)"><i class="bi bi-trash"></i></button></td>
                                 </tr>
                             }
                         </tbody></table>
@@ -272,9 +284,9 @@
                     <div class="modal-body">
                         <p class="text-muted small">Format <code>Führer/Mannschaft</code> (z.B. 1/8).</p>
                         @if (_b.VehicleStrengths.Count == 0) { <p class="text-muted mb-0">Keine Fahrzeuge.</p> }
-                        else { @foreach (var vs in _b.VehicleStrengths) { <div class="d-flex align-items-center gap-3 py-2 border-bottom"><label class="flex-grow-1 mb-0 fw-semibold">@vs.VehicleName</label><input class="form-control form-control-sm" style="width:120px" placeholder="1/8" @bind="vs.Staerke" /></div> } }
+                        else { @foreach (var vs in _b.VehicleStrengths) { <div class="d-flex align-items-center gap-3 py-2 border-bottom"><label class="flex-grow-1 mb-0 fw-semibold">@vs.VehicleName</label><input class="form-control form-control-sm" style="width:120px" placeholder="1/8" @bind="vs.Staerke" @bind:after="RecalcGesamt" /></div> } }
                     </div>
-                    <div class="modal-footer"><button class="btn btn-primary" @onclick="() => _showVsModal = false">Fertig</button></div>
+                    <div class="modal-footer"><button class="btn btn-primary" @onclick="CloseVsModal">Fertig</button></div>
                 </div></div></div>
             }
         }
@@ -283,7 +295,7 @@
 
 @code {
     [Parameter] public int OperationListId { get; set; }
-    private ReportBundle? _b;
+    private Bundle? _b;
     private string? _loadError;
     private SignaturePad? _sigIuk, _sigEl;
     private bool _saving; private string? _savedMsg; private bool _savedErr;
@@ -307,7 +319,7 @@
         var hadData = _b is not null;
         try
         {
-            _b = await Http.GetFromJsonAsync<ReportBundle>($"client-api/operation/{OperationListId}/report");
+            _b = await Http.GetFromJsonAsync<Bundle>($"client-api/operation/{OperationListId}/report");
             _loadError = null;
         }
         catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
@@ -335,11 +347,53 @@
 
     private RenderFragment Chk(Func<bool> get, Action<bool> set, string label) =>@<div class="col-6 col-md-4"><label class="rb-check"><input class="form-check-input" type="checkbox" checked="@get()" @onchange="e => set((bool)e.Value!)" /><span>@label</span></label></div>;
 
-    private void AddExt()
+    private async Task AddExt()
     {
         if (string.IsNullOrWhiteSpace(_newRuf) && string.IsNullOrWhiteSpace(_newStk)) return;
         _b!.ExternalForces.Add(new ExtForce { Rufname = _newRuf?.Trim(), Staerke = _newStk?.Trim() });
         _newRuf = ""; _newStk = "";
+        await RecalcGesamt();
+    }
+
+    private async Task RemoveExt(ExtForce f)
+    {
+        _b!.ExternalForces.Remove(f);
+        await RecalcGesamt();
+    }
+
+    // B8: Gesamtstärke live neu berechnen (Server rechnet, damit Format identisch zu gesamtStaerke bleibt).
+    // Debounce/Guard: laufender Call wird gemerkt; wenn während des Calls neue Änderungen kommen,
+    // wird direkt danach genau einmal nachgerechnet.
+    private bool _recalcRunning; private bool _recalcPending;
+    private async Task RecalcGesamt()
+    {
+        if (_b is null) return;
+        if (_recalcRunning) { _recalcPending = true; return; }
+        _recalcRunning = true;
+        try
+        {
+            do
+            {
+                _recalcPending = false;
+                try
+                {
+                    var resp = await Http.PostAsJsonAsync($"client-api/operation/{OperationListId}/report/strength",
+                        new
+                        {
+                            externalForces = _b.ExternalForces.Select(e => new { rufname = e.Rufname, staerke = e.Staerke }),
+                            vehicleStrengths = _b.VehicleStrengths.Select(v => new { vehicleName = v.VehicleName, staerke = v.Staerke })
+                        });
+                    if (resp.IsSuccessStatusCode)
+                    {
+                        var res = await resp.Content.ReadFromJsonAsync<GesamtDto>();
+                        if (res is not null) { _b.GesamtStaerke = res.Gesamt; StateHasChanged(); }
+                    }
+                }
+                catch { /* Netzwerkfehler ignorieren – Badge bleibt beim letzten Wert */ }
+            }
+            while (_recalcPending);
+        }
+        finally { _recalcRunning = false; }
     }
 
     private void OpenMittel()
@@ -356,6 +410,8 @@
         _b!.Mittel.Clear(); _b.Mittel.AddRange(res);
         _showMittel = false;
     }
+
+    private async Task CloseVsModal() { _showVsModal = false; await RecalcGesamt(); }
 
     private void OnImages(InputFileChangeEventArgs e) { _images = e.GetMultipleFiles(50).ToList(); _ncMsg = null; _ncErr = false; }
     private async Task Upload()
@@ -412,4 +468,22 @@
     private class MEdit { public string Name { get; set; } = ""; public bool Active { get; set; } public int Anzahl { get; set; } public string? Dauer { get; set; } }
     private record CountDto(int Count);
     private record UploadResult(int Ok, int Skipped, List<string> Errors, int Count);
+    private record GesamtDto(string Gesamt);
+
+    // Lokales Antwort-DTO fuer den report-GET: wie ReportBundle, aber mit den zusaetzlichen
+    // Kopfdaten-Feldern (operationNumber/keyword/alertTime) und mutierbarem GesamtStaerke fuer
+    // die Live-Neuberechnung. Nutzt die bestehenden Typen aus FeuerwehrListen.Client.Models.
+    private class Bundle
+    {
+        public ReportDto Report { get; set; } = new();
+        public string? OperationNumber { get; set; }
+        public string? Keyword { get; set; }
+        public DateTime AlertTime { get; set; }
+        public List<ExtForce> ExternalForces { get; set; } = new();
+        public List<Mittel> Mittel { get; set; } = new();
+        public List<VehStrength> VehicleStrengths { get; set; } = new();
+        public List<ReportEntry> Entries { get; set; } = new();
+        public string GesamtStaerke { get; set; } = "0/0/0/0";
+        public NextcloudInfo Nextcloud { get; set; } = new(false, "");
+    }
 }

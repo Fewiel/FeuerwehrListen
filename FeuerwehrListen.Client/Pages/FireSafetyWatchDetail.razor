@@ -34,7 +34,7 @@
         {
             <div class="card mb-3 border-success"><div class="card-body">
                 <p class="mb-2">Eintragen für: <strong>@_selectedReq.FunctionName</strong> (@(_selectedReq.VehicleName))</p>
-                <QrScanner IsActive="true" OnCodeScanned="c => Register(c)" />
+                <QrScanner IsActive="true" OnCodeScanned="HandleScan" />
                 <div class="input-group mt-2">
                     <input class="form-control" placeholder="Mitgliedsnummer/Name" @bind="_input" @bind:event="oninput" @onkeyup="@(async e => { if (e.Key == "Enter") await Register(_input); })" />
                     <button class="btn btn-success" @onclick="() => Register(_input)" disabled="@_busy">Eintragen</button>
@@ -43,6 +43,11 @@
                 @if (_error is not null) { <div class="alert alert-danger py-2 mt-2 mb-0">@_error</div> }
             </div></div>
         }
+
+        <QuickActionsModal @ref="_quickActions"
+                           ShowCloseList="@_w.IsOpen"
+                           CloseLabel="Wache abschließen"
+                           OnActionSelected="HandleQuickAction" />
 
         @if (_confirm is not null) { <div class="entry-confirmation-overlay"><i class="bi bi-check-circle-fill"></i><div class="entry-confirmation-name">@_confirm</div><small class="text-muted">eingetragen</small></div> }
         @if (_error is not null && _selectedReq is null) { <div class="alert alert-danger py-2">@_error</div> }
@@ -89,6 +94,7 @@
     private ReqDto? _selectedReq;
     private string _input = "";
     private string? _error, _confirm;
+    private QuickActionsModal? _quickActions;
 
     protected override async Task OnParametersSetAsync() => await Load();
     private async Task Load()
@@ -112,6 +118,29 @@
     }
 
     private void SelectReq(ReqDto r) { _selectedReq = r; _input = ""; _error = null; }
+
+    // Gescannten Code zuerst als BENUTZER-Ausweis pruefen -> Schnellaktionen; sonst normale Registrierung.
+    private async Task HandleScan(string code)
+    {
+        if (string.IsNullOrWhiteSpace(code)) return;
+        try
+        {
+            var id = await Http.GetFromJsonAsync<QrIdentifyResult>($"client-api/auth/qr-identify?code={Uri.EscapeDataString(code.Trim())}");
+            if (id?.IsUser == true)
+            {
+                _quickActions?.Show(id.Username ?? "");
+                return;
+            }
+        }
+        catch { /* qr-identify fehlgeschlagen -> als Mitglieds-Code behandeln */ }
+        await Register(code);
+    }
+
+    private async Task HandleQuickAction(QuickActionsModal.QuickAction action)
+    {
+        if (action == QuickActionsModal.QuickAction.CloseList)
+            await Close();
+    }
 
     private async Task Register(string code)
     {
@@ -180,4 +209,5 @@
     private record ReqDto(int Id, string FunctionName, int? VehicleId, string VehicleName, int Amount, List<EntryDto> Entries);
     private record EntryDto(int EntryId, string MemberName);
     private record RegResult(string Status, string? Name);
+    private record QrIdentifyResult(bool IsUser, string? Username, string? Role);
 }

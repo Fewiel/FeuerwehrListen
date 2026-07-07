@@ -59,7 +59,21 @@
                 <select class="form-select" @bind="_rVehicleId"><option value="0">— Anderes/Freitext —</option>@foreach (var v in _vehicles) { <option value="@v.Id">@v.Name</option> }</select>
             </div>
             @if (_rVehicleId == 0) { <div class="mb-3"><label class="form-label">Fahrzeug (Freitext)</label><input class="form-control" @bind="_rCustom" /></div> }
-            <div class="mb-3"><label class="form-label">Deine Mitgliedsnummer</label><input class="form-control" @bind="_rNumber" /></div>
+            <div class="mb-3 position-relative">
+                <label class="form-label">Deine Mitgliedsnummer</label>
+                <input class="form-control" @bind="_rNumber" placeholder="Nummer eingeben oder Namen suchen…" @bind:event="oninput" @onkeyup="OnReportSearch" />
+                @if (_reportResults.Count > 0)
+                {
+                    <div class="list-group position-absolute w-100 shadow" style="z-index:1050; max-height:200px; overflow-y:auto;">
+                        @foreach (var m in _reportResults)
+                        {
+                            <button type="button" class="list-group-item list-group-item-action py-1 px-2 small" @onclick="() => SelectReportMember(m)">
+                                @m.Name <span class="text-muted">(@m.Number)</span>
+                            </button>
+                        }
+                    </div>
+                }
+            </div>
             @if (_rError is not null) { <div class="alert alert-danger py-2">@_rError</div> }
         </div>
         <div class="modal-footer"><button class="btn btn-secondary" @onclick="() => _showReport = false">Abbrechen</button><button class="btn btn-primary" @onclick="Report" disabled="@_saving">Melden</button></div>
@@ -73,18 +87,62 @@
         <div class="modal-body">
             <p><strong>@_detail.Vehicle</strong> — @Badge(_detail.Status)</p>
             <p>@_detail.Description</p>
-            <p class="text-muted small">Gemeldet @_detail.ReportedAt.ToString("dd.MM.yyyy HH:mm") von @_detail.ReportedByName</p>
+            <p class="text-muted small mb-1">Gemeldet @_detail.ReportedAt.ToString("dd.MM.yyyy HH:mm") von @_detail.ReportedByName</p>
+            @if (_detail.ResolvedAt.HasValue)
+            {
+                <p class="text-muted small">Erledigt am @_detail.ResolvedAt.Value.ToString("dd.MM.yyyy HH:mm")@(string.IsNullOrEmpty(_detail.ResolvedByName) ? "" : " durch " + _detail.ResolvedByName)</p>
+            }
             <hr />
             <h6>Verlauf</h6>
             @if (_history.Count == 0) { <p class="text-muted small">Keine Statusänderungen.</p> }
-            else { <ul class="list-group mb-3">@foreach (var h in _history) { <li class="list-group-item small">@h.ChangedAt.ToString("dd.MM.yyyy HH:mm"): @StatusLabel(h.NewStatus) — @h.ChangedByName @(string.IsNullOrEmpty(h.Comment) ? "" : "· " + h.Comment)</li> }</ul> }
+            else
+            {
+                <div class="table-responsive"><table class="table table-sm">
+                    <thead><tr><th>Datum</th><th>Von</th><th>Nach</th><th>Durch</th><th>Kommentar</th></tr></thead>
+                    <tbody>
+                        @foreach (var h in _history)
+                        {
+                            <tr>
+                                <td class="text-nowrap small">@h.ChangedAt.ToString("dd.MM.yyyy HH:mm")</td>
+                                <td>@Badge(h.OldStatus)</td>
+                                <td>@Badge(h.NewStatus)</td>
+                                <td class="small">@h.ChangedByName</td>
+                                <td class="small">@(string.IsNullOrEmpty(h.Comment) ? "-" : h.Comment)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table></div>
+            }
             @if (_detail.Status != "Done")
             {
                 <hr />
                 <h6>Status ändern</h6>
-                <div class="mb-2"><select class="form-select" @bind="_newStatus"><option value="InProgress">In Arbeit</option><option value="Done">Erledigt</option></select></div>
+                <div class="mb-2"><select class="form-select" @bind="_newStatus">
+                    @if (_detail.Status == "Open")
+                    {
+                        <option value="InProgress">In Arbeit</option>
+                        <option value="Done">Erledigt</option>
+                    }
+                    else
+                    {
+                        <option value="Done">Erledigt</option>
+                    }
+                </select></div>
                 <div class="mb-2"><input class="form-control" placeholder="Kommentar (optional)" @bind="_comment" /></div>
-                <div class="mb-2"><input class="form-control" placeholder="Deine Mitgliedsnummer" @bind="_scNumber" /></div>
+                <div class="mb-2 position-relative">
+                    <input class="form-control" placeholder="Deine Mitgliedsnummer oder Name suchen…" @bind="_scNumber" @bind:event="oninput" @onkeyup="OnStatusSearch" />
+                    @if (_statusResults.Count > 0)
+                    {
+                        <div class="list-group position-absolute w-100 shadow" style="z-index:1050; max-height:200px; overflow-y:auto;">
+                            @foreach (var m in _statusResults)
+                            {
+                                <button type="button" class="list-group-item list-group-item-action py-1 px-2 small" @onclick="() => SelectStatusMember(m)">
+                                    @m.Name <span class="text-muted">(@m.Number)</span>
+                                </button>
+                            }
+                        </div>
+                    }
+                </div>
                 @if (_scError is not null) { <div class="alert alert-danger py-2">@_scError</div> }
                 <button class="btn btn-primary" @onclick="ChangeStatus" disabled="@_scBusy">Speichern</button>
             }
@@ -101,12 +159,14 @@
     private string _rDesc = "", _rCustom = "", _rNumber = "";
     private int _rVehicleId;
     private string? _rError;
+    private List<MemberDto> _reportResults = new();
 
     private DefectDto? _detail;
     private List<HistDto> _history = new();
     private string _newStatus = "InProgress", _comment = "", _scNumber = "";
     private string? _scError;
     private bool _scBusy;
+    private List<MemberDto> _statusResults = new();
     private string? _loadError;
 
     protected override async Task OnInitializedAsync()
@@ -128,11 +188,25 @@
         }
     }
 
-    private void ShowReport() { _rDesc = ""; _rCustom = ""; _rNumber = ""; _rVehicleId = 0; _rError = null; _showReport = true; }
+    private void ShowReport() { _rDesc = ""; _rCustom = ""; _rNumber = ""; _rVehicleId = 0; _rError = null; _reportResults = new(); _showReport = true; }
+
+    private async Task OnReportSearch()
+    {
+        _reportResults = await SearchMembers(_rNumber);
+    }
+
+    private void SelectReportMember(MemberDto m)
+    {
+        _rNumber = m.Number;
+        _reportResults = new();
+    }
+
     private async Task Report()
     {
         _rError = null;
         if (string.IsNullOrWhiteSpace(_rDesc)) { _rError = "Beschreibung erforderlich."; return; }
+        // Fahrzeug erforderlich: entweder ausgewähltes Fahrzeug oder Freitext.
+        if (_rVehicleId == 0 && string.IsNullOrWhiteSpace(_rCustom)) { _rError = "Fahrzeug erforderlich – bitte auswählen oder Freitext eingeben."; return; }
         if (string.IsNullOrWhiteSpace(_rNumber)) { _rError = "Mitgliedsnummer erforderlich."; return; }
         _saving = true;
         try
@@ -148,8 +222,19 @@
 
     private async Task OpenDetail(DefectDto d)
     {
-        _detail = d; _newStatus = d.Status == "Open" ? "InProgress" : "Done"; _comment = ""; _scNumber = ""; _scError = null;
+        _detail = d; _newStatus = d.Status == "Open" ? "InProgress" : "Done"; _comment = ""; _scNumber = ""; _scError = null; _statusResults = new();
         try { _history = await Http.GetFromJsonAsync<List<HistDto>>($"client-api/defects/{d.Id}/history") ?? new(); } catch { _history = new(); }
+    }
+
+    private async Task OnStatusSearch()
+    {
+        _statusResults = await SearchMembers(_scNumber);
+    }
+
+    private void SelectStatusMember(MemberDto m)
+    {
+        _scNumber = m.Number;
+        _statusResults = new();
     }
 
     private async Task ChangeStatus()
@@ -170,6 +255,15 @@
         finally { _scBusy = false; }
     }
 
+    // Live-Namenssuche über den anonymen Endpoint; q<2 -> leere Liste (serverseitig ebenso).
+    private async Task<List<MemberDto>> SearchMembers(string? term)
+    {
+        var q = (term ?? "").Trim();
+        if (q.Length < 2) return new();
+        try { return await Http.GetFromJsonAsync<List<MemberDto>>($"client-api/members/search?q={Uri.EscapeDataString(q)}") ?? new(); }
+        catch { return new(); }
+    }
+
     private string StatusLabel(string s) => s switch { "Open" => "Offen", "InProgress" => "In Arbeit", "Done" => "Erledigt", _ => s };
     private RenderFragment Badge(string s) =>@<span class="badge @(s == "Open" ? "bg-danger" : s == "InProgress" ? "bg-warning" : "bg-success")">@StatusLabel(s)</span>;
 
@@ -177,4 +271,5 @@
     private record VehDto(int Id, string Name);
     private record HistDto(string OldStatus, string NewStatus, string ChangedByName, DateTime ChangedAt, string? Comment);
     private record StatusDto(string Status);
+    private record MemberDto(int Id, string Name, string Number);
 }

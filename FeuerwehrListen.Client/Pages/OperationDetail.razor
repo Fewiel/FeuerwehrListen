@@ -29,14 +29,54 @@ else
             <h1>Einsatz @_data.Number</h1>
             <p class="lead">Stichwort: @_data.Keyword</p>
             @if (!string.IsNullOrWhiteSpace(_data.Address)) { <p class="text-muted">@_data.Address</p> }
+            <p class="mb-0"><small class="text-muted">Alarmierung: @_data.AlertTime.ToString("dd.MM.yyyy HH:mm") &middot; Erstellt: @_data.CreatedAt.ToString("dd.MM.yyyy HH:mm")</small></p>
             @if (!_data.IsOpen) { <div class="mt-2"><span class="badge bg-secondary fs-5">Abgeschlossen</span></div> }
         </div>
+
+        @if (_data.Requirements is not null)
+        {
+            <div class="alert @(_data.Requirements.IsValid ? "alert-success" : "alert-info") mb-3">
+                <h6 class="alert-heading">
+                    <i class="bi @(_data.Requirements.IsValid ? "bi-check-circle" : "bi-info-circle")"></i>
+                    Personal Requirements Status
+                </h6>
+                @if (_data.Requirements.IsValid)
+                {
+                    <p class="mb-0">✅ Alle Personal Requirements sind erfüllt!</p>
+                }
+                else
+                {
+                    <p class="mb-2">ℹ️ <strong>Information:</strong> Folgende Personal Requirements sind definiert, aber nicht vollständig erfüllt:</p>
+                    <ul class="mb-0">
+                        @foreach (var missing in _data.Requirements.Missing)
+                        {
+                            <li>
+                                <strong>@missing.FunctionName:</strong>
+                                @missing.CurrentCount von @missing.RequiredCount erforderlich
+                                @if (missing.IsRequired)
+                                {
+                                    <span class="text-warning">(Erforderlich)</span>
+                                }
+                                else
+                                {
+                                    <span class="text-muted">(Empfohlen)</span>
+                                }
+                            </li>
+                        }
+                    </ul>
+                    <small class="text-muted mt-2 d-block">
+                        <i class="bi bi-info-circle"></i>
+                        Dies ist nur eine Information. Der Einsatz kann trotzdem abgeschlossen werden.
+                    </small>
+                }
+            </div>
+        }
 
         @if (_data.IsOpen)
         {
             @if (_step == "scan")
             {
-                <QrScanner IsActive="true" OnCodeScanned="Resolve" OnManualEntryRequested="() => _showManual = !_showManual" />
+                <QrScanner IsActive="true" OnCodeScanned="HandleScan" OnManualEntryRequested="() => _showManual = !_showManual" />
                 @if (_showManual)
                 {
                     <div class="input-group mb-3">
@@ -109,6 +149,12 @@ else
         }
         @if (!string.IsNullOrWhiteSpace(_error)) { <div class="alert alert-danger mt-2">@_error</div> }
 
+        <QuickActionsModal @ref="_quickActions"
+                           ShowCloseList="@_data.IsOpen"
+                           ShowEditEntries="true"
+                           CloseLabel="Liste abschließen"
+                           OnActionSelected="HandleQuickAction" />
+
         <div class="card mt-3">
             <div class="card-header"><h5 class="mb-0">Eingetragene Einsatzkräfte (@_data.Entries.Count)</h5></div>
             <div class="card-body">
@@ -130,6 +176,9 @@ else
                                         @if (e.Breathing) { <span class="badge bg-info ms-1">AGT</span> }
                                         @foreach (var fn in e.Functions) { <span class="badge bg-secondary ms-1">@fn</span> }
                                     </span>
+                                    <AuthorizeView Context="del">
+                                        <button class="btn btn-sm btn-outline-danger" title="Entfernen" @onclick="() => DeleteEntry(e.Id)" disabled="@_busy">🗑️</button>
+                                    </AuthorizeView>
                                 </li>
                             }
                         </ul>
@@ -187,6 +236,7 @@ else
     private string _confirmationName = "";
     private bool _showAddress;
     private string _addressInput = "";
+    private QuickActionsModal? _quickActions;
 
     protected override async Task OnParametersSetAsync() => await Load();
 
@@ -208,6 +258,53 @@ else
             _loadError = "Aktualisierung fehlgeschlagen – Netzwerkproblem.";
             if (!hadData) _data = null;
         }
+    }
+
+    // Gescannten Code zuerst als BENUTZER-Ausweis pruefen. Ist es ein User-Code, oeffnen wir das
+    // Schnellaktionen-Menue (Rechte werden dort NICHT verliehen). Andernfalls normaler Mitglieds-Lookup.
+    private async Task HandleScan(string code)
+    {
+        if (string.IsNullOrWhiteSpace(code)) return;
+        try
+        {
+            var id = await Http.GetFromJsonAsync<QrIdentifyResult>($"client-api/auth/qr-identify?code={Uri.EscapeDataString(code.Trim())}");
+            if (id?.IsUser == true)
+            {
+                _quickActions?.Show(id.Username ?? "");
+                return;
+            }
+        }
+        catch { /* qr-identify fehlgeschlagen -> als Mitglieds-Code behandeln */ }
+        await Resolve(code);
+    }
+
+    private async Task HandleQuickAction(QuickActionsModal.QuickAction action)
+    {
+        switch (action)
+        {
+            case QuickActionsModal.QuickAction.CloseList:
+                await Close();
+                break;
+            case QuickActionsModal.QuickAction.EditEntries:
+                Nav.NavigateTo($"/operation/{Id}/edit-entries");
+                break;
+        }
+    }
+
+    private async Task DeleteEntry(int entryId)
+    {
+        if (_busy) return;
+        _busy = true;
+        _error = "";
+        try
+        {
+            var resp = await Http.DeleteAsync($"client-api/operation/{Id}/entry/{entryId}");
+            if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized) { _error = "Sitzung abgelaufen – bitte neu anmelden."; return; }
+            if (!resp.IsSuccessStatusCode) { _error = "Löschen fehlgeschlagen."; return; }
+            await Load();
+        }
+        catch { _error = "Löschen fehlgeschlagen."; }
+        finally { _busy = false; }
     }
 
     private async Task Resolve(string code)
@@ -329,12 +426,15 @@ else
         catch { _error = "PDF konnte nicht geöffnet werden."; }
     }
 
-    private record OpDto(int Id, string Number, string Keyword, string? Address, bool IsOpen, List<EntryDto> Entries, List<VehicleDto> Vehicles, List<FuncDto> Functions);
+    private record OpDto(int Id, string Number, string Keyword, string? Address, DateTime AlertTime, DateTime CreatedAt, bool IsOpen, List<EntryDto> Entries, List<VehicleDto> Vehicles, List<FuncDto> Functions, RequirementsDto? Requirements);
     private record EntryDto(int Id, string Name, string? Vehicle, bool Breathing, List<string> Functions);
     private record VehicleDto(int Id, string Name);
     private record FuncDto(int Id, string Name);
+    private record RequirementsDto(bool IsValid, List<MissingReqDto> Missing);
+    private record MissingReqDto(string FunctionName, int CurrentCount, int RequiredCount, bool IsRequired);
     private record MemberChoice(int Id, string Name, string Number);
     private record MemberInfo(int Id, string Name, string Number);
     private record ResolveResult(string Status, MemberInfo? Member, List<MemberChoice>? Members);
     private record AddResult(string Status, string? Name);
+    private record QrIdentifyResult(bool IsUser, string? Username, string? Role);
 }

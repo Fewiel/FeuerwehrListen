@@ -4,6 +4,7 @@
 @using FeuerwehrListen.Client.Models
 @inject HttpClient Http
 @inject IJSRuntime JS
+@inject NavigationManager Nav
 
 <PageTitle>Geplante Listen - Admin</PageTitle>
 
@@ -66,7 +67,14 @@
                                 <td>@s.EventTime.ToString("dd.MM.yyyy HH:mm")</td>
                                 <td>@s.OpenTime.ToString("dd.MM.yyyy HH:mm")</td>
                                 <td>@if (s.IsProcessed) { <span class="badge bg-success">Verarbeitet</span> } else { <span class="badge bg-warning">Wartet</span> }</td>
-                                <td><button class="btn btn-sm btn-danger" @onclick="() => Delete(s.Id)">Löschen</button></td>
+                                <td>
+                                    @if (!s.IsProcessed)
+                                    {
+                                        @if (s.OpenTime <= DateTime.Now) { <span class="badge bg-danger me-2">FÄLLIG!</span> }
+                                        <button class="btn btn-sm btn-success me-2" @onclick="() => ProcessNow(s)" disabled="@_processing">Jetzt öffnen</button>
+                                        <button class="btn btn-sm btn-danger" @onclick="() => Delete(s.Id)">Löschen</button>
+                                    }
+                                </td>
                             </tr>
                         }
                     </tbody>
@@ -79,7 +87,7 @@
 @code {
     private List<ScheduledDto>? _items;
     private List<UnitLabel> _unitLabels = new();
-    private bool _showForm, _saving;
+    private bool _showForm, _saving, _processing;
     private string _type = "Attendance", _title = "", _unit = "", _description = "", _operationNumber = "", _keyword = "", _unitNumber = "";
     private DateTime _eventTime = DateTime.Now.AddDays(1);
     private int _minutesBefore = 30;
@@ -110,6 +118,23 @@
         finally { _saving = false; }
     }
 
+    private async Task ProcessNow(ScheduledDto s)
+    {
+        if (s.IsProcessed || _processing) return;
+        _error = null;
+        _processing = true;
+        try
+        {
+            var resp = await Http.PostAsync($"client-api/admin/scheduled/{s.Id}/process", null);
+            if (!resp.IsSuccessStatusCode) { _error = "Öffnen fehlgeschlagen."; return; }
+            var result = await resp.Content.ReadFromJsonAsync<ProcessResult>();
+            if (result is null) { _error = "Öffnen fehlgeschlagen."; return; }
+            Nav.NavigateTo($"/{result.Type}/{result.Id}");
+        }
+        catch { _error = "Öffnen fehlgeschlagen."; }
+        finally { _processing = false; }
+    }
+
     private async Task Delete(int id)
     {
         if (!await JS.InvokeAsync<bool>("confirm", "Diese geplante Liste wirklich löschen?")) return;
@@ -117,4 +142,6 @@
         try { await Http.DeleteAsync($"client-api/admin/scheduled/{id}"); await Load(); }
         catch { _error = "Löschen fehlgeschlagen."; }
     }
+
+    private record ProcessResult(int Id, string Type);
 }
