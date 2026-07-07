@@ -165,11 +165,12 @@
 
     // Render-Modus je Request: ?rmode=server/wasm (Test-Override) > Cookie fw_srv=1
     // (Client-BigInt-Check) > server-seitige UA-Erkennung (iOS 10-13) > sonst WASM.
-    // Prerender bewusst deaktiviert (prerender:false): sonst rendert der Server jede Seite
-    // einmal statisch vor UND die interaktive Runtime laedt die Daten danach erneut ->
-    // doppelte Datenladung (im Server-Modus doppelt teuer) und Flackern.
-    private static readonly IComponentRenderMode ServerMode = new InteractiveServerRenderMode(prerender: false);
-    private static readonly IComponentRenderMode WasmMode = new InteractiveWebAssemblyRenderMode(prerender: false);
+    // Prerender MUSS an bleiben (prerender:true): im Server-Modus (iOS 12/SignalR) liefert der
+    // Server sonst KEIN initiales HTML -> die Seite bleibt weiss, bis der Circuit ueber
+    // Long-Polling steht. Auf alten iPads reicht das fuer eine dauerhaft weisse Seite.
+    // Mit Prerender ist sofort Inhalt da; die Runtime hydriert danach.
+    private static readonly IComponentRenderMode ServerMode = new InteractiveServerRenderMode(prerender: true);
+    private static readonly IComponentRenderMode WasmMode = new InteractiveWebAssemblyRenderMode(prerender: true);
 
     private IComponentRenderMode Mode
     {
