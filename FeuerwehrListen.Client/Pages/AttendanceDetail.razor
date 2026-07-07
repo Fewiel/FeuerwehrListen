@@ -99,15 +99,19 @@ else
             <div class="card mt-3"><div class="card-header"><h5 class="mb-0">Entschuldigt (@Excused.Count)</h5></div><div class="card-body">@EntryTable(Excused)</div></div>
         }
 
+        @* PDF-Export bewusst ohne Login (Kiosk-Wunsch). *@
+        <div class="d-grid gap-2 mt-4" style="max-width:500px;">
+            <button class="btn btn-primary btn-lg" @onclick="ExportPdf"><i class="bi bi-file-earmark-pdf me-2"></i>PDF Export</button>
+        </div>
+
         <AuthorizeView Context="auth">
-            <div class="d-grid gap-2 mt-4" style="max-width:500px;">
+            <div class="d-grid gap-2 mt-3" style="max-width:500px;">
                 @* Entschuldigen fuer jeden Angemeldeten - auch in GESCHLOSSENEN Listen (nachtraeglich). *@
                 <button class="btn btn-outline-warning btn-lg" @onclick="ToggleExcuseUi"><i class="bi bi-person-exclamation me-2"></i>Als Entschuldigt eintragen</button>
                 @if (_list.IsOpen)
                 {
                     <button class="btn btn-warning btn-lg" @onclick="Close" disabled="@_busy"><i class="bi bi-lock me-2"></i>Liste abschließen</button>
                 }
-                <button class="btn btn-primary btn-lg" @onclick="ExportPdf"><i class="bi bi-file-earmark-pdf me-2"></i>PDF Export</button>
             </div>
             @if (_showExcuse)
             {

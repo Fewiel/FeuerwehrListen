@@ -498,17 +498,16 @@ app.MapGet("/client-api/auth/me", (HttpContext ctx) =>
 // Token (Cookie-Auth reicht) und liefern das PDF INLINE (Results.File ohne Dateiname ->
 // Content-Disposition: inline), sodass die Seite es direkt in der Klick-Geste oeffnen kann.
 // Der externe /api/export-Weg (Token + Content-Disposition:attachment) bleibt unveraendert.
+// PDF-Downloads fuer Anwesenheit/Einsatz/Einsatzbericht bewusst OHNE Login (Kiosk-Wunsch).
+// Mitglieder-/Statistik-PDF bleiben Admin (personenbezogene Gesamtlisten).
 app.MapGet("/client-api/export/attendance/{id:int}/pdf", async (int id, PdfExportService pdf) =>
-    Results.File(await pdf.ExportAttendanceListAsync(id), "application/pdf"))
-    .RequireAuthorization();
+    Results.File(await pdf.ExportAttendanceListAsync(id), "application/pdf"));
 
 app.MapGet("/client-api/export/operation/{id:int}/pdf", async (int id, PdfExportService pdf) =>
-    Results.File(await pdf.ExportOperationListAsync(id), "application/pdf"))
-    .RequireAuthorization();
+    Results.File(await pdf.ExportOperationListAsync(id), "application/pdf"));
 
 app.MapGet("/client-api/export/operation-report/{id:int}/pdf", async (int id, PdfExportService pdf) =>
-    Results.File(await pdf.ExportOperationReportAsync(id), "application/pdf"))
-    .RequireAuthorization();
+    Results.File(await pdf.ExportOperationReportAsync(id), "application/pdf"));
 
 app.MapGet("/client-api/export/members/pdf", async (PdfExportService pdf) =>
     Results.File(await pdf.ExportMemberListAsync(), "application/pdf"))

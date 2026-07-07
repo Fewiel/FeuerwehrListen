@@ -190,6 +190,7 @@ else
         @* Einsatzbericht bewusst ohne Login erreichbar (Kiosk-Wunsch). *@
         <div class="d-grid gap-2 mt-4" style="max-width:500px;">
             <a class="btn btn-outline-danger" href="@($"/operation/{Id}/bericht")"><i class="bi bi-file-earmark-text me-1"></i>Einsatzbericht öffnen</a>
+            <button class="btn btn-primary" @onclick="ExportPdf"><i class="bi bi-file-earmark-pdf me-1"></i>PDF Export</button>
         </div>
 
         <AuthorizeView>
@@ -204,7 +205,6 @@ else
                     }
                     <button class="btn btn-warning btn-lg" @onclick="Close" disabled="@_busy"><i class="bi bi-lock me-2"></i>Einsatz abschließen</button>
                 }
-                <button class="btn btn-primary btn-lg" @onclick="ExportPdf"><i class="bi bi-file-earmark-pdf me-2"></i>PDF Export</button>
             </div>
         </AuthorizeView>
 
