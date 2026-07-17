@@ -1404,26 +1404,23 @@ app.MapPost("/client-api/defects", async (DefectRepository repo, VehicleReposito
 }).DisableAntiforgery();
 app.MapGet("/client-api/defects/{id:int}/history", async (int id, DefectRepository repo) =>
     Results.Json((await repo.GetStatusChangesAsync(id)).Select(c => new { oldStatus = c.OldStatus.ToString(), newStatus = c.NewStatus.ToString(), changedByName = c.ChangedByName, changedAt = c.ChangedAt, comment = c.Comment })));
-// Statusaenderung erfordert Anmeldung (frueher genuegte eine beliebige gueltige Mitglieds-
-// nummer -> jeder konnte jeden Mangel-Status setzen). Die Mitgliedsnummer/der Name bleibt
-// nur als "bearbeitet durch"-Info, ist aber KEIN Auth-Merkmal mehr. Das anonyme MELDEN
-// (POST /client-api/defects) bleibt bewusst unveraendert (Kiosk-Flow).
-app.MapPost("/client-api/defects/{id:int}/status", async (int id, HttpContext http, DefectRepository repo, MemberRepository mRepo, DefectStatusRequest r) =>
+// Statusaenderung wie das MELDEN bewusst ohne Anmeldung (Kiosk/Geraetewart-Flow): Der
+// Bearbeiter identifiziert sich per Mitgliedsnummer, die zu einem gueltigen Mitglied
+// aufloesen MUSS -> "bearbeitet durch"-Nachweis. (Frueher RequireAuthorization; das hat den
+// Geraetewart am PC ohne Login blockiert -> 401/"Speichern fehlgeschlagen".)
+app.MapPost("/client-api/defects/{id:int}/status", async (int id, DefectRepository repo, MemberRepository mRepo, DefectStatusRequest r) =>
 {
     var d = await repo.GetByIdAsync(id); if (d == null) return Results.NotFound();
     if (!Enum.TryParse<DefectStatus>(r.NewStatus, out var ns)) return Results.BadRequest();
-    // Optionale "bearbeitet durch"-Info: bevorzugt die angegebene Mitgliedsnummer, sonst der
-    // angemeldete Benutzername. Nicht mehr autorisierungsrelevant.
     var member = await mRepo.GetByMemberNumberAsync((r.MemberNumber ?? "").Trim());
-    var disp = member != null
-        ? $"{member.FirstName} {member.LastName} ({member.MemberNumber})"
-        : (http.User.Identity?.Name ?? "Unbekannt");
+    if (member == null) return Results.Json(new { status = "notfound" });
+    var disp = $"{member.FirstName} {member.LastName} ({member.MemberNumber})";
     await repo.AddStatusChangeAsync(new DefectStatusChange { DefectId = id, OldStatus = d.Status, NewStatus = ns, ChangedByName = disp, ChangedAt = DateTime.Now, Comment = string.IsNullOrWhiteSpace(r.Comment) ? null : r.Comment.Trim() });
     d.Status = ns;
-    if (ns == DefectStatus.Done) { d.ResolvedAt = DateTime.Now; d.ResolvedByMemberId = member?.Id; d.ResolvedByName = disp; }
+    if (ns == DefectStatus.Done) { d.ResolvedAt = DateTime.Now; d.ResolvedByMemberId = member.Id; d.ResolvedByName = disp; }
     await repo.UpdateAsync(d);
     return Results.Json(new { status = "ok" });
-}).RequireAuthorization().DisableAntiforgery();
+}).DisableAntiforgery();
 
 // B18: Mitglieder-Namenssuche fuer den Maengel-Flow (Melden UND Status). Das Melden ist bewusst
 // anonym (Kiosk, keine Anmeldung), daher ist auch diese Suche anonym - analog zur bestehenden
