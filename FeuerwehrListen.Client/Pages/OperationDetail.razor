@@ -114,13 +114,22 @@ else
                                 <h5 class="modal-title"><strong>@_memberName</strong> – Fahrzeug wählen</h5>
                                 <button type="button" class="btn-close" @onclick="ResetFlow"></button>
                             </div>
-                            <div class="modal-body p-0">
-                                <div class="list-group list-group-flush">
+                            <div class="modal-body">
+                                <div class="row g-2">
                                     @foreach (var v in _data.Vehicles)
                                     {
-                                        <button class="list-group-item list-group-item-action" @onclick="() => PickVehicle(v.Id, v.Name)">@v.Name</button>
+                                        <div class="col-6">
+                                            <button class="btn btn-outline-danger w-100 h-100 d-flex flex-column align-items-center justify-content-center py-3" @onclick="() => PickVehicle(v.Id, v.Name)">
+                                                <i class="bi bi-truck fs-1 mb-2"></i>
+                                                <span class="fw-semibold">@v.Name</span>
+                                            </button>
+                                        </div>
                                     }
-                                    <button class="list-group-item list-group-item-action text-muted" @onclick="() => PickVehicle(null, null)">Ohne Fahrzeug</button>
+                                    <div class="col-6">
+                                        <button class="btn btn-outline-secondary w-100 h-100 d-flex flex-column align-items-center justify-content-center py-3" @onclick="() => PickVehicle(null, null)">
+                                            <span class="fw-semibold">Ohne Fahrzeug</span>
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                             <div class="modal-footer">
