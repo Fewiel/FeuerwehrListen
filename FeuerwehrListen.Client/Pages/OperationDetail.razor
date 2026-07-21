@@ -99,48 +99,67 @@ else
                     </div>
                 }
             }
-            else if (_step == "vehicle")
-            {
-                <div class="card mb-3">
-                    <div class="card-header"><strong>@_memberName</strong> – Fahrzeug wählen</div>
-                    <div class="list-group list-group-flush">
-                        @foreach (var v in _data.Vehicles)
+        }
+
+        @* Fahrzeug- und Funktionsauswahl laufen wieder als Modal (wie frueher),
+           statt inline unter der Seite eingebettet zu sein. *@
+        @if (_step == "vehicle" || _step == "functions")
+        {
+            <div class="modal fade show" style="display: block; background-color: rgba(0,0,0,0.5);" @onclick="ResetFlow">
+                <div class="modal-dialog modal-dialog-centered" @onclick:stopPropagation="true">
+                    <div class="modal-content">
+                        @if (_step == "vehicle")
                         {
-                            <button class="list-group-item list-group-item-action" @onclick="() => PickVehicle(v.Id, v.Name)">@v.Name</button>
-                        }
-                        <button class="list-group-item list-group-item-action text-muted" @onclick="() => PickVehicle(null, null)">Ohne Fahrzeug</button>
-                    </div>
-                    <div class="card-footer"><button class="btn btn-sm btn-secondary" @onclick="ResetFlow">Abbrechen</button></div>
-                </div>
-            }
-            else if (_step == "functions")
-            {
-                <div class="card mb-3">
-                    <div class="card-header"><strong>@_memberName</strong> – @(_vehicleName ?? "Ohne Fahrzeug") – Funktionen</div>
-                    <div class="card-body">
-                        @foreach (var f in _data.Functions)
-                        {
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" id="f@(f.Id)"
-                                       checked="@_selectedFunctions.Contains(f.Id)"
-                                       @onchange="e => ToggleFunction(f.Id, (bool)e.Value!)" />
-                                <label class="form-check-label" for="f@(f.Id)">@f.Name</label>
+                            <div class="modal-header">
+                                <h5 class="modal-title"><strong>@_memberName</strong> – Fahrzeug wählen</h5>
+                                <button type="button" class="btn-close" @onclick="ResetFlow"></button>
+                            </div>
+                            <div class="modal-body p-0">
+                                <div class="list-group list-group-flush">
+                                    @foreach (var v in _data.Vehicles)
+                                    {
+                                        <button class="list-group-item list-group-item-action" @onclick="() => PickVehicle(v.Id, v.Name)">@v.Name</button>
+                                    }
+                                    <button class="list-group-item list-group-item-action text-muted" @onclick="() => PickVehicle(null, null)">Ohne Fahrzeug</button>
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button class="btn btn-secondary" @onclick="ResetFlow">Abbrechen</button>
                             </div>
                         }
-                        <div class="form-check form-switch mt-2">
-                            <input class="form-check-input" type="checkbox" id="agt" @bind="_breathing" />
-                            <label class="form-check-label" for="agt">Unter Atemschutz (AGT)</label>
-                        </div>
-                    </div>
-                    <div class="card-footer d-flex gap-2">
-                        <button class="btn btn-secondary" @onclick="ResetFlow">Abbrechen</button>
-                        <button class="btn btn-danger flex-grow-1" @onclick="Submit" disabled="@_saving">
-                            @if (_saving) { <span class="spinner-border spinner-border-sm me-1"></span> }
-                            Eintragen
-                        </button>
+                        else
+                        {
+                            <div class="modal-header">
+                                <h5 class="modal-title"><strong>@_memberName</strong> – @(_vehicleName ?? "Ohne Fahrzeug")</h5>
+                                <button type="button" class="btn-close" @onclick="ResetFlow"></button>
+                            </div>
+                            <div class="modal-body">
+                                <p class="fw-semibold mb-2">Funktionen</p>
+                                @foreach (var f in _data.Functions)
+                                {
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="f@(f.Id)"
+                                               checked="@_selectedFunctions.Contains(f.Id)"
+                                               @onchange="e => ToggleFunction(f.Id, (bool)e.Value!)" />
+                                        <label class="form-check-label" for="f@(f.Id)">@f.Name</label>
+                                    </div>
+                                }
+                                <div class="form-check form-switch mt-2">
+                                    <input class="form-check-input" type="checkbox" id="agt" @bind="_breathing" />
+                                    <label class="form-check-label" for="agt">Unter Atemschutz (AGT)</label>
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button class="btn btn-secondary" @onclick="ResetFlow">Abbrechen</button>
+                                <button class="btn btn-danger flex-grow-1" @onclick="Submit" disabled="@_saving">
+                                    @if (_saving) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                                    Eintragen
+                                </button>
+                            </div>
+                        }
                     </div>
                 </div>
-            }
+            </div>
         }
 
         @if (_confirmationVisible)
