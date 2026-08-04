@@ -19,7 +19,8 @@
             {
                 <div class="row gx-2 mb-2 align-items-end">
                     <div class="col-md-4"><label class="form-label">Funktion</label>
-                        <select class="form-select" @bind="req.FunctionDefId"><option value="0">-- wählen --</option>
+                        <select class="form-select" @bind="req.FunctionDefId">
+                            @if (req.FunctionDefId <= 0) { <option value="0">Trupp (Standard)</option> }
                             @foreach (var f in _functions) { <option value="@f.Id">@f.Name</option> }
                         </select>
                     </div>
@@ -32,7 +33,7 @@
                     <div class="col-md-2"><button class="btn btn-danger w-100" @onclick="() => _requirements.Remove(req)">Entfernen</button></div>
                 </div>
             }
-            <button class="btn btn-secondary mt-2" @onclick="() => _requirements.Add(new())">Anforderung hinzufügen</button>
+            <button class="btn btn-secondary mt-2" @onclick="AddRequirement">Anforderung hinzufügen</button>
             <hr />
             @if (_error is not null) { <div class="alert alert-danger">@_error</div> }
             <button class="btn btn-primary mt-2" @onclick="Save" disabled="@_saving">Brandsicherheitswache anlegen</button>
@@ -46,6 +47,7 @@
     private List<ReqRow> _requirements = new() { new() };
     private List<FuncDto> _functions = new();
     private List<VehDto> _vehicles = new();
+    private int _defaultFuncId;
     private bool _saving;
     private string? _error;
 
@@ -53,19 +55,21 @@
     {
         try { _functions = await Http.GetFromJsonAsync<List<FuncDto>>("client-api/admin/functions") ?? new(); } catch { }
         try { _vehicles = (await Http.GetFromJsonAsync<List<VehDto>>("client-api/admin/vehicles") ?? new()).Where(v => v.IsActive).ToList(); } catch { }
+        // "Trupp" als Standard vorauswaehlen (Fallbacks: erste Standard-Funktion, sonst erste).
+        _defaultFuncId = _functions.FirstOrDefault(f => f.Name == "Trupp")?.Id
+                         ?? _functions.FirstOrDefault(f => f.IsDefault)?.Id
+                         ?? _functions.FirstOrDefault()?.Id ?? 0;
+        foreach (var r in _requirements.Where(r => r.FunctionDefId <= 0)) r.FunctionDefId = _defaultFuncId;
     }
+
+    private void AddRequirement() => _requirements.Add(new ReqRow { FunctionDefId = _defaultFuncId });
 
     private async Task Save()
     {
         _error = null;
         if (string.IsNullOrWhiteSpace(_name) || string.IsNullOrWhiteSpace(_location)) { _error = "Name und Ort erforderlich."; return; }
-        // Zeilen mit Anzahl > 0 aber ohne gewählte Funktion nicht still verwerfen, sondern melden.
-        if (_requirements.Any(r => r.Amount > 0 && r.FunctionDefId <= 0))
-        {
-            _error = "Bitte für jede Anforderung mit Anzahl > 0 eine Funktion wählen.";
-            return;
-        }
-        var reqs = _requirements.Where(r => r.Amount > 0 && r.FunctionDefId > 0)
+        // Keine Funktion gewählt (FunctionDefId = 0) ist erlaubt -> wird als "Trupp" gefuehrt.
+        var reqs = _requirements.Where(r => r.Amount > 0)
             .Select(r => new { FunctionDefId = r.FunctionDefId, Amount = r.Amount, VehicleId = string.IsNullOrEmpty(r.VehicleId) ? (int?)null : int.Parse(r.VehicleId) }).ToList();
         if (reqs.Count == 0) { _error = "Mindestens eine Anforderung mit Anzahl > 0."; return; }
         _saving = true;

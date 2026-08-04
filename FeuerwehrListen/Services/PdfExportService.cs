@@ -936,7 +936,7 @@ public class PdfExportService
             }
 
             var req = requirements[i];
-            var functionName = req.FunctionDef?.Name ?? "-";
+            var functionName = req.FunctionDef?.Name ?? "Trupp";
             var vehicleName = req.Vehicle?.Name ?? "Kein Fahrzeug";
             DrawTableRow(gfx, font, left, y, reqWidths, new[]
             {
@@ -988,7 +988,7 @@ public class PdfExportService
             var functionName = "-";
             if (requirementById.TryGetValue(entry.RequirementId, out var req))
             {
-                functionName = req.FunctionDef?.Name ?? "-";
+                functionName = req.FunctionDef?.Name ?? "Trupp";
             }
 
             DrawTableRow(gfx, font, left, y, entryWidths, new[]

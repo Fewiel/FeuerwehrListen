@@ -1496,7 +1496,8 @@ app.MapPost("/client-api/firesafetywatch/{id:int}/close", async (int id, FireSaf
 admin.MapPost("/firesafetywatches", async (FireSafetyWatchRepository repo, FswCreateRequest r) =>
 {
     var watch = new FireSafetyWatch { Name = r.Name.Trim(), Location = r.Location.Trim(), EventDateTime = r.EventTime, Status = ListStatus.Open };
-    var reqs = (r.Requirements ?? new()).Where(x => x.Amount > 0 && x.FunctionDefId > 0)
+    // Keine Funktion gewaehlt (FunctionDefId = 0) ist erlaubt -> Anzeige faellt auf "Trupp" zurueck.
+    var reqs = (r.Requirements ?? new()).Where(x => x.Amount > 0)
         .Select(x => new FireSafetyWatchRequirement { FunctionDefId = x.FunctionDefId, Amount = x.Amount, VehicleId = x.VehicleId }).ToList();
     if (reqs.Count == 0) return Results.BadRequest();
     await repo.InsertFireSafetyWatchWithRequirements(watch, reqs);
