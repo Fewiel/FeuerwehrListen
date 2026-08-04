@@ -35,10 +35,21 @@
             <div class="card mb-3 border-success"><div class="card-body">
                 <p class="mb-2">Eintragen für: <strong>@_selectedReq.FunctionName</strong> (@(_selectedReq.VehicleName))</p>
                 <QrScanner IsActive="true" OnCodeScanned="HandleScan" />
-                <div class="input-group mt-2">
-                    <input class="form-control" placeholder="Mitgliedsnummer/Name" @bind="_input" @bind:event="oninput" @onkeyup="@(async e => { if (e.Key == "Enter") await Register(_input); })" />
-                    <button class="btn btn-success" @onclick="() => Register(_input)" disabled="@_busy">Eintragen</button>
-                    <button class="btn btn-secondary" @onclick="() => _selectedReq = null">Abbrechen</button>
+                <div class="position-relative mt-2">
+                    <div class="input-group">
+                        <input class="form-control" placeholder="Mitgliedsnummer/Name" value="@_input" @oninput="OnInput" @onkeyup="@(async e => { if (e.Key == "Enter") await Register(_input); })" />
+                        <button class="btn btn-success" @onclick="() => Register(_input)" disabled="@_busy">Eintragen</button>
+                        <button class="btn btn-secondary" @onclick="() => { _selectedReq = null; _suggestions = null; }">Abbrechen</button>
+                    </div>
+                    @if (_suggestions is { Count: > 0 })
+                    {
+                        <div class="list-group position-absolute w-100 shadow" style="z-index:1030;">
+                            @foreach (var s in _suggestions)
+                            {
+                                <button type="button" class="list-group-item list-group-item-action" @onclick="() => PickSuggestion(s)">@s.Name <span class="text-muted">(@s.Number)</span></button>
+                            }
+                        </div>
+                    }
                 </div>
                 @if (_error is not null) { <div class="alert alert-danger py-2 mt-2 mb-0">@_error</div> }
             </div></div>
@@ -93,6 +104,8 @@
     private int _confirmSeq;
     private ReqDto? _selectedReq;
     private string _input = "";
+    private List<MemberChoice>? _suggestions;
+    private CancellationTokenSource? _searchCts;
     private string? _error, _confirm;
     private QuickActionsModal? _quickActions;
 
@@ -117,7 +130,32 @@
         }
     }
 
-    private void SelectReq(ReqDto r) { _selectedReq = r; _input = ""; _error = null; }
+    private void SelectReq(ReqDto r) { _selectedReq = r; _input = ""; _error = null; _suggestions = null; }
+
+    // Live-Suche waehrend des Tippens: passende Mitglieder sofort vorschlagen (iOS-12-tauglich,
+    // reiner oninput-Roundtrip statt <datalist>).
+    private async Task OnInput(ChangeEventArgs e)
+    {
+        _input = e.Value?.ToString() ?? "";
+        var term = _input.Trim();
+        _searchCts?.Cancel();
+        if (term.Length < 2) { _suggestions = null; return; }
+        var cts = new CancellationTokenSource();
+        _searchCts = cts;
+        try
+        {
+            var res = await Http.GetFromJsonAsync<List<MemberChoice>>($"client-api/members/search?q={Uri.EscapeDataString(term)}", cts.Token);
+            if (!cts.IsCancellationRequested) _suggestions = res;
+        }
+        catch { /* Abbruch/Netzfehler ignorieren */ }
+    }
+
+    // Vorschlag gewaehlt -> ueber die Mitgliedsnummer eindeutig registrieren (kein "choose-member").
+    private async Task PickSuggestion(MemberChoice s)
+    {
+        _suggestions = null; _input = "";
+        await Register(s.Number);
+    }
 
     // Gescannten Code zuerst als BENUTZER-Ausweis pruefen -> Schnellaktionen; sonst normale Registrierung.
     private async Task HandleScan(string code)
@@ -155,7 +193,7 @@
             var r = await resp.Content.ReadFromJsonAsync<RegResult>();
             switch (r?.Status)
             {
-                case "added": await Confirm(r.Name); _selectedReq = null; _input = ""; await Load(); break;
+                case "added": await Confirm(r.Name); _selectedReq = null; _input = ""; _suggestions = null; await Load(); break;
                 case "duplicate": _error = $"{r.Name} ist bereits eingetragen!"; await Sound("error"); break;
                 case "notfound": _error = "Mitglied nicht gefunden!"; await Sound("error"); break;
                 case "choose-member": _error = "Mehrere Treffer – bitte Mitgliedsnummer verwenden."; break;
@@ -209,5 +247,6 @@
     private record ReqDto(int Id, string FunctionName, int? VehicleId, string VehicleName, int Amount, List<EntryDto> Entries);
     private record EntryDto(int EntryId, string MemberName);
     private record RegResult(string Status, string? Name);
+    private record MemberChoice(int Id, string Name, string Number);
     private record QrIdentifyResult(bool IsUser, string? Username, string? Role);
 }

@@ -16,15 +16,24 @@
                         <label class="form-label">Einsatznummer</label>
                         <input type="text" class="form-control" @bind="_operationNumber" />
                     </div>
-                    <div class="mb-3">
+                    <div class="mb-3 position-relative">
                         <label class="form-label">Stichwort</label>
-                        <input type="text" class="form-control" list="keyword-suggestions" @bind="_keywordInput" placeholder="Stichwort eingeben oder auswählen" />
-                        <datalist id="keyword-suggestions">
-                            @foreach (var k in _keywords)
+                        <input type="text" class="form-control" value="@_keywordInput" @oninput="OnKeywordInput" placeholder="Stichwort eingeben oder auswählen" autocomplete="off" />
+                        @if (_showKeywords)
+                        {
+                            var kws = FilteredKeywords();
+                            @if (kws.Count > 0)
                             {
-                                <option value="@k.Name">@k.Description</option>
+                                <div class="list-group position-absolute w-100 shadow" style="z-index:1050; max-height:240px; overflow-y:auto;">
+                                    @foreach (var k in kws)
+                                    {
+                                        <button type="button" class="list-group-item list-group-item-action py-1 px-2" @onclick="() => PickKeyword(k)">
+                                            <strong>@k.Name</strong>@if (!string.IsNullOrWhiteSpace(k.Description)) { <span class="text-muted small ms-1">– @k.Description</span> }
+                                        </button>
+                                    }
+                                </div>
                             }
-                        </datalist>
+                        }
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Alarmierungszeit</label>
@@ -57,8 +66,32 @@
     private DateTime _alertTime = DateTime.Now;
     private string _address = string.Empty;
     private List<KeywordDto> _keywords = new();
+    private bool _showKeywords;
     private bool _saving;
     private string? _error;
+
+    // Stichwort-Vorschlaege clientseitig filtern (kein <datalist> -> funktioniert auch auf iOS 12).
+    private List<KeywordDto> FilteredKeywords()
+    {
+        var q = _keywordInput.Trim();
+        IEnumerable<KeywordDto> src = _keywords;
+        if (q.Length > 0)
+            src = _keywords.Where(k => (k.Name?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false)
+                                    || (k.Description?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false));
+        return src.Take(8).ToList();
+    }
+
+    private void OnKeywordInput(ChangeEventArgs e)
+    {
+        _keywordInput = e.Value?.ToString() ?? string.Empty;
+        _showKeywords = true;
+    }
+
+    private void PickKeyword(KeywordDto k)
+    {
+        _keywordInput = k.Name;
+        _showKeywords = false;
+    }
 
     protected override async Task OnInitializedAsync()
     {

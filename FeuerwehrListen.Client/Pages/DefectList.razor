@@ -61,7 +61,7 @@
             @if (_rVehicleId == 0) { <div class="mb-3"><label class="form-label">Fahrzeug (Freitext)</label><input class="form-control" @bind="_rCustom" /></div> }
             <div class="mb-3 position-relative">
                 <label class="form-label">Deine Mitgliedsnummer</label>
-                <input class="form-control" @bind="_rNumber" placeholder="Nummer eingeben oder Namen suchen…" @bind:event="oninput" @onkeyup="OnReportSearch" />
+                <input class="form-control" value="@_rNumber" placeholder="Nummer eingeben oder Namen suchen…" @oninput="OnReportInput" />
                 @if (_reportResults.Count > 0)
                 {
                     <div class="list-group position-absolute w-100 shadow" style="z-index:1050; max-height:200px; overflow-y:auto;">
@@ -130,7 +130,7 @@
                 </select></div>
                 <div class="mb-2"><input class="form-control" placeholder="Kommentar (optional)" @bind="_comment" /></div>
                 <div class="mb-2 position-relative">
-                    <input class="form-control" placeholder="Deine Mitgliedsnummer oder Name suchen…" @bind="_scNumber" @bind:event="oninput" @onkeyup="OnStatusSearch" />
+                    <input class="form-control" placeholder="Deine Mitgliedsnummer oder Name suchen…" value="@_scNumber" @oninput="OnStatusInput" />
                     @if (_statusResults.Count > 0)
                     {
                         <div class="list-group position-absolute w-100 shadow" style="z-index:1050; max-height:200px; overflow-y:auto;">
@@ -160,6 +160,7 @@
     private int _rVehicleId;
     private string? _rError;
     private List<MemberDto> _reportResults = new();
+    private CancellationTokenSource? _reportSearchCts;
 
     private DefectDto? _detail;
     private List<HistDto> _history = new();
@@ -167,6 +168,7 @@
     private string? _scError;
     private bool _scBusy;
     private List<MemberDto> _statusResults = new();
+    private CancellationTokenSource? _statusSearchCts;
     private string? _loadError;
 
     protected override async Task OnInitializedAsync()
@@ -190,9 +192,17 @@
 
     private void ShowReport() { _rDesc = ""; _rCustom = ""; _rNumber = ""; _rVehicleId = 0; _rError = null; _reportResults = new(); _showReport = true; }
 
-    private async Task OnReportSearch()
+    // Live-Suche direkt auf oninput (nicht keyup) -> auch iOS 12 mit Autokorrektur/Diktat zuverlaessig.
+    private async Task OnReportInput(ChangeEventArgs e)
     {
-        _reportResults = await SearchMembers(_rNumber);
+        _rNumber = e.Value?.ToString() ?? "";
+        _reportSearchCts?.Cancel();
+        var q = _rNumber.Trim();
+        if (q.Length < 2) { _reportResults = new(); return; }
+        var cts = new CancellationTokenSource();
+        _reportSearchCts = cts;
+        var res = await SearchMembers(q, cts.Token);
+        if (!cts.IsCancellationRequested) _reportResults = res;
     }
 
     private void SelectReportMember(MemberDto m)
@@ -226,9 +236,16 @@
         try { _history = await Http.GetFromJsonAsync<List<HistDto>>($"client-api/defects/{d.Id}/history") ?? new(); } catch { _history = new(); }
     }
 
-    private async Task OnStatusSearch()
+    private async Task OnStatusInput(ChangeEventArgs e)
     {
-        _statusResults = await SearchMembers(_scNumber);
+        _scNumber = e.Value?.ToString() ?? "";
+        _statusSearchCts?.Cancel();
+        var q = _scNumber.Trim();
+        if (q.Length < 2) { _statusResults = new(); return; }
+        var cts = new CancellationTokenSource();
+        _statusSearchCts = cts;
+        var res = await SearchMembers(q, cts.Token);
+        if (!cts.IsCancellationRequested) _statusResults = res;
     }
 
     private void SelectStatusMember(MemberDto m)
@@ -256,11 +273,11 @@
     }
 
     // Live-Namenssuche über den anonymen Endpoint; q<2 -> leere Liste (serverseitig ebenso).
-    private async Task<List<MemberDto>> SearchMembers(string? term)
+    private async Task<List<MemberDto>> SearchMembers(string? term, CancellationToken ct = default)
     {
         var q = (term ?? "").Trim();
         if (q.Length < 2) return new();
-        try { return await Http.GetFromJsonAsync<List<MemberDto>>($"client-api/members/search?q={Uri.EscapeDataString(q)}") ?? new(); }
+        try { return await Http.GetFromJsonAsync<List<MemberDto>>($"client-api/members/search?q={Uri.EscapeDataString(q)}", ct) ?? new(); }
         catch { return new(); }
     }
 
