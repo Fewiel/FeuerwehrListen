@@ -72,44 +72,17 @@ else
             </div>
         }
 
+        @* Eintragen: offene Liste fuer alle; abgeschlossene nur fuer Angemeldete (Nachtragen). *@
         @if (_data.IsOpen)
         {
-            @if (_step == "scan")
-            {
-                <QrScanner IsActive="true" OnCodeScanned="HandleScan" OnManualEntryRequested="() => _showManual = !_showManual" />
-                @if (_showManual)
-                {
-                    <div class="position-relative mb-3">
-                        <div class="input-group">
-                            <input class="form-control" placeholder="Mitgliedsnummer oder Name" value="@_manual" @oninput="OnManualInput"
-                                   @onkeyup="@(async e => { if (e.Key == "Enter") await Resolve(_manual); })" />
-                            <button class="btn btn-success" @onclick="() => Resolve(_manual)">Weiter</button>
-                        </div>
-                        @if (_suggestions is { Count: > 0 })
-                        {
-                            <div class="list-group position-absolute w-100 shadow" style="z-index:1030;">
-                                @foreach (var s in _suggestions)
-                                {
-                                    <button type="button" class="list-group-item list-group-item-action" @onclick="() => PickSuggestion(s)">@s.Name <span class="text-muted">(@s.Number)</span></button>
-                                }
-                            </div>
-                        }
-                    </div>
-                }
-
-                @if (_chooseMembers is not null)
-                {
-                    <div class="card mb-3">
-                        <div class="card-header">Mehrere Treffer – bitte wählen</div>
-                        <div class="list-group list-group-flush">
-                            @foreach (var m in _chooseMembers)
-                            {
-                                <button class="list-group-item list-group-item-action" @onclick="() => PickMember(m.Id, m.Name)">@m.Name (@m.Number)</button>
-                            }
-                        </div>
-                    </div>
-                }
-            }
+            @ScanUi
+        }
+        else
+        {
+            <AuthorizeView>
+                <div class="alert alert-info mt-2"><i class="bi bi-pencil-square me-1"></i>Diese Liste ist abgeschlossen. Als angemeldeter Benutzer kannst du noch <strong>nachtragen</strong>.</div>
+                @ScanUi
+            </AuthorizeView>
         }
 
         @* Fahrzeug- und Funktionsauswahl laufen wieder als Modal (wie frueher),
@@ -492,6 +465,47 @@ else
         }
         catch { _error = "PDF konnte nicht geöffnet werden."; }
     }
+
+    // Scan-/Manuell-Eingabe: fuer offene Listen sichtbar und (per AuthorizeView) fuer Angemeldete
+    // zum Nachtragen bei abgeschlossenen Listen. Als RenderFragment, damit beide Zweige identisch sind.
+    private RenderFragment ScanUi =>@<div>
+        @if (_step == "scan")
+        {
+            <QrScanner IsActive="true" OnCodeScanned="HandleScan" OnManualEntryRequested="() => _showManual = !_showManual" />
+            @if (_showManual)
+            {
+                <div class="position-relative mb-3">
+                    <div class="input-group">
+                        <input class="form-control" placeholder="Mitgliedsnummer oder Name" value="@_manual" @oninput="OnManualInput"
+                               @onkeyup="@(async e => { if (e.Key == "Enter") await Resolve(_manual); })" />
+                        <button class="btn btn-success" @onclick="() => Resolve(_manual)">Weiter</button>
+                    </div>
+                    @if (_suggestions is { Count: > 0 })
+                    {
+                        <div class="list-group position-absolute w-100 shadow" style="z-index:1030;">
+                            @foreach (var s in _suggestions)
+                            {
+                                <button type="button" class="list-group-item list-group-item-action" @onclick="() => PickSuggestion(s)">@s.Name <span class="text-muted">(@s.Number)</span></button>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+
+            @if (_chooseMembers is not null)
+            {
+                <div class="card mb-3">
+                    <div class="card-header">Mehrere Treffer – bitte wählen</div>
+                    <div class="list-group list-group-flush">
+                        @foreach (var m in _chooseMembers)
+                        {
+                            <button class="list-group-item list-group-item-action" @onclick="() => PickMember(m.Id, m.Name)">@m.Name (@m.Number)</button>
+                        }
+                    </div>
+                </div>
+            }
+        }
+    </div>;
 
     private record OpDto(int Id, string Number, string Keyword, string? Address, DateTime AlertTime, DateTime CreatedAt, bool IsOpen, List<EntryDto> Entries, List<VehicleDto> Vehicles, List<FuncDto> Functions, RequirementsDto? Requirements);
     private record EntryDto(int Id, string Name, string? Vehicle, bool Breathing, List<string> Functions);
