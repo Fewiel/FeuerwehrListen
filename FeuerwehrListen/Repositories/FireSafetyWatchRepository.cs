@@ -17,6 +17,16 @@ namespace FeuerwehrListen.Repositories
             _db = db;
         }
 
+        /// <summary>Wachen im Zeitraum - schlanke Range-Abfrage fuer den Kalender
+        /// (GetAllWithStatusAsync ist eine N+1-Schleife und dafuer zu teuer).</summary>
+        public async Task<List<FireSafetyWatch>> GetInRangeAsync(DateTime from, DateTime to)
+        {
+            return await _db.FireSafetyWatches
+                .Where(w => !w.IsArchived && w.EventDateTime >= from && w.EventDateTime < to)
+                .OrderBy(w => w.EventDateTime)
+                .ToListAsync();
+        }
+
         public async Task<List<FireSafetyWatchDto>> GetAllWithStatusAsync()
         {
             var watches = await _db.FireSafetyWatches.ToListAsync();

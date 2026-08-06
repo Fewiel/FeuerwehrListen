@@ -246,7 +246,7 @@
     private System.Threading.Timer? _timer;
     private bool _disposed;
 
-    private ModuleFlags M => _ctx?.Modules ?? new ModuleFlags(true, true, true, true);
+    private ModuleFlags M => _ctx?.Modules ?? new ModuleFlags(true, true, true, true, false);
     private List<ListItem> Ops => _data?.Operations ?? new();
     private List<ListItem> Att => _data?.Attendance ?? new();
     private List<ListItem> Fsw => _data?.Watches ?? new();

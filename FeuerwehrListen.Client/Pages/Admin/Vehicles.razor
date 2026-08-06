@@ -27,7 +27,31 @@
                         <option value="Sonstige">Sonstige</option>
                     </select>
                 </div>
+                @* Reihenfolge beachten: die E2E-Tests adressieren Name/Funkrufname per Position
+                   (input nth=0/nth=1) und den Typ als erstes select. Neue Felder daher nur HIER unten. *@
                 <div class="mb-3"><div class="form-check"><input class="form-check-input" type="checkbox" id="act" @bind="_isActive" /><label class="form-check-label" for="act">Aktiv</label></div></div>
+                <hr />
+                <div class="mb-3"><div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="showops" @bind="_showInOperations" />
+                    <label class="form-check-label" for="showops">Bei Einsatzlisten zur Auswahl anbieten</label>
+                    <div class="form-text">Ausschalten für Fahrzeuge, die nur im Kalender gebucht werden.</div>
+                </div></div>
+                <div class="mb-3"><div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="bookable" @bind="_isBookable" />
+                    <label class="form-check-label" for="bookable">Im Kalender buchbar</label>
+                </div></div>
+                <div class="mb-3"><div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="needappr" @bind="_requiresApproval" />
+                    <label class="form-check-label" for="needappr">Buchung braucht Freigabe</label>
+                </div></div>
+                @if (_requiresApproval)
+                {
+                    <div class="mb-3">
+                        <label class="form-label">Zuständige für die Freigabe</label>
+                        <input class="form-control" @bind="_approverEmails" placeholder="max@wehr.de, chef@wehr.de" />
+                        <div class="form-text">Mehrere Adressen mit Komma trennen. Alle erhalten den Freigabe-Link; die erste Entscheidung zählt.</div>
+                    </div>
+                }
                 @if (_error is not null) { <div class="alert alert-danger py-2">@_error</div> }
                 <button class="btn btn-primary me-2" @onclick="Save" disabled="@_saving">Speichern</button>
                 <button class="btn btn-secondary" @onclick="() => _showForm = false">Abbrechen</button>
@@ -48,7 +72,11 @@
                         {
                             <tr>
                                 <td><strong>@v.Name</strong></td><td>@v.CallSign</td><td>@GetVehicleTypeName(v.Type)</td>
-                                <td>@if (v.IsActive) { <span class="badge bg-success">Aktiv</span> } else { <span class="badge bg-secondary">Inaktiv</span> }</td>
+                                <td>
+                                    @if (v.IsActive) { <span class="badge bg-success">Aktiv</span> } else { <span class="badge bg-secondary">Inaktiv</span> }
+                                    @if (!v.ShowInOperations) { <span class="badge bg-info ms-1">nur Kalender</span> }
+                                    @if (v.RequiresApproval) { <span class="badge bg-warning text-dark ms-1">Freigabe</span> }
+                                </td>
                                 <td>@v.CreatedAt.ToString("dd.MM.yyyy")</td>
                                 <td>
                                     <button class="btn btn-sm btn-primary me-2" @onclick="() => Edit(v)">Bearbeiten</button>
@@ -69,13 +97,27 @@
     private int? _editId;
     private string _name = "", _callSign = "", _type = "LF";
     private bool _isActive = true;
+    private bool _showInOperations = true, _isBookable = true, _requiresApproval;
+    private string _approverEmails = "";
     private string? _error;
 
     protected override async Task OnInitializedAsync() => await Load();
     private async Task Load() { try { _items = await Http.GetFromJsonAsync<List<VehicleDto>>("client-api/admin/vehicles"); } catch { _items = new(); } }
 
-    private void ShowAdd() { _editId = null; _name = ""; _callSign = ""; _type = "LF"; _isActive = true; _error = null; _showForm = true; }
-    private void Edit(VehicleDto v) { _editId = v.Id; _name = v.Name; _callSign = v.CallSign; _type = v.Type; _isActive = v.IsActive; _error = null; _showForm = true; }
+    private void ShowAdd()
+    {
+        _editId = null; _name = ""; _callSign = ""; _type = "LF"; _isActive = true;
+        _showInOperations = true; _isBookable = true; _requiresApproval = false; _approverEmails = "";
+        _error = null; _showForm = true;
+    }
+
+    private void Edit(VehicleDto v)
+    {
+        _editId = v.Id; _name = v.Name; _callSign = v.CallSign; _type = v.Type; _isActive = v.IsActive;
+        _showInOperations = v.ShowInOperations; _isBookable = v.IsBookable;
+        _requiresApproval = v.RequiresApproval; _approverEmails = v.ApproverEmails ?? "";
+        _error = null; _showForm = true;
+    }
 
     private async Task Save()
     {
@@ -84,7 +126,19 @@
         _saving = true;
         try
         {
-            var body = new { Name = _name, CallSign = _callSign, Type = _type, IsActive = _isActive };
+            // Alle Felder mitsenden: fehlt eins im Body, deserialisiert .NET es still als false
+            // und das Fahrzeug waere ungewollt aus den Einsatzlisten ausgeblendet.
+            var body = new
+            {
+                Name = _name,
+                CallSign = _callSign,
+                Type = _type,
+                IsActive = _isActive,
+                ShowInOperations = _showInOperations,
+                IsBookable = _isBookable,
+                RequiresApproval = _requiresApproval,
+                ApproverEmails = _approverEmails
+            };
             var resp = _editId is int id
                 ? await Http.PutAsJsonAsync($"client-api/admin/vehicles/{id}", body)
                 : await Http.PostAsJsonAsync("client-api/admin/vehicles", body);
@@ -116,5 +170,6 @@
         _ => type
     };
 
-    private record VehicleDto(int Id, string Name, string CallSign, string Type, bool IsActive, DateTime CreatedAt);
+    private record VehicleDto(int Id, string Name, string CallSign, string Type, bool IsActive,
+        bool ShowInOperations, bool IsBookable, bool RequiresApproval, string? ApproverEmails, DateTime CreatedAt);
 }

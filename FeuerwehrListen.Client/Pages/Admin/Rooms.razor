@@ -1,0 +1,146 @@
+@page "/admin/rooms"
+@layout MainLayout
+@using System.Net.Http.Json
+@inject HttpClient Http
+@inject IJSRuntime JS
+
+<PageTitle>Räume - Admin</PageTitle>
+
+<AuthGuard RequireAdmin="true">
+    <div class="container mt-4">
+        <div class="row mb-4">
+            <div class="col"><h1>Räume</h1></div>
+            <div class="col-auto"><button class="btn btn-primary" @onclick="ShowAdd"><i class="bi bi-plus-circle"></i> Neuer Raum</button></div>
+        </div>
+
+        @if (_showForm)
+        {
+            <div class="row mb-4"><div class="col-md-8 offset-md-2"><div class="card"><div class="card-body">
+                <h5 class="card-title">@(_editId is null ? "Neuer Raum" : "Raum bearbeiten")</h5>
+                <div class="mb-3"><label class="form-label">Name</label><input class="form-control" @bind="_name" placeholder="z.B. Schulungsraum" /></div>
+                <div class="mb-3"><label class="form-label">Beschreibung (optional)</label><input class="form-control" @bind="_description" /></div>
+                <div class="mb-3"><label class="form-label">Plätze (optional)</label><input type="number" class="form-control" @bind="_capacity" /></div>
+                <div class="mb-3"><div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="ract" @bind="_isActive" />
+                    <label class="form-check-label" for="ract">Aktiv</label>
+                </div></div>
+                <div class="mb-3"><div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="rappr" @bind="_requiresApproval" />
+                    <label class="form-check-label" for="rappr">Buchung braucht Bestätigung</label>
+                </div></div>
+                @if (_requiresApproval)
+                {
+                    <div class="mb-3">
+                        <label class="form-label">Zuständige für die Bestätigung</label>
+                        <input class="form-control" @bind="_approverEmails" placeholder="hausmeister@wehr.de, chef@wehr.de" />
+                        <div class="form-text">Mehrere Adressen mit Komma trennen. Alle erhalten den Link; die erste Entscheidung zählt.</div>
+                    </div>
+                }
+                @if (_error is not null) { <div class="alert alert-danger py-2">@_error</div> }
+                <button class="btn btn-primary me-2" @onclick="Save" disabled="@_saving">Speichern</button>
+                <button class="btn btn-secondary" @onclick="() => _showForm = false">Abbrechen</button>
+            </div></div></div></div>
+        }
+
+        @if (!_showForm && _error is not null) { <div class="alert alert-danger">@_error</div> }
+
+        <div class="card"><div class="card-body">
+            @if (_items is null) { <p><em>Lade…</em></p> }
+            else if (_items.Count == 0) { <p class="text-muted">Keine Räume vorhanden</p> }
+            else
+            {
+                <div class="table-responsive"><table class="table table-hover">
+                    <thead><tr><th>Name</th><th>Beschreibung</th><th>Plätze</th><th>Status</th><th>Aktionen</th></tr></thead>
+                    <tbody>
+                        @foreach (var r in _items)
+                        {
+                            <tr>
+                                <td><strong>@r.Name</strong></td>
+                                <td>@r.Description</td>
+                                <td>@(r.Capacity?.ToString() ?? "-")</td>
+                                <td>
+                                    @if (r.IsActive) { <span class="badge bg-success">Aktiv</span> } else { <span class="badge bg-secondary">Inaktiv</span> }
+                                    @if (r.RequiresApproval) { <span class="badge bg-warning text-dark ms-1">Bestätigung</span> }
+                                </td>
+                                <td>
+                                    <button class="btn btn-sm btn-primary me-2" @onclick="() => Edit(r)">Bearbeiten</button>
+                                    <button class="btn btn-sm btn-danger" @onclick="() => Delete(r.Id)">Löschen</button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table></div>
+            }
+        </div></div>
+    </div>
+</AuthGuard>
+
+@code {
+    private List<RoomDto>? _items;
+    private bool _showForm, _saving;
+    private int? _editId;
+    private string _name = "", _description = "", _approverEmails = "";
+    private int? _capacity;
+    private bool _isActive = true, _requiresApproval;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync() => await Load();
+    private async Task Load() { try { _items = await Http.GetFromJsonAsync<List<RoomDto>>("client-api/admin/rooms"); } catch { _items = new(); } }
+
+    private void ShowAdd()
+    {
+        _editId = null; _name = ""; _description = ""; _capacity = null;
+        _isActive = true; _requiresApproval = false; _approverEmails = "";
+        _error = null; _showForm = true;
+    }
+
+    private void Edit(RoomDto r)
+    {
+        _editId = r.Id; _name = r.Name; _description = r.Description ?? ""; _capacity = r.Capacity;
+        _isActive = r.IsActive; _requiresApproval = r.RequiresApproval; _approverEmails = r.ApproverEmails ?? "";
+        _error = null; _showForm = true;
+    }
+
+    private async Task Save()
+    {
+        _error = null;
+        if (string.IsNullOrWhiteSpace(_name)) { _error = "Bitte einen Namen angeben."; return; }
+        if (_requiresApproval && string.IsNullOrWhiteSpace(_approverEmails))
+        {
+            _error = "Bei Bestätigungspflicht mindestens eine Adresse angeben – sonst kann niemand freigeben.";
+            return;
+        }
+        _saving = true;
+        try
+        {
+            var body = new
+            {
+                Name = _name,
+                Description = _description,
+                Capacity = _capacity,
+                RequiresApproval = _requiresApproval,
+                ApproverEmails = _approverEmails,
+                IsActive = _isActive
+            };
+            var resp = _editId is int id
+                ? await Http.PutAsJsonAsync($"client-api/admin/rooms/{id}", body)
+                : await Http.PostAsJsonAsync("client-api/admin/rooms", body);
+            if (!resp.IsSuccessStatusCode) { _error = "Speichern fehlgeschlagen."; return; }
+            _showForm = false;
+            await Load();
+        }
+        catch { _error = "Speichern fehlgeschlagen."; }
+        finally { _saving = false; }
+    }
+
+    private async Task Delete(int id)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", "Diesen Raum wirklich löschen?")) return;
+        _error = null;
+        try { await Http.DeleteAsync($"client-api/admin/rooms/{id}"); await Load(); }
+        catch { _error = "Löschen fehlgeschlagen."; }
+    }
+
+    private record RoomDto(int Id, string Name, string? Description, int? Capacity,
+        bool RequiresApproval, string? ApproverEmails, bool IsActive, DateTime CreatedAt);
+}

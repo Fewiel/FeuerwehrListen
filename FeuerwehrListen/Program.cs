@@ -155,6 +155,9 @@ builder.Services.AddScoped<FireSafetyWatchEntryRepository>();
 builder.Services.AddScoped<SettingsRepository>();
 builder.Services.AddScoped<DefectRepository>();
 builder.Services.AddScoped<OperationReportRepository>();
+builder.Services.AddScoped<RoomRepository>();
+builder.Services.AddScoped<CalendarRepository>();
+builder.Services.AddScoped<CalendarService>();
 builder.Services.AddScoped<StatisticsService>();
 builder.Services.AddScoped<PdfExportService>();
 // GeocodingService ueber IHttpClientFactory (typed client) - kein new HttpClient() je Scope.
@@ -178,6 +181,7 @@ builder.Services.AddHttpContextAccessor();
 // laeuft der Fetch im Browser und nutzt DIESE Registrierung nicht (nur beim Prerender/
 // InteractiveServer).
 builder.Services.AddSingleton<FeuerwehrListen.Services.AppBaseUrlProvider>();
+builder.Services.AddSingleton<FeuerwehrListen.Services.AppUrlService>();
 builder.Services.AddSingleton<FeuerwehrListen.Services.InternalAuthSecret>();
 builder.Services.AddScoped<HttpClient>(sp =>
 {
@@ -390,7 +394,8 @@ app.MapGet("/client-api/app-context", (SettingsService settings) =>
             attendance = settings.IsModuleVisible(SettingKeys.VisibilityAttendance),
             operations = settings.IsModuleVisible(SettingKeys.VisibilityOperations),
             fireSafety = settings.IsModuleVisible(SettingKeys.VisibilityFireSafetyWatch),
-            defects = settings.IsModuleVisible(SettingKeys.VisibilityDefects)
+            defects = settings.IsModuleVisible(SettingKeys.VisibilityDefects),
+            calendar = settings.IsModuleVisible(SettingKeys.VisibilityCalendar)
         },
         unitLabels = Enumerable.Range(1, 9).Select(i => new { number = i, label = settings.GetUnitLabel(i) })
     });
@@ -579,18 +584,63 @@ var admin = app.MapGroup("/client-api/admin").RequireAuthorization("Admin").Disa
 
 // --- Fahrzeuge ---
 admin.MapGet("/vehicles", async (VehicleRepository repo) =>
-    Results.Json((await repo.GetAllAsync()).Select(v => new { id = v.Id, name = v.Name, callSign = v.CallSign, type = v.Type.ToString(), isActive = v.IsActive, createdAt = v.CreatedAt })));
+    Results.Json((await repo.GetAllAsync()).Select(v => new { id = v.Id, name = v.Name, callSign = v.CallSign, type = v.Type.ToString(), isActive = v.IsActive, showInOperations = v.ShowInOperations, isBookable = v.IsBookable, requiresApproval = v.RequiresApproval, approverEmails = v.ApproverEmails, createdAt = v.CreatedAt })));
 admin.MapPost("/vehicles", async (VehicleRepository repo, VehicleReq r) =>
 {
-    var id = await repo.CreateAsync(new Vehicle { Name = r.Name.Trim(), CallSign = r.CallSign.Trim(), Type = Enum.TryParse<VehicleType>(r.Type, out var t) ? t : VehicleType.Sonstige, IsActive = r.IsActive, CreatedAt = DateTime.Now });
+    var id = await repo.CreateAsync(new Vehicle
+    {
+        Name = r.Name.Trim(),
+        CallSign = r.CallSign.Trim(),
+        Type = Enum.TryParse<VehicleType>(r.Type, out var t) ? t : VehicleType.Sonstige,
+        IsActive = r.IsActive,
+        ShowInOperations = r.ShowInOperations,
+        IsBookable = r.IsBookable,
+        RequiresApproval = r.RequiresApproval,
+        ApproverEmails = string.IsNullOrWhiteSpace(r.ApproverEmails) ? null : r.ApproverEmails.Trim(),
+        CreatedAt = DateTime.Now
+    });
     return Results.Json(new { id });
 });
 admin.MapPut("/vehicles/{id:int}", async (int id, VehicleRepository repo, VehicleReq r) =>
 {
     var v = await repo.GetByIdAsync(id); if (v == null) return Results.NotFound();
     v.Name = r.Name.Trim(); v.CallSign = r.CallSign.Trim(); v.Type = Enum.TryParse<VehicleType>(r.Type, out var t) ? t : v.Type; v.IsActive = r.IsActive;
+    v.ShowInOperations = r.ShowInOperations; v.IsBookable = r.IsBookable; v.RequiresApproval = r.RequiresApproval;
+    v.ApproverEmails = string.IsNullOrWhiteSpace(r.ApproverEmails) ? null : r.ApproverEmails.Trim();
     await repo.UpdateAsync(v); return Results.Ok();
 });
+
+// --- Raeume ---
+admin.MapGet("/rooms", async (RoomRepository repo) =>
+    Results.Json((await repo.GetAllAsync()).Select(x => new { id = x.Id, name = x.Name, description = x.Description, capacity = x.Capacity, requiresApproval = x.RequiresApproval, approverEmails = x.ApproverEmails, isActive = x.IsActive, createdAt = x.CreatedAt })));
+admin.MapPost("/rooms", async (RoomRepository repo, RoomReq r) =>
+{
+    if (string.IsNullOrWhiteSpace(r.Name)) return Results.BadRequest();
+    var id = await repo.CreateAsync(new Room
+    {
+        Name = r.Name.Trim(),
+        Description = string.IsNullOrWhiteSpace(r.Description) ? null : r.Description.Trim(),
+        Capacity = r.Capacity,
+        RequiresApproval = r.RequiresApproval,
+        ApproverEmails = string.IsNullOrWhiteSpace(r.ApproverEmails) ? null : r.ApproverEmails.Trim(),
+        IsActive = r.IsActive,
+        CreatedAt = DateTime.Now
+    });
+    return Results.Json(new { id });
+});
+admin.MapPut("/rooms/{id:int}", async (int id, RoomRepository repo, RoomReq r) =>
+{
+    if (string.IsNullOrWhiteSpace(r.Name)) return Results.BadRequest();
+    var x = await repo.GetByIdAsync(id); if (x == null) return Results.NotFound();
+    x.Name = r.Name.Trim();
+    x.Description = string.IsNullOrWhiteSpace(r.Description) ? null : r.Description.Trim();
+    x.Capacity = r.Capacity;
+    x.RequiresApproval = r.RequiresApproval;
+    x.ApproverEmails = string.IsNullOrWhiteSpace(r.ApproverEmails) ? null : r.ApproverEmails.Trim();
+    x.IsActive = r.IsActive;
+    await repo.UpdateAsync(x); return Results.Ok();
+});
+admin.MapDelete("/rooms/{id:int}", async (int id, RoomRepository repo) => { await repo.DeleteAsync(id); return Results.Ok(); });
 admin.MapDelete("/vehicles/{id:int}", async (int id, VehicleRepository repo) => { await repo.DeleteAsync(id); return Results.Ok(); });
 
 // --- Stichwoerter ---
@@ -1160,7 +1210,8 @@ app.MapGet("/client-api/operation/{id:int}", async (int id, OperationListReposit
     if (list == null) return Results.NotFound();
     var entries = await entryRepo.GetByListIdAsync(id);
     var funcMap = await efRepo.GetFunctionsForEntriesAsync(entries.Select(e => e.Id).ToList());
-    var vehicles = await vehicleRepo.GetActiveAsync();
+    // Nur einsatz-taugliche Fahrzeuge anbieten - kalender-only-Fahrzeuge bleiben aussen vor.
+    var vehicles = await vehicleRepo.GetForOperationsAsync();
     var funcs = await funcRepo.GetAllAsync();
 
     // B10: Personal-Requirements-Status (nur wenn ein Stichwort mit definierten Requirements gesetzt
@@ -1223,7 +1274,7 @@ app.MapGet("/client-api/operation/{id:int}/report", async (int id, OperationList
     var funcMap = await efRepo.GetFunctionsForEntriesAsync(entries.Select(e => e.Id).ToList());
     var extForces = await repo.GetExternalForcesAsync(report.Id);
     var mittel = await repo.GetMittelAsync(report.Id);
-    var vehicles = (await vRepo.GetActiveAsync()).Where(v => !StrengthCalc.IsNoVehicle(v.Name)).ToList();
+    var vehicles = (await vRepo.GetForOperationsAsync()).Where(v => !StrengthCalc.IsNoVehicle(v.Name)).ToList();
     var strengths = await repo.GetVehicleStrengthsAsync(report.Id);
     var gesamt = StrengthCalc.CombinedTotal(entries, funcMap, strengths.Select(v => (v.VehicleName, v.Staerke)), extForces.Select(e => e.Staerke));
     return Results.Json(new
@@ -1348,9 +1399,14 @@ app.MapPost("/client-api/operation/{id:int}/add", async (int id, HttpContext htt
     if (entries.Any(e => e.NameOrId.Contains($"({member.MemberNumber})")))
         return Results.Json(new { status = "duplicate", name = $"{member.FirstName} {member.LastName}" });
 
+    // Serverseitig pruefen, dass das Fahrzeug ueberhaupt einsatz-tauglich ist. Ein reines
+    // Ausblenden im GET reicht nicht - der Endpoint ist anonym und direkt aufrufbar.
     var vehicleName = "Ohne Fahrzeug";
     if (!req.NoVehicle && req.VehicleId is int vid)
-        vehicleName = (await vehicleRepo.GetByIdAsync(vid))?.Name ?? "Ohne Fahrzeug";
+    {
+        var veh = await vehicleRepo.GetByIdAsync(vid);
+        if (veh != null && veh.IsActive && veh.ShowInOperations) vehicleName = veh.Name;
+    }
 
     var entryId = await entryRepo.CreateAsync(new OperationEntry
     {
@@ -1368,6 +1424,8 @@ app.MapPost("/client-api/operation/{id:int}/add", async (int id, HttpContext htt
 }).DisableAntiforgery();
 
 // Aktive Fahrzeuge (öffentlich, z. B. für Mangel-Meldung)
+// Nur von der Maengelliste benutzt (der Name klingt allgemeiner, als der Endpoint ist).
+// Bewusst OHNE ShowInOperations-Filter: auch ein kalender-only-Fahrzeug kann Maengel haben.
 app.MapGet("/client-api/vehicles-active", async (VehicleRepository repo) =>
     Results.Json((await repo.GetActiveAsync()).Select(v => new { id = v.Id, name = $"{v.Name} ({v.CallSign})" })));
 
@@ -1493,16 +1551,378 @@ app.MapPost("/client-api/firesafetywatch/{id:int}/close", async (int id, FireSaf
     return Results.Ok();
 }).RequireAuthorization().DisableAntiforgery();
 
-admin.MapPost("/firesafetywatches", async (FireSafetyWatchRepository repo, FswCreateRequest r) =>
+admin.MapPost("/firesafetywatches", async (FireSafetyWatchRepository repo, VehicleRepository vehicleRepo, FswCreateRequest r) =>
 {
+    // Name/Ort ohne Null-Check zu trimmen wuerde bei leerem Body eine 500 werfen statt 400.
+    if (string.IsNullOrWhiteSpace(r.Name) || string.IsNullOrWhiteSpace(r.Location)) return Results.BadRequest();
     var watch = new FireSafetyWatch { Name = r.Name.Trim(), Location = r.Location.Trim(), EventDateTime = r.EventTime, Status = ListStatus.Open };
+    // Nur einsatz-taugliche Fahrzeuge zulassen; unbekannte/kalender-only werden zu "ohne Fahrzeug".
+    var allowedVehicleIds = (await vehicleRepo.GetForOperationsAsync()).Select(v => v.Id).ToHashSet();
     // Keine Funktion gewaehlt (FunctionDefId = 0) ist erlaubt -> Anzeige faellt auf "Trupp" zurueck.
     var reqs = (r.Requirements ?? new()).Where(x => x.Amount > 0)
-        .Select(x => new FireSafetyWatchRequirement { FunctionDefId = x.FunctionDefId, Amount = x.Amount, VehicleId = x.VehicleId }).ToList();
+        .Select(x => new FireSafetyWatchRequirement
+        {
+            FunctionDefId = x.FunctionDefId,
+            Amount = x.Amount,
+            VehicleId = x.VehicleId is int vid && allowedVehicleIds.Contains(vid) ? vid : null
+        }).ToList();
     if (reqs.Count == 0) return Results.BadRequest();
     await repo.InsertFireSafetyWatchWithRequirements(watch, reqs);
     return Results.Ok();
 });
+
+// ===================== Kalender =====================
+// Lesen ist bewusst anonym (wie die uebrigen Listen, Kiosk-Betrieb). Buchen ebenfalls,
+// aber mit Pflicht-Identifikation (Name oder Mitgliedsnummer) - analog "Mangel melden".
+// Aendern/Stornieren/Loeschen verlangt Login, genau wie beim Loeschen von Listeneintraegen.
+
+app.MapGet("/client-api/calendar", async (DateTime? from, DateTime? to,
+    CalendarRepository repo, FireSafetyWatchRepository fswRepo, ScheduledListRepository schedRepo, CalendarService svc) =>
+{
+    var start = (from ?? DateTime.Now.Date.AddDays(-31));
+    var end = (to ?? start.AddMonths(2));
+    if (end <= start) end = start.AddMonths(1);
+
+    var events = await repo.GetEventsInRangeAsync(start, end);
+    var resources = await repo.GetResourcesForEventsAsync(events.Select(e => e.Id).ToList());
+
+    var items = new List<object>();
+
+    foreach (var e in events)
+    {
+        var res = resources.Where(r => r.CalendarEventId == e.Id).ToList();
+        items.Add(new
+        {
+            id = e.Id,
+            kind = e.Type switch
+            {
+                CalendarEventType.Dienst => "dienst",
+                CalendarEventType.Fahrzeugbuchung => "fahrzeug",
+                CalendarEventType.Raumbuchung => "raum",
+                _ => "veranstaltung"
+            },
+            title = e.Title,
+            location = e.Location,
+            start = e.StartTime,
+            end = e.EndTime,
+            allDay = e.IsAllDay,
+            status = e.Status.ToString(),
+            requestedBy = e.RequestedBy,
+            unitNumber = e.UnitNumber,
+            seriesId = e.SeriesId,
+            attendanceListId = e.AttendanceListId,
+            pendingApprovals = res.Count(r => r.Status == CalendarResourceStatus.Angefragt),
+            href = e.AttendanceListId is int alid ? $"/attendance/{alid}" : null
+        });
+    }
+
+    // Brandsicherheitswachen werden projiziert, nicht dupliziert. Sie haben nur einen
+    // Beginn (kein Ende) - fuer die Darstellung nehmen wir zwei Stunden an.
+    foreach (var w in await fswRepo.GetInRangeAsync(start, end))
+    {
+        items.Add(new
+        {
+            id = w.Id,
+            kind = "wache",
+            title = w.Name,
+            location = w.Location,
+            start = w.EventDateTime,
+            end = w.EventDateTime.AddHours(2),
+            allDay = false,
+            status = w.Status == ListStatus.Open ? "Offen" : "Abgeschlossen",
+            requestedBy = (string?)null,
+            unitNumber = (int?)null,
+            seriesId = (int?)null,
+            attendanceListId = (int?)null,
+            pendingApprovals = 0,
+            href = $"/firesafetywatches/{w.Id}"
+        });
+    }
+
+    // Geplante Listen als Termin mit anzeigen (noch nicht geoeffnete Anwesenheits-/Einsatzlisten).
+    foreach (var s in (await schedRepo.GetPendingAsync()).Where(s => s.ScheduledEventTime >= start && s.ScheduledEventTime < end))
+    {
+        items.Add(new
+        {
+            id = s.Id,
+            kind = "geplant",
+            title = s.Title,
+            location = (string?)null,
+            start = s.ScheduledEventTime,
+            end = s.ScheduledEventTime.AddHours(2),
+            allDay = false,
+            status = "Geplant",
+            requestedBy = (string?)null,
+            unitNumber = s.UnitNumber,
+            seriesId = (int?)null,
+            attendanceListId = (int?)null,
+            pendingApprovals = 0,
+            href = (string?)null
+        });
+    }
+
+    // Serverzeit mitliefern: die Uhr alter iPads ist unzuverlaessig, "heute" muss vom Server kommen.
+    return Results.Json(new { serverTime = DateTime.Now, from = start, to = end, items });
+});
+
+// Buchbare Ressourcen fuer das Buchungsformular (anonym, damit auch ohne Login buchbar).
+app.MapGet("/client-api/calendar/resources", async (VehicleRepository vRepo, RoomRepository rRepo) =>
+{
+    var vehicles = await vRepo.GetBookableAsync();
+    var rooms = await rRepo.GetActiveAsync();
+    return Results.Json(new
+    {
+        vehicles = vehicles.Select(v => new { id = v.Id, name = v.Name, callSign = v.CallSign, requiresApproval = v.RequiresApproval }),
+        rooms = rooms.Select(r => new { id = r.Id, name = r.Name, capacity = r.Capacity, requiresApproval = r.RequiresApproval })
+    });
+});
+
+// Belegungen im Zeitraum - fuer die Verfuegbarkeitsanzeige im Buchungsdialog.
+app.MapGet("/client-api/calendar/availability", async (DateTime from, DateTime to, CalendarRepository repo, CalendarService svc) =>
+{
+    var rows = await repo.GetBookingsInRangeAsync(from, to);
+    var result = new List<object>();
+    foreach (var (r, e) in rows)
+    {
+        result.Add(new
+        {
+            kind = r.ResourceKind.ToString(),
+            resourceId = r.ResourceId,
+            start = e.StartTime,
+            end = e.EndTime,
+            title = e.Title,
+            status = r.Status.ToString()
+        });
+    }
+    return Results.Json(result);
+});
+
+app.MapPost("/client-api/calendar/events", async (CalendarEventRequest r, CalendarService svc, MemberRepository memberRepo) =>
+{
+    // Identifikation ist Pflicht - entweder ein aufloesbares Mitglied oder ein Freitext-Name.
+    var who = (r.RequestedBy ?? "").Trim();
+    if (string.IsNullOrWhiteSpace(who))
+        return Results.Json(new { status = "invalid", message = "Bitte Name oder Mitgliedsnummer angeben." });
+
+    int? memberId = null;
+    if (int.TryParse(who, out _))
+    {
+        var m = await memberRepo.GetByMemberNumberAsync(who);
+        if (m != null) { memberId = m.Id; who = $"{m.FirstName} {m.LastName} ({m.MemberNumber})"; }
+    }
+
+    var ev = new CalendarEvent
+    {
+        Type = Enum.TryParse<CalendarEventType>(r.Type, true, out var t) ? t : CalendarEventType.Veranstaltung,
+        Title = (r.Title ?? "").Trim(),
+        Description = string.IsNullOrWhiteSpace(r.Description) ? null : r.Description.Trim(),
+        Location = string.IsNullOrWhiteSpace(r.Location) ? null : r.Location.Trim(),
+        StartTime = r.Start,
+        EndTime = r.End,
+        IsAllDay = r.AllDay,
+        UnitNumber = r.UnitNumber is int u && u >= 1 && u <= 9 ? u : null,
+        RequestedBy = who,
+        RequestedByEmail = string.IsNullOrWhiteSpace(r.RequestedByEmail) ? null : r.RequestedByEmail.Trim(),
+        MemberId = memberId,
+        MinutesBeforeEvent = r.MinutesBeforeEvent is int mb && mb >= 0 ? mb : 60
+    };
+
+    var resources = new List<(CalendarResourceKind, int)>();
+    foreach (var id in r.VehicleIds ?? new()) resources.Add((CalendarResourceKind.Vehicle, id));
+    foreach (var id in r.RoomIds ?? new()) resources.Add((CalendarResourceKind.Room, id));
+
+    var result = await svc.CreateEventAsync(ev, resources);
+    return result.Outcome switch
+    {
+        CalendarBookingOutcome.Created => Results.Json(new
+        {
+            status = "ok",
+            id = result.EventId,
+            approvalRequired = result.ApprovalRequired,
+            mailSent = result.MailSent,
+            message = result.Message
+        }),
+        CalendarBookingOutcome.Conflict => Results.Json(new
+        {
+            status = "conflict",
+            conflicts = result.Conflicts.Select(c => new { resource = c.ResourceName, title = c.ConflictTitle, start = c.Start, end = c.End })
+        }),
+        CalendarBookingOutcome.ResourceNotFound => Results.Json(new { status = "notfound", message = result.Message }),
+        _ => Results.Json(new { status = "invalid", message = result.Message })
+    };
+}).DisableAntiforgery();
+
+// Stornieren/Loeschen: angemeldet (anonym anlegen ja, fremde Termine entfernen nein).
+listMgmt.MapPost("/calendar/events/{id:int}/cancel", async (int id, CalendarRepository repo) =>
+{
+    var e = await repo.GetEventAsync(id); if (e == null) return Results.NotFound();
+    e.Status = CalendarEventStatus.Storniert;
+    // Als Ausnahme markieren, damit die Serien-Materialisierung den Termin nicht neu erzeugt.
+    if (e.SeriesId != null) e.IsSeriesException = true;
+    await repo.UpdateEventAsync(e);
+    return Results.Ok();
+});
+
+listMgmt.MapPut("/calendar/events/{id:int}", async (int id, CalendarEventRequest r, CalendarRepository repo) =>
+{
+    var e = await repo.GetEventAsync(id); if (e == null) return Results.NotFound();
+    if (!string.IsNullOrWhiteSpace(r.Title)) e.Title = r.Title.Trim();
+    e.Description = string.IsNullOrWhiteSpace(r.Description) ? null : r.Description.Trim();
+    e.Location = string.IsNullOrWhiteSpace(r.Location) ? null : r.Location.Trim();
+    if (r.End > r.Start) { e.StartTime = r.Start; e.EndTime = r.End; }
+    e.IsAllDay = r.AllDay;
+    e.UnitNumber = r.UnitNumber is int u && u >= 1 && u <= 9 ? u : null;
+    // Einzeln geaendert -> Serien-Materialisierung fasst diesen Termin nicht mehr an.
+    if (e.SeriesId != null) e.IsSeriesException = true;
+    await repo.UpdateEventAsync(e);
+    return Results.Ok();
+});
+
+admin.MapDelete("/calendar/events/{id:int}", async (int id, CalendarRepository repo) =>
+{
+    await repo.DeleteEventAsync(id); return Results.Ok();
+});
+
+// Dienst -> Anwesenheitsliste sofort anlegen (sonst macht es der Hintergrunddienst kurz vorher).
+listMgmt.MapPost("/calendar/events/{id:int}/create-attendance", async (int id, CalendarRepository repo, AttendanceListRepository listRepo, SettingsService settings) =>
+{
+    var e = await repo.GetEventAsync(id); if (e == null) return Results.NotFound();
+    if (e.AttendanceListId is int existing) return Results.Json(new { status = "exists", id = existing });
+
+    var listId = await listRepo.CreateAsync(new AttendanceList
+    {
+        Title = e.Title,
+        Unit = e.UnitNumber is int un ? settings.GetUnitLabel(un) : "Allgemein",
+        // Unit und Description sind in der DB NOT NULL - null wuerde die Zeile ablehnen.
+        Description = e.Description ?? string.Empty,
+        UnitNumber = e.UnitNumber,
+        Status = ListStatus.Open,
+        CreatedAt = DateTime.Now
+    });
+    e.AttendanceListId = listId;
+    await repo.UpdateEventAsync(e);
+    return Results.Json(new { status = "ok", id = listId });
+});
+
+// --- Serien (angemeldet: organisatorische Planung) ---
+listMgmt.MapGet("/calendar/series", async (CalendarRepository repo) =>
+    Results.Json((await repo.GetAllSeriesAsync()).Select(s => new
+    {
+        id = s.Id, title = s.Title, type = s.Type.ToString(), frequency = s.Frequency.ToString(),
+        weekdayMask = s.WeekdayMask, dayOfMonth = s.DayOfMonth, startMinuteOfDay = s.StartMinuteOfDay,
+        durationMinutes = s.DurationMinutes, seriesStart = s.SeriesStart, seriesEnd = s.SeriesEnd,
+        unitNumber = s.UnitNumber, isActive = s.IsActive
+    })));
+
+listMgmt.MapPost("/calendar/series", async (CalendarSeriesRequest r, CalendarRepository repo, CalendarService svc) =>
+{
+    if (string.IsNullOrWhiteSpace(r.Title)) return Results.BadRequest();
+    var s = new CalendarEventSeries
+    {
+        Type = Enum.TryParse<CalendarEventType>(r.Type, true, out var t) ? t : CalendarEventType.Dienst,
+        Title = r.Title.Trim(),
+        Description = string.IsNullOrWhiteSpace(r.Description) ? null : r.Description.Trim(),
+        Location = string.IsNullOrWhiteSpace(r.Location) ? null : r.Location.Trim(),
+        UnitNumber = r.UnitNumber is int u && u >= 1 && u <= 9 ? u : null,
+        Frequency = Enum.TryParse<CalendarFrequency>(r.Frequency, true, out var f) ? f : CalendarFrequency.Woechentlich,
+        WeekdayMask = r.WeekdayMask,
+        DayOfMonth = r.DayOfMonth,
+        StartMinuteOfDay = Math.Clamp(r.StartMinuteOfDay, 0, 24 * 60 - 1),
+        DurationMinutes = r.DurationMinutes > 0 ? r.DurationMinutes : 120,
+        SeriesStart = r.SeriesStart,
+        SeriesEnd = r.SeriesEnd,
+        MinutesBeforeEvent = r.MinutesBeforeEvent is int mb && mb >= 0 ? mb : 60,
+        RequestedBy = string.IsNullOrWhiteSpace(r.RequestedBy) ? "Planung" : r.RequestedBy.Trim(),
+        IsActive = true,
+        CreatedAt = DateTime.Now
+    };
+    var id = await repo.InsertSeriesAsync(s);
+    s.Id = id;
+    var created = await svc.MaterializeSeriesAsync(s, DateTime.Now.Date, DateTime.Now.AddMonths(12));
+    return Results.Json(new { id, created });
+});
+
+listMgmt.MapPut("/calendar/series/{id:int}", async (int id, CalendarSeriesRequest r, CalendarRepository repo, CalendarService svc) =>
+{
+    var s = await repo.GetSeriesAsync(id); if (s == null) return Results.NotFound();
+    if (!string.IsNullOrWhiteSpace(r.Title)) s.Title = r.Title.Trim();
+    s.Description = string.IsNullOrWhiteSpace(r.Description) ? null : r.Description.Trim();
+    s.Location = string.IsNullOrWhiteSpace(r.Location) ? null : r.Location.Trim();
+    s.UnitNumber = r.UnitNumber is int u && u >= 1 && u <= 9 ? u : null;
+    if (Enum.TryParse<CalendarFrequency>(r.Frequency, true, out var f)) s.Frequency = f;
+    s.WeekdayMask = r.WeekdayMask;
+    s.DayOfMonth = r.DayOfMonth;
+    s.StartMinuteOfDay = Math.Clamp(r.StartMinuteOfDay, 0, 24 * 60 - 1);
+    if (r.DurationMinutes > 0) s.DurationMinutes = r.DurationMinutes;
+    s.SeriesStart = r.SeriesStart;
+    s.SeriesEnd = r.SeriesEnd;
+    if (r.MinutesBeforeEvent is int mb && mb >= 0) s.MinutesBeforeEvent = mb;
+    await repo.UpdateSeriesAsync(s);
+
+    // Kuenftige Termine neu aufbauen - Ausnahmen bleiben dabei unangetastet.
+    await repo.DeleteFutureSeriesEventsAsync(id, DateTime.Now.Date);
+    var created = await svc.MaterializeSeriesAsync(s, DateTime.Now.Date, DateTime.Now.AddMonths(12));
+    return Results.Json(new { created });
+});
+
+listMgmt.MapDelete("/calendar/series/{id:int}", async (int id, CalendarRepository repo) =>
+{
+    var s = await repo.GetSeriesAsync(id); if (s == null) return Results.NotFound();
+    s.IsActive = false;
+    s.SeriesEnd = DateTime.Now;
+    await repo.UpdateSeriesAsync(s);
+    // Nur kuenftige, nicht individuell geaenderte Termine entfernen; Vergangenheit bleibt.
+    await repo.DeleteFutureSeriesEventsAsync(id, DateTime.Now.Date);
+    return Results.Ok();
+});
+
+// --- Freigabe per Einmal-Link ---
+// GET liest NUR. Ein mutierender GET wuerde von Mail-Scannern und Browser-Prefetch
+// automatisch ausgeloest und damit ungewollt freigeben.
+app.MapGet("/client-api/approve/{token}", async (string token, CalendarService svc) =>
+{
+    var (outcome, row, ev, name) = await svc.LoadApprovalAsync(token);
+    if (outcome == ApprovalOutcome.UnknownToken || row == null || ev == null)
+        return Results.Json(new { status = "unknown" });
+
+    return Results.Json(new
+    {
+        status = outcome switch
+        {
+            ApprovalOutcome.Ok => "open",
+            ApprovalOutcome.AlreadyDecided => "decided",
+            ApprovalOutcome.Expired => "expired",
+            _ => "unknown"
+        },
+        resource = name,
+        kind = row.ResourceKind.ToString(),
+        title = ev.Title,
+        description = ev.Description,
+        location = ev.Location,
+        start = ev.StartTime,
+        end = ev.EndTime,
+        requestedBy = ev.RequestedBy,
+        decision = row.Status.ToString(),
+        decidedBy = row.ApprovedBy,
+        decidedAt = row.ApprovedAt,
+        comment = row.DecisionComment
+    });
+});
+
+app.MapPost("/client-api/approve/{token}", async (string token, ApprovalDecisionRequest r, CalendarService svc) =>
+{
+    var outcome = await svc.DecideAsync(token, r.Approve, r.DecidedBy ?? "", r.Comment);
+    return Results.Json(new
+    {
+        status = outcome switch
+        {
+            ApprovalOutcome.Ok => "ok",
+            ApprovalOutcome.AlreadyDecided => "decided",
+            ApprovalOutcome.Expired => "expired",
+            _ => "unknown"
+        }
+    });
+}).DisableAntiforgery();
 
 // Anwesenheitsliste: abschliessen (angemeldet)
 app.MapPost("/client-api/attendance/{id:int}/close", async (int id, AttendanceListRepository repo, ListNotificationService notif) =>
@@ -1701,8 +2121,22 @@ static async Task SignInUser(HttpContext ctx, User user)
         new AuthenticationProperties { IsPersistent = true });
 }
 
-public record VehicleReq(string Name, string CallSign, string Type, bool IsActive);
+// ShowInOperations/IsBookable mit Default true: fehlt das Feld im Body, wuerde .NET es
+// still als false deserialisieren und das Fahrzeug ungewollt ausblenden.
+public record VehicleReq(string Name, string CallSign, string Type, bool IsActive,
+    bool ShowInOperations = true, bool IsBookable = true, bool RequiresApproval = false, string? ApproverEmails = null);
 public record KeywordReq(string Name, string? Description);
+public record RoomReq(string Name, string? Description, int? Capacity, bool RequiresApproval, string? ApproverEmails, bool IsActive = true);
+public record CalendarEventRequest(
+    string? Type, string? Title, string? Description, string? Location,
+    DateTime Start, DateTime End, bool AllDay, int? UnitNumber,
+    string? RequestedBy, string? RequestedByEmail,
+    List<int>? VehicleIds, List<int>? RoomIds, int? MinutesBeforeEvent);
+public record CalendarSeriesRequest(
+    string? Type, string? Title, string? Description, string? Location, int? UnitNumber,
+    string? Frequency, int WeekdayMask, int? DayOfMonth, int StartMinuteOfDay, int DurationMinutes,
+    DateTime SeriesStart, DateTime? SeriesEnd, int? MinutesBeforeEvent, string? RequestedBy);
+public record ApprovalDecisionRequest(bool Approve, string? DecidedBy, string? Comment);
 // B1: StrengthPosition als int (1=Zugfuehrer, 2=Gruppenfuehrer, 3=Mannschaft). Default 3.
 public record FunctionReq(string Name, bool IsDefault, int StrengthPosition = 3);
 public record ReqItem(int FunctionDefId, int MinimumCount, bool IsRequired);

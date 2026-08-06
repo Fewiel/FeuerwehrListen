@@ -84,7 +84,76 @@ public class ScheduledListBackgroundService : BackgroundService
                 _logger.LogError(ex, "Error processing scheduled lists");
             }
 
+            // Kalender bewusst in einem EIGENEN try/catch: ein Fehler hier darf die
+            // geplanten Listen und den Auto-Close nicht mitreissen.
+            try
+            {
+                await ProcessCalendarAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error processing calendar");
+            }
+
             await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);
+        }
+    }
+
+    /// <summary>Zaehler, damit die Serien-Materialisierung nicht jede Minute laeuft.</summary>
+    private int _calendarTicks;
+
+    /// <summary>
+    /// Kalender-Aufgaben: (1) fuer faellige Dienste die Anwesenheitsliste anlegen,
+    /// (2) stuendlich die Serientermine im rollierenden Horizont auffuellen.
+    ///
+    /// Die Liste wird bewusst erst kurz vor dem Termin erzeugt: der Auto-Close fuer
+    /// Anwesenheitslisten rechnet ab CreatedAt, eine weit im Voraus erzeugte Liste waere
+    /// bei Dienstbeginn also womoeglich schon wieder geschlossen.
+    /// </summary>
+    private async Task ProcessCalendarAsync()
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var calendarRepo = scope.ServiceProvider.GetRequiredService<CalendarRepository>();
+        var attendanceRepo = scope.ServiceProvider.GetRequiredService<AttendanceListRepository>();
+        var calendarService = scope.ServiceProvider.GetRequiredService<CalendarService>();
+
+        var now = DateTime.Now;
+        var due = await calendarRepo.GetDueDienstEventsAsync(now, now.AddDays(1));
+
+        foreach (var ev in due)
+        {
+            try
+            {
+                var listId = await attendanceRepo.CreateAsync(new AttendanceList
+                {
+                    Title = ev.Title,
+                    Unit = ev.UnitNumber is int un ? _settingsService.GetUnitLabel(un) : "Allgemein",
+                    // Unit und Description sind in der DB NOT NULL - null wuerde die Zeile ablehnen.
+                    Description = ev.Description ?? string.Empty,
+                    UnitNumber = ev.UnitNumber,
+                    CreatedAt = DateTime.Now,
+                    Status = ListStatus.Open
+                });
+
+                // Rueckverweis ist zugleich der Duplikatschutz - idempotent, anders als ein
+                // separates IsProcessed-Flag, das bei einem Absturz dazwischen Doppellisten erzeugt.
+                ev.AttendanceListId = listId;
+                await calendarRepo.UpdateEventAsync(ev);
+
+                _logger.LogInformation("Anwesenheitsliste {ListId} fuer Dienst '{Title}' angelegt.", listId, ev.Title);
+            }
+            catch (Exception ex)
+            {
+                // Einzelner Termin darf die uebrigen nicht blockieren.
+                _logger.LogError(ex, "Anwesenheitsliste fuer Kalendertermin {EventId} fehlgeschlagen.", ev.Id);
+            }
+        }
+
+        // Serien nur stuendlich auffuellen - jede Minute waere unnoetige Last.
+        if (_calendarTicks++ % 60 == 0)
+        {
+            var created = await calendarService.MaterializeAllSeriesAsync();
+            if (created > 0) _logger.LogInformation("{Count} Serientermine materialisiert.", created);
         }
     }
 

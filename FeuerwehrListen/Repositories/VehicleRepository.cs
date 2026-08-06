@@ -26,6 +26,25 @@ public class VehicleRepository
             .ToListAsync();
     }
 
+    /// <summary>Fahrzeuge, die beim Eintragen in Einsatzlisten/Berichten angeboten werden.
+    /// Kalender-only-Fahrzeuge sind hier bewusst ausgeschlossen.</summary>
+    public async Task<List<Vehicle>> GetForOperationsAsync()
+    {
+        return await _db.Vehicles
+            .Where(x => x.IsActive && x.ShowInOperations)
+            .OrderBy(x => x.Name)
+            .ToListAsync();
+    }
+
+    /// <summary>Im Kalender buchbare Fahrzeuge.</summary>
+    public async Task<List<Vehicle>> GetBookableAsync()
+    {
+        return await _db.Vehicles
+            .Where(x => x.IsActive && x.IsBookable)
+            .OrderBy(x => x.Name)
+            .ToListAsync();
+    }
+
     public async Task<Vehicle?> GetByIdAsync(int id)
     {
         return await _db.Vehicles.FirstOrDefaultAsync(x => x.Id == id);

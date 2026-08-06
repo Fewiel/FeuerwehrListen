@@ -50,3 +50,44 @@ public enum KostenpflichtStatus
     Nein = 2
 }
 
+/// <summary>Art eines Kalendereintrags. Brandsicherheitswachen sind KEIN eigener Typ -
+/// sie werden aus fire_safety_watches in den Kalender projiziert.</summary>
+public enum CalendarEventType
+{
+    Dienst = 1,
+    Veranstaltung = 2,
+    Fahrzeugbuchung = 3,
+    Raumbuchung = 4
+}
+
+public enum CalendarEventStatus
+{
+    Angefragt = 1,
+    Bestaetigt = 2,
+    Abgelehnt = 3,
+    Storniert = 4
+}
+
+/// <summary>Buchbare Ressourcenart.</summary>
+public enum CalendarResourceKind
+{
+    Vehicle = 1,
+    Room = 2
+}
+
+public enum CalendarResourceStatus
+{
+    NichtErforderlich = 1,
+    Angefragt = 2,
+    Freigegeben = 3,
+    Abgelehnt = 4
+}
+
+/// <summary>Wiederholungsrhythmus einer Terminserie.</summary>
+public enum CalendarFrequency
+{
+    Woechentlich = 1,
+    Zweiwoechentlich = 2,
+    Monatlich = 3
+}
+

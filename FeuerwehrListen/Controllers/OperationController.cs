@@ -158,7 +158,9 @@ public class OperationController : ControllerBase
         if (member == null)
             return BadRequest(new ApiError { Error = "Member not found", Details = $"No active member found for: {request.MemberNumberOrName}" });
 
-        var vehicles = await _vehicleRepo.GetActiveAsync();
+        // Wie im internen Endpoint: nur einsatz-taugliche Fahrzeuge zulassen, sonst waere
+        // die Ausblendung ueber die REST-API umgehbar.
+        var vehicles = await _vehicleRepo.GetForOperationsAsync();
         if (!vehicles.Any(v => v.Name == request.Vehicle || v.CallSign == request.Vehicle))
             return BadRequest(new ApiError { Error = "Vehicle not found", Details = $"No active vehicle found: {request.Vehicle}" });
 
@@ -236,7 +238,8 @@ public class OperationController : ControllerBase
     [HttpGet("vehicles")]
     public async Task<ActionResult<ApiResponse<List<Vehicle>>>> GetVehicles()
     {
-        var vehicles = await _vehicleRepo.GetActiveAsync();
+        // Einsatz-Kontext: kalender-only-Fahrzeuge gehoeren hier nicht hin.
+        var vehicles = await _vehicleRepo.GetForOperationsAsync();
         return Ok(new ApiResponse<List<Vehicle>>
         {
             Success = true,

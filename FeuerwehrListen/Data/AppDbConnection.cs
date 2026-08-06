@@ -35,5 +35,10 @@ public class AppDbConnection : DataConnection
     public ITable<OperationReportExternalForce> OperationReportExternalForces => this.GetTable<OperationReportExternalForce>();
     public ITable<OperationReportMittel> OperationReportMittels => this.GetTable<OperationReportMittel>();
     public ITable<OperationReportVehicleStrength> OperationReportVehicleStrengths => this.GetTable<OperationReportVehicleStrength>();
+
+    public ITable<Room> Rooms => this.GetTable<Room>();
+    public ITable<CalendarEvent> CalendarEvents => this.GetTable<CalendarEvent>();
+    public ITable<CalendarEventSeries> CalendarEventSeriesSet => this.GetTable<CalendarEventSeries>();
+    public ITable<CalendarEventResource> CalendarEventResources => this.GetTable<CalendarEventResource>();
 }
 

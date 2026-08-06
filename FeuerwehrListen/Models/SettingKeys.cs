@@ -17,6 +17,18 @@ public static class SettingKeys
     public const string VisibilityDefects = "ModuleVisibility.Defects";
     public const string NotificationDefectRecipients = "Notifications.DefectRecipients";
 
+    public const string VisibilityCalendar = "ModuleVisibility.Calendar";
+
+    /// <summary>
+    /// Oeffentliche Basis-URL (scheme://host), z. B. https://listen.feuerwehr-x.de.
+    /// Noetig fuer absolute Links in Mails (Freigabe-Links) - hinter einem Reverse-Proxy
+    /// ist der Host-Header sonst der interne. Hat Vorrang vor AppSettings:BaseUrl.
+    /// </summary>
+    public const string AppBaseUrl = "App.BaseUrl";
+
+    /// <summary>Gueltigkeitsdauer eines Freigabe-Links in Stunden (Standard 168 = 7 Tage).</summary>
+    public const string CalendarApprovalTokenHours = "Calendar.ApprovalTokenHours";
+
     /// <summary>Empfänger für Einsatz-Feedback (eine oder mehrere Adressen).</summary>
     public const string NotificationFeedbackRecipients = "Notifications.FeedbackRecipients";
 

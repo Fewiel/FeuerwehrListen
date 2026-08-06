@@ -1,0 +1,455 @@
+@page "/kalender"
+@layout MainLayout
+@using System.Net.Http.Json
+@inject HttpClient Http
+@inject NavigationManager Nav
+
+<PageTitle>Kalender</PageTitle>
+
+@* Bewusst ohne JS-Kalenderbibliothek: auf Alt-Geraeten laeuft die App im Blazor-Server-
+   Modus (SignalR/Long-Polling) ohne WebAssembly. Das Monatsraster ist deshalb eine
+   schlichte HTML-Tabelle, Monatswechsel laeuft ueber State (kein Link = keine
+   Vollnavigation = kein neuer Circuit), und "heute" kommt aus der Serverzeit. *@
+
+<div class="container mt-4">
+    <div class="row mb-3">
+        <div class="col"><h1 class="mb-0">Kalender</h1></div>
+        <div class="col-auto"><button class="btn btn-primary" @onclick="OpenCreate"><i class="bi bi-plus-circle"></i> Neuer Termin</button></div>
+    </div>
+
+    <div class="card mb-3"><div class="card-body py-2">
+        <div class="d-flex flex-wrap align-items-center justify-content-between">
+            <div>
+                <button class="btn btn-outline-secondary btn-sm" @onclick="PrevMonth" title="Voriger Monat">&laquo;</button>
+                <button class="btn btn-outline-secondary btn-sm ms-1" @onclick="Today">Heute</button>
+                <button class="btn btn-outline-secondary btn-sm ms-1" @onclick="NextMonth" title="Naechster Monat">&raquo;</button>
+            </div>
+            <h4 class="mb-0">@MonthName(_month.Month) @_month.Year</h4>
+            <div>
+                @if (_loading) { <span class="spinner-border spinner-border-sm"></span> }
+            </div>
+        </div>
+    </div></div>
+
+    @if (_error is not null) { <div class="alert alert-danger">@_error</div> }
+
+    <div class="table-responsive">
+        <table class="table table-bordered mb-0" style="table-layout:fixed;">
+            <thead>
+                <tr>
+                    @foreach (var d in new[] { "Mo", "Di", "Mi", "Do", "Fr", "Sa", "So" })
+                    {
+                        <th class="text-center small">@d</th>
+                    }
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var week in Weeks())
+                {
+                    <tr>
+                        @foreach (var day in week)
+                        {
+                            var isCurrentMonth = day.Month == _month.Month;
+                            var isToday = day.Date == _serverToday.Date;
+                            var dayItems = ItemsOn(day);
+                            var isSelected = _selected?.Date == day.Date;
+                            @* Ein onclick pro TAG, nicht pro Termin: im Server-Modus ist
+                               jeder Handler ein Long-Polling-Roundtrip. *@
+                            <td class="p-1 align-top @(isSelected ? "table-active" : "")"
+                                style="height:88px; cursor:pointer; @(isCurrentMonth ? "" : "background-color:#f8f9fa;")"
+                                @onclick="() => SelectDay(day)">
+                                <div class="small @(isToday ? "fw-bold text-danger" : (isCurrentMonth ? "" : "text-muted"))">
+                                    @day.Day@(isToday ? " •" : "")
+                                </div>
+                                @foreach (var it in dayItems.Take(3))
+                                {
+                                    <div class="small text-truncate" style="line-height:1.2;" title="@it.Title">
+                                        <span style="color:@ColorOf(it.Kind);">&#9679;</span>
+                                        <span>@ShortTime(it)</span> @it.Title
+                                    </div>
+                                }
+                                @if (dayItems.Count > 3)
+                                {
+                                    <div class="small text-muted">+@(dayItems.Count - 3) weitere</div>
+                                }
+                            </td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <div class="mt-2 small text-muted">
+        <span style="color:#C77700;">&#9679;</span> Wache
+        <span class="ms-2" style="color:#B22222;">&#9679;</span> Dienst
+        <span class="ms-2" style="color:#0d6efd;">&#9679;</span> Veranstaltung
+        <span class="ms-2" style="color:#198754;">&#9679;</span> Fahrzeug
+        <span class="ms-2" style="color:#6f42c1;">&#9679;</span> Raum
+        <span class="ms-2" style="color:#6c757d;">&#9679;</span> Geplante Liste
+    </div>
+
+    @if (_selected is DateTime sel)
+    {
+        <div class="card mt-3"><div class="card-body">
+            <h5>@sel.ToString("dddd, dd.MM.yyyy")</h5>
+            @{ var list = ItemsOn(sel); }
+            @if (list.Count == 0)
+            {
+                <p class="text-muted mb-0">Keine Termine an diesem Tag.</p>
+            }
+            else
+            {
+                <ul class="list-group list-group-flush">
+                    @foreach (var it in list)
+                    {
+                        <li class="list-group-item px-0">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div>
+                                    <span style="color:@ColorOf(it.Kind);">&#9679;</span>
+                                    <strong>@it.Title</strong>
+                                    <span class="badge bg-light text-dark ms-1">@KindLabel(it.Kind)</span>
+                                    @if (it.PendingApprovals > 0) { <span class="badge bg-warning text-dark ms-1">Freigabe offen</span> }
+                                    @if (it.Status == "Abgelehnt") { <span class="badge bg-danger ms-1">Abgelehnt</span> }
+                                    <div class="small text-muted">
+                                        @(it.AllDay ? "ganztägig" : $"{it.Start:HH:mm} – {it.End:HH:mm}")
+                                        @if (!string.IsNullOrWhiteSpace(it.Location)) { <text> · @it.Location</text> }
+                                        @if (!string.IsNullOrWhiteSpace(it.RequestedBy)) { <text> · @it.RequestedBy</text> }
+                                    </div>
+                                </div>
+                                @if (!string.IsNullOrWhiteSpace(it.Href))
+                                {
+                                    <a class="btn btn-sm btn-outline-primary" href="@it.Href">Öffnen</a>
+                                }
+                            </div>
+                        </li>
+                    }
+                </ul>
+            }
+        </div></div>
+    }
+</div>
+
+@if (_showCreate)
+{
+    <div class="modal fade show" style="display:block; background-color:rgba(0,0,0,0.5);" @onclick="() => _showCreate = false">
+        <div class="modal-dialog modal-lg modal-dialog-centered" @onclick:stopPropagation="true">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Neuer Termin</h5>
+                    <button type="button" class="btn-close" @onclick="() => _showCreate = false"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-2">
+                        <label class="form-label">Art</label>
+                        <select class="form-select" @bind="_fType">
+                            <option value="Veranstaltung">Veranstaltung</option>
+                            <option value="Dienst">Dienst (mit Anwesenheitsliste)</option>
+                            <option value="Fahrzeugbuchung">Fahrzeugbuchung</option>
+                            <option value="Raumbuchung">Raumbuchung</option>
+                        </select>
+                    </div>
+                    <div class="mb-2"><label class="form-label">Titel / Anlass</label><input class="form-control" @bind="_fTitle" /></div>
+                    <div class="row">
+                        <div class="col-md-6 mb-2"><label class="form-label">Beginn</label><input type="datetime-local" class="form-control" @bind="_fStart" /></div>
+                        <div class="col-md-6 mb-2"><label class="form-label">Ende</label><input type="datetime-local" class="form-control" @bind="_fEnd" /></div>
+                    </div>
+                    <div class="mb-2"><label class="form-label">Ort (optional)</label><input class="form-control" @bind="_fLocation" /></div>
+                    <div class="mb-2"><label class="form-label">Bemerkung (optional)</label><input class="form-control" @bind="_fDescription" /></div>
+
+                    @* Identifikation ist Pflicht - Buchen geht ohne Login, aber nicht anonym. *@
+                    <div class="mb-2 position-relative">
+                        <label class="form-label">Dein Name oder deine Mitgliedsnummer <span class="text-danger">*</span></label>
+                        <input class="form-control" value="@_fRequestedBy" @oninput="OnRequesterInput" autocomplete="off" placeholder="Nummer eingeben oder Namen suchen…" />
+                        @if (_requesterSuggestions is { Count: > 0 })
+                        {
+                            <div class="list-group position-absolute w-100 shadow" style="z-index:1060; max-height:200px; overflow-y:auto;">
+                                @foreach (var m in _requesterSuggestions)
+                                {
+                                    <button type="button" class="list-group-item list-group-item-action py-1 px-2 small" @onclick="() => PickRequester(m)">
+                                        @m.Name <span class="text-muted">(@m.Number)</span>
+                                    </button>
+                                }
+                            </div>
+                        }
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label">Deine E-Mail (optional)</label>
+                        <input class="form-control" @bind="_fEmail" placeholder="für die Rückmeldung zur Freigabe" />
+                    </div>
+
+                    @if (_resources is not null)
+                    {
+                        @if (_resources.Vehicles.Count > 0)
+                        {
+                            <div class="mb-2">
+                                <label class="form-label">Fahrzeuge (optional)</label>
+                                @foreach (var v in _resources.Vehicles)
+                                {
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="veh@(v.Id)"
+                                               checked="@_fVehicles.Contains(v.Id)"
+                                               @onchange="e => ToggleVehicle(v.Id, (bool)e.Value!)" />
+                                        <label class="form-check-label" for="veh@(v.Id)">
+                                            @v.Name <span class="text-muted small">(@v.CallSign)</span>
+                                            @if (v.RequiresApproval) { <span class="badge bg-warning text-dark ms-1">Freigabe nötig</span> }
+                                        </label>
+                                    </div>
+                                }
+                            </div>
+                        }
+                        @if (_resources.Rooms.Count > 0)
+                        {
+                            <div class="mb-2">
+                                <label class="form-label">Räume (optional)</label>
+                                @foreach (var r in _resources.Rooms)
+                                {
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="room@(r.Id)"
+                                               checked="@_fRooms.Contains(r.Id)"
+                                               @onchange="e => ToggleRoom(r.Id, (bool)e.Value!)" />
+                                        <label class="form-check-label" for="room@(r.Id)">
+                                            @r.Name
+                                            @if (r.RequiresApproval) { <span class="badge bg-warning text-dark ms-1">Bestätigung nötig</span> }
+                                        </label>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    }
+
+                    @if (_formError is not null) { <div class="alert alert-danger py-2 mb-0">@_formError</div> }
+                    @if (_conflicts is { Count: > 0 })
+                    {
+                        <div class="alert alert-warning py-2 mb-0">
+                            <strong>Zeitraum bereits belegt:</strong>
+                            <ul class="mb-0">
+                                @foreach (var c in _conflicts)
+                                {
+                                    <li>@c.Resource – „@c.Title" (@c.Start.ToString("dd.MM. HH:mm") – @c.End.ToString("HH:mm"))</li>
+                                }
+                            </ul>
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @onclick="() => _showCreate = false">Abbrechen</button>
+                    <button class="btn btn-primary" @onclick="Save" disabled="@_saving">
+                        @if (_saving) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                        Speichern
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_info is not null)
+{
+    <div class="alert alert-success position-fixed" style="bottom:16px; left:16px; right:16px; z-index:1080;">@_info</div>
+}
+
+@code {
+    private DateTime _month = new(DateTime.Now.Year, DateTime.Now.Month, 1);
+    private DateTime _serverToday = DateTime.Now;
+    private DateTime? _selected;
+    private List<CalItem> _items = new();
+    private bool _loading, _saving;
+    private string? _error, _formError, _info;
+
+    private bool _showCreate;
+    private string _fType = "Veranstaltung", _fTitle = "", _fLocation = "", _fDescription = "", _fRequestedBy = "", _fEmail = "";
+    private DateTime _fStart = DateTime.Now.Date.AddHours(18);
+    private DateTime _fEnd = DateTime.Now.Date.AddHours(20);
+    private readonly HashSet<int> _fVehicles = new();
+    private readonly HashSet<int> _fRooms = new();
+    private ResourcesDto? _resources;
+    private List<ConflictDto>? _conflicts;
+    private List<MemberChoice>? _requesterSuggestions;
+    private CancellationTokenSource? _requesterCts;
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load()
+    {
+        _loading = true; _error = null;
+        try
+        {
+            var from = _month.AddDays(-7);
+            var to = _month.AddMonths(1).AddDays(7);
+            var resp = await Http.GetFromJsonAsync<CalendarResponse>(
+                $"client-api/calendar?from={from:yyyy-MM-dd}&to={to:yyyy-MM-dd}");
+            if (resp is not null)
+            {
+                _items = resp.Items ?? new();
+                _serverToday = resp.ServerTime;
+            }
+        }
+        catch { _error = "Kalender konnte nicht geladen werden."; }
+        finally { _loading = false; }
+    }
+
+    private async Task PrevMonth() { _month = _month.AddMonths(-1); _selected = null; await Load(); }
+    private async Task NextMonth() { _month = _month.AddMonths(1); _selected = null; await Load(); }
+    private async Task Today() { _month = new DateTime(_serverToday.Year, _serverToday.Month, 1); _selected = _serverToday.Date; await Load(); }
+    private void SelectDay(DateTime d) => _selected = d.Date;
+
+    /// <summary>Wochen des Monatsrasters, immer montags beginnend.</summary>
+    private List<List<DateTime>> Weeks()
+    {
+        var first = _month;
+        var offset = ((int)first.DayOfWeek + 6) % 7; // Montag = 0
+        var start = first.AddDays(-offset);
+        var weeks = new List<List<DateTime>>();
+        for (var w = 0; w < 6; w++)
+        {
+            var week = new List<DateTime>();
+            for (var d = 0; d < 7; d++) week.Add(start.AddDays(w * 7 + d));
+            weeks.Add(week);
+            // Letzte Zeile weglassen, wenn sie komplett im Folgemonat liegt.
+            if (w >= 4 && week[6] > _month.AddMonths(1).AddDays(-1)) break;
+        }
+        return weeks;
+    }
+
+    private List<CalItem> ItemsOn(DateTime day) =>
+        _items.Where(i => i.Start.Date <= day.Date && i.End.Date >= day.Date)
+              .OrderBy(i => i.Start)
+              .ToList();
+
+    private static string ShortTime(CalItem i) => i.AllDay ? "" : i.Start.ToString("HH:mm");
+
+    private static string ColorOf(string kind) => kind switch
+    {
+        "wache" => "#C77700",
+        "dienst" => "#B22222",
+        "fahrzeug" => "#198754",
+        "raum" => "#6f42c1",
+        "geplant" => "#6c757d",
+        _ => "#0d6efd"
+    };
+
+    private static string KindLabel(string kind) => kind switch
+    {
+        "wache" => "Brandsicherheitswache",
+        "dienst" => "Dienst",
+        "fahrzeug" => "Fahrzeugbuchung",
+        "raum" => "Raumbuchung",
+        "geplant" => "Geplante Liste",
+        _ => "Veranstaltung"
+    };
+
+    private static string MonthName(int m) => m switch
+    {
+        1 => "Januar", 2 => "Februar", 3 => "März", 4 => "April", 5 => "Mai", 6 => "Juni",
+        7 => "Juli", 8 => "August", 9 => "September", 10 => "Oktober", 11 => "November", _ => "Dezember"
+    };
+
+    private async Task OpenCreate()
+    {
+        _formError = null; _conflicts = null;
+        _fTitle = ""; _fLocation = ""; _fDescription = ""; _fRequestedBy = ""; _fEmail = "";
+        _fVehicles.Clear(); _fRooms.Clear();
+        var day = _selected ?? _serverToday.Date;
+        _fStart = day.Date.AddHours(18);
+        _fEnd = day.Date.AddHours(20);
+        _showCreate = true;
+        if (_resources is null)
+        {
+            try { _resources = await Http.GetFromJsonAsync<ResourcesDto>("client-api/calendar/resources"); }
+            catch { /* Ressourcen optional - Termin geht auch ohne */ }
+        }
+    }
+
+    private void ToggleVehicle(int id, bool on) { if (on) _fVehicles.Add(id); else _fVehicles.Remove(id); }
+    private void ToggleRoom(int id, bool on) { if (on) _fRooms.Add(id); else _fRooms.Remove(id); }
+
+    // Live-Suche wie an den uebrigen Suchfeldern: oninput + Abbruch veralteter Anfragen.
+    private async Task OnRequesterInput(ChangeEventArgs e)
+    {
+        _fRequestedBy = e.Value?.ToString() ?? "";
+        var term = _fRequestedBy.Trim();
+        _requesterCts?.Cancel();
+        if (term.Length < 2) { _requesterSuggestions = null; return; }
+        var cts = new CancellationTokenSource();
+        _requesterCts = cts;
+        try
+        {
+            var res = await Http.GetFromJsonAsync<List<MemberChoice>>(
+                $"client-api/members/search?q={Uri.EscapeDataString(term)}", cts.Token);
+            if (!cts.IsCancellationRequested) _requesterSuggestions = res;
+        }
+        catch { /* Abbruch/Netzfehler ignorieren */ }
+    }
+
+    private void PickRequester(MemberChoice m)
+    {
+        _fRequestedBy = m.Number;
+        _requesterSuggestions = null;
+    }
+
+    private async Task Save()
+    {
+        _formError = null; _conflicts = null;
+        if (string.IsNullOrWhiteSpace(_fTitle)) { _formError = "Bitte einen Titel angeben."; return; }
+        if (string.IsNullOrWhiteSpace(_fRequestedBy)) { _formError = "Bitte Name oder Mitgliedsnummer angeben."; return; }
+        if (_fEnd <= _fStart) { _formError = "Das Ende muss nach dem Beginn liegen."; return; }
+
+        _saving = true;
+        try
+        {
+            var body = new
+            {
+                Type = _fType,
+                Title = _fTitle,
+                Description = _fDescription,
+                Location = _fLocation,
+                Start = _fStart,
+                End = _fEnd,
+                AllDay = false,
+                UnitNumber = (int?)null,
+                RequestedBy = _fRequestedBy,
+                RequestedByEmail = _fEmail,
+                VehicleIds = _fVehicles.ToList(),
+                RoomIds = _fRooms.ToList(),
+                MinutesBeforeEvent = (int?)null
+            };
+            var resp = await Http.PostAsJsonAsync("client-api/calendar/events", body);
+            var result = await resp.Content.ReadFromJsonAsync<CreateResult>();
+            switch (result?.Status)
+            {
+                case "ok":
+                    _showCreate = false;
+                    _info = result.ApprovalRequired
+                        ? (result.MailSent
+                            ? "Buchung angelegt. Der Freigabe-Link wurde an die Zuständigen verschickt."
+                            : "Buchung angelegt – der Freigabe-Link konnte aber NICHT verschickt werden (SMTP prüfen).")
+                        : "Termin angelegt.";
+                    await Load();
+                    break;
+                case "conflict":
+                    _conflicts = result.Conflicts ?? new();
+                    break;
+                case "notfound":
+                    _formError = result.Message ?? "Ressource nicht buchbar.";
+                    break;
+                default:
+                    _formError = result?.Message ?? "Speichern fehlgeschlagen.";
+                    break;
+            }
+        }
+        catch { _formError = "Speichern fehlgeschlagen."; }
+        finally { _saving = false; }
+    }
+
+    private record CalendarResponse(DateTime ServerTime, DateTime From, DateTime To, List<CalItem>? Items);
+    private record CalItem(int Id, string Kind, string Title, string? Location, DateTime Start, DateTime End,
+        bool AllDay, string Status, string? RequestedBy, int? UnitNumber, int? SeriesId, int? AttendanceListId,
+        int PendingApprovals, string? Href);
+    private record ResourcesDto(List<VehicleOption> Vehicles, List<RoomOption> Rooms);
+    private record VehicleOption(int Id, string Name, string CallSign, bool RequiresApproval);
+    private record RoomOption(int Id, string Name, int? Capacity, bool RequiresApproval);
+    private record ConflictDto(string Resource, string Title, DateTime Start, DateTime End);
+    private record CreateResult(string Status, int? Id, bool ApprovalRequired, bool MailSent, string? Message, List<ConflictDto>? Conflicts);
+    private record MemberChoice(int Id, string Name, string Number);
+}

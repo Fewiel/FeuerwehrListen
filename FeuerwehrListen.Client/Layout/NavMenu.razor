@@ -20,6 +20,8 @@
         @if (M.Operations) { <a href="create-operation" class="@Active("create-operation")"><i class="bi bi-truck"></i> Einsatz</a> }
         @if (M.FireSafety) { <a href="firesafetywatches" class="@Active("firesafetywatches")"><i class="bi bi-shield-check"></i> Wachen</a> }
         @if (M.Defects) { <a href="defects" class="@Active("defects")"><i class="bi bi-tools"></i> Mängel</a> }
+        @* bi-calendar ist schon fuer "Geplante Listen" belegt - hier bewusst ein anderes Icon. *@
+        @if (M.Calendar) { <a href="kalender" class="@Active("kalender")"><i class="bi bi-calendar3"></i> Kalender</a> }
     </nav>
 
     <div class="tw-right">
@@ -63,6 +65,7 @@
             <hr />
             <div class="tw-drop-head">Verwaltung</div>
             <a href="admin/vehicles"><i class="bi bi-truck"></i> Fahrzeuge</a>
+            <a href="admin/rooms"><i class="bi bi-door-open"></i> Räume</a>
             <a href="admin/functions"><i class="bi bi-puzzle"></i> Funktionen</a>
             <a href="admin/keywords"><i class="bi bi-tags"></i> Stichwörter</a>
             <a href="admin/users"><i class="bi bi-people"></i> Benutzer</a>
@@ -98,6 +101,7 @@
         @if (M.Operations) { <a href="create-operation"><i class="bi bi-truck"></i> Neue Einsatzliste</a> }
         @if (M.FireSafety) { <a href="firesafetywatches"><i class="bi bi-shield-check"></i> Brandsicherheitswachen</a> }
         @if (M.Defects) { <a href="defects"><i class="bi bi-tools"></i> Mängelliste</a> }
+        @if (M.Calendar) { <a href="kalender"><i class="bi bi-calendar3"></i> Kalender</a> }
 
         @if (_authed)
         {
@@ -110,6 +114,7 @@
             {
                 <div class="mm-sect">Verwaltung</div>
                 <a href="admin/vehicles"><i class="bi bi-truck"></i> Fahrzeuge</a>
+                <a href="admin/rooms"><i class="bi bi-door-open"></i> Räume</a>
                 <a href="admin/functions"><i class="bi bi-puzzle"></i> Funktionen</a>
                 <a href="admin/keywords"><i class="bi bi-tags"></i> Stichwörter</a>
                 <a href="admin/users"><i class="bi bi-people"></i> Benutzer</a>
@@ -140,7 +145,7 @@
     private string _firstName = "";
     private string _lastName = "";
 
-    private ModuleFlags M => _ctx?.Modules ?? new ModuleFlags(true, true, true, true);
+    private ModuleFlags M => _ctx?.Modules ?? new ModuleFlags(true, true, true, true, false);
 
     protected override async Task OnInitializedAsync()
     {

@@ -1,0 +1,156 @@
+@page "/approve/{Token}"
+@layout MainLayout
+@using System.Net.Http.Json
+@inject HttpClient Http
+
+<PageTitle>Freigabe</PageTitle>
+
+@* Bewusst OHNE AuthGuard: der Zustaendige soll ohne Login entscheiden koennen.
+   Die Route nutzt einen String-Parameter (kein :guid), damit ein unsinniges Token hier
+   sauber behandelt wird - die App hat kein NotFound-Template.
+   Die Entscheidung selbst laeuft ueber POST; ein mutierender GET wuerde von
+   Mail-Scannern und Browser-Prefetch automatisch ausgeloest. *@
+
+<div class="container mt-4">
+    <div class="row"><div class="col-md-8 offset-md-2">
+
+        @if (_loading)
+        {
+            <p><em>Lade…</em></p>
+        }
+        else if (_data is null || _data.Status == "unknown")
+        {
+            <div class="card"><div class="card-body">
+                <h4><i class="bi bi-question-circle me-2"></i>Link ungültig</h4>
+                <p class="mb-0 text-muted">Dieser Freigabe-Link ist nicht (mehr) gültig. Bitte wende dich an die Person, die die Buchung angelegt hat.</p>
+            </div></div>
+        }
+        else
+        {
+            <div class="card">
+                <div class="card-header"><h4 class="mb-0">Buchungsanfrage</h4></div>
+                <div class="card-body">
+                    <dl class="row mb-0">
+                        <dt class="col-sm-4">@(_data.Kind == "Vehicle" ? "Fahrzeug" : "Raum")</dt>
+                        <dd class="col-sm-8">@_data.Resource</dd>
+
+                        <dt class="col-sm-4">Anlass</dt>
+                        <dd class="col-sm-8">@_data.Title</dd>
+
+                        <dt class="col-sm-4">Zeitraum</dt>
+                        <dd class="col-sm-8">@_data.Start.ToString("dd.MM.yyyy HH:mm") – @_data.End.ToString("dd.MM.yyyy HH:mm")</dd>
+
+                        @if (!string.IsNullOrWhiteSpace(_data.Location))
+                        {
+                            <dt class="col-sm-4">Ort</dt>
+                            <dd class="col-sm-8">@_data.Location</dd>
+                        }
+
+                        <dt class="col-sm-4">Angefragt von</dt>
+                        <dd class="col-sm-8">@_data.RequestedBy</dd>
+
+                        @if (!string.IsNullOrWhiteSpace(_data.Description))
+                        {
+                            <dt class="col-sm-4">Bemerkung</dt>
+                            <dd class="col-sm-8">@_data.Description</dd>
+                        }
+                    </dl>
+                </div>
+
+                @if (_done is not null)
+                {
+                    <div class="card-footer">
+                        <div class="alert alert-success mb-0"><i class="bi bi-check-circle me-1"></i>@_done</div>
+                    </div>
+                }
+                else if (_data.Status == "decided")
+                {
+                    <div class="card-footer">
+                        <div class="alert alert-info mb-0">
+                            Diese Anfrage wurde bereits am @_data.DecidedAt?.ToString("dd.MM.yyyy HH:mm")
+                            von <strong>@_data.DecidedBy</strong> entschieden:
+                            <strong>@(_data.Decision == "Freigegeben" ? "freigegeben" : "abgelehnt")</strong>.
+                            @if (!string.IsNullOrWhiteSpace(_data.Comment)) { <div class="mt-1">Kommentar: @_data.Comment</div> }
+                        </div>
+                    </div>
+                }
+                else if (_data.Status == "expired")
+                {
+                    <div class="card-footer">
+                        <div class="alert alert-warning mb-0">Dieser Freigabe-Link ist abgelaufen. Bitte lass die Buchung erneut stellen.</div>
+                    </div>
+                }
+                else
+                {
+                    <div class="card-footer">
+                        <div class="mb-2">
+                            <label class="form-label">Dein Name <span class="text-danger">*</span></label>
+                            <input class="form-control" @bind="_decidedBy" placeholder="Wer entscheidet?" />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Kommentar (optional)</label>
+                            <input class="form-control" @bind="_comment" />
+                        </div>
+                        @if (_error is not null) { <div class="alert alert-danger py-2">@_error</div> }
+                        <button class="btn btn-success me-2" @onclick="() => Decide(true)" disabled="@_saving">
+                            <i class="bi bi-check-lg me-1"></i>Freigeben
+                        </button>
+                        <button class="btn btn-danger" @onclick="() => Decide(false)" disabled="@_saving">
+                            <i class="bi bi-x-lg me-1"></i>Ablehnen
+                        </button>
+                    </div>
+                }
+            </div>
+        }
+
+    </div></div>
+</div>
+
+@code {
+    [Parameter] public string Token { get; set; } = "";
+
+    private ApprovalDto? _data;
+    private bool _loading = true, _saving;
+    private string _decidedBy = "", _comment = "";
+    private string? _error, _done;
+
+    protected override async Task OnParametersSetAsync() => await Load();
+
+    private async Task Load()
+    {
+        _loading = true;
+        try { _data = await Http.GetFromJsonAsync<ApprovalDto>($"client-api/approve/{Uri.EscapeDataString(Token)}"); }
+        catch { _data = null; }
+        finally { _loading = false; }
+    }
+
+    private async Task Decide(bool approve)
+    {
+        _error = null;
+        if (string.IsNullOrWhiteSpace(_decidedBy)) { _error = "Bitte deinen Namen angeben."; return; }
+        _saving = true;
+        try
+        {
+            var resp = await Http.PostAsJsonAsync($"client-api/approve/{Uri.EscapeDataString(Token)}",
+                new { Approve = approve, DecidedBy = _decidedBy, Comment = _comment });
+            var r = await resp.Content.ReadFromJsonAsync<DecisionResult>();
+            switch (r?.Status)
+            {
+                case "ok":
+                    _done = approve ? "Danke – die Buchung ist freigegeben." : "Danke – die Buchung wurde abgelehnt.";
+                    await Load();
+                    break;
+                case "decided": _error = "Diese Anfrage wurde inzwischen bereits entschieden."; await Load(); break;
+                case "expired": _error = "Der Link ist abgelaufen."; await Load(); break;
+                default: _error = "Der Link ist nicht mehr gültig."; await Load(); break;
+            }
+        }
+        catch { _error = "Speichern fehlgeschlagen. Bitte erneut versuchen."; }
+        finally { _saving = false; }
+    }
+
+    private record ApprovalDto(string Status, string Resource, string Kind, string Title, string? Description,
+        string? Location, DateTime Start, DateTime End, string RequestedBy, string Decision,
+        string? DecidedBy, DateTime? DecidedAt, string? Comment);
+    private record DecisionResult(string Status);
+}

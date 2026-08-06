@@ -6,6 +6,6 @@ public record UnitLabel(int Number, string Label);
 
 public record KeywordDto(string Name, string? Description);
 
-public record ModuleFlags(bool Attendance, bool Operations, bool FireSafety, bool Defects);
+public record ModuleFlags(bool Attendance, bool Operations, bool FireSafety, bool Defects, bool Calendar = false);
 
 public record FeedbackOperationDto(int Id, string Keyword, string Address, string Number, DateTime Time);
