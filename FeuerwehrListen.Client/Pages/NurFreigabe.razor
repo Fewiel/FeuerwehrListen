@@ -1,0 +1,29 @@
+@page "/nur-freigabe"
+@layout StandaloneLayout
+
+<PageTitle>Nur für Freigaben</PageTitle>
+
+@* Zielseite der Umleitung auf einem Freigabe-Host. Bewusst ohne Navigation und
+   ohne jeden Verweis in die Anwendung - diese Adresse ist oeffentlich erreichbar. *@
+
+<div class="container mt-4">
+    <div class="row"><div class="col-md-8 offset-md-2">
+        <div class="card">
+            <div class="card-body text-center" style="padding-top:32px; padding-bottom:32px;">
+                <div style="font-size:2.6rem; line-height:1;">
+                    <i class="bi bi-envelope-check" style="color:#E4002B;"></i>
+                </div>
+                <h4 class="mt-3">Diese Adresse ist nur für Freigaben</h4>
+                <p class="text-muted mb-0">
+                    Über diesen Zugang lassen sich ausschließlich Buchungsanfragen freigeben
+                    oder ablehnen. Bitte öffne dazu den Link aus der E-Mail, die du erhalten hast.
+                </p>
+                <hr />
+                <p class="text-muted mb-0" style="font-size:.92rem;">
+                    Du gehörst zur Feuerwehr und suchst die Listen oder den Kalender?
+                    Die nutzt du bitte über die gewohnte Adresse.
+                </p>
+            </div>
+        </div>
+    </div></div>
+</div>

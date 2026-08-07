@@ -309,6 +309,28 @@ app.UseAuthorization();
 app.Use(async (ctx, next) =>
 {
     var path = ctx.Request.Path;
+
+    // Freigabe-Host: Seitenaufrufe ausserhalb des Freigabe-Wegs auf eine
+    // Hinweisseite umleiten. Ohne das laedt zwar keine Daten mehr, die
+    // Anwendungshuelle mit Navigation waere aber weiterhin sichtbar.
+    // Nur echte Seitennavigationen umleiten (Accept: text/html) - Skripte,
+    // Stylesheets und das Blazor-Framework muessen weiterhin ausgeliefert werden.
+    if (!path.StartsWithSegments("/client-api"))
+    {
+        var accessPage = ctx.RequestServices.GetRequiredService<FeuerwehrListen.Services.NetworkAccessService>();
+        if (accessPage.IsApproveOnlyHost(ctx)
+            && !path.StartsWithSegments("/approve")
+            && !path.StartsWithSegments("/nur-freigabe")
+            && !path.StartsWithSegments("/_framework")
+            && !path.StartsWithSegments("/_blazor")
+            && !path.StartsWithSegments("/_content")
+            && ctx.Request.Headers.Accept.ToString().Contains("text/html", StringComparison.OrdinalIgnoreCase))
+        {
+            ctx.Response.Redirect("/nur-freigabe");
+            return;
+        }
+    }
+
     if (path.StartsWithSegments("/client-api"))
     {
         var access = ctx.RequestServices.GetRequiredService<FeuerwehrListen.Services.NetworkAccessService>();
