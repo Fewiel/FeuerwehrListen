@@ -237,6 +237,14 @@ public class CalendarService
             var found = await _repo.GetConflictsAsync(r.Kind, r.Id, ev.StartTime, ev.EndTime);
             foreach (var (_, conflictEvent) in found)
                 conflicts.Add(new CalendarConflictInfo(r.Kind, r.Id, r.Name, conflictEvent.Title, conflictEvent.StartTime, conflictEvent.EndTime));
+
+            // Brandsicherheitswachen liegen in einer eigenen Tabelle und belegen ihre
+            // Fahrzeuge ueber die Anforderungen - separat pruefen.
+            if (r.Kind == CalendarResourceKind.Vehicle)
+            {
+                foreach (var (name, ws, we) in await _repo.GetWatchConflictsAsync(r.Id, ev.StartTime, ev.EndTime, GetWatchDefaultHours()))
+                    conflicts.Add(new CalendarConflictInfo(r.Kind, r.Id, r.Name, $"Brandsicherheitswache: {name}", ws, we));
+            }
         }
 
         if (conflicts.Count > 0)
@@ -294,6 +302,31 @@ public class CalendarService
     {
         var raw = _settings.GetSetting(SettingKeys.CalendarApprovalTokenHours);
         return int.TryParse(raw, out var h) && h > 0 ? h : 168; // 7 Tage
+    }
+
+    /// <summary>Angenommene Wachendauer, wenn kein Ende hinterlegt ist (Altdaten).</summary>
+    public int GetWatchDefaultHours()
+    {
+        var raw = _settings.GetSetting(SettingKeys.CalendarFireSafetyWatchDefaultHours);
+        return int.TryParse(raw, out var h) && h > 0 ? h : 4;
+    }
+
+    /// <summary>
+    /// Gegenrichtung: Fahrzeuge, die im Zeitraum der geplanten Wache bereits im Kalender
+    /// gebucht sind. Leere Liste = Wache kann angelegt werden.
+    /// </summary>
+    public async Task<List<CalendarConflictInfo>> GetWatchVehicleConflictsAsync(
+        IEnumerable<int> vehicleIds, DateTime start, DateTime end)
+    {
+        var result = new List<CalendarConflictInfo>();
+        foreach (var id in vehicleIds.Distinct())
+        {
+            var vehicle = await _vehicles.GetByIdAsync(id);
+            if (vehicle == null) continue;
+            foreach (var (title, s, e) in await _repo.GetVehicleBookingsAsync(id, start, end))
+                result.Add(new CalendarConflictInfo(CalendarResourceKind.Vehicle, id, vehicle.Name, title, s, e));
+        }
+        return result;
     }
 
     /// <summary>Kryptografisch sicheres Token - bewusst nicht Guid.NewGuid().</summary>

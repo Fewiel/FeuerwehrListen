@@ -19,6 +19,11 @@ namespace FeuerwehrListen.Models
         [Column("EventDateTime"), NotNull]
         public DateTime EventDateTime { get; set; }
 
+        /// <summary>Ende der Wache. Null bei Altdaten - dann gilt die Standarddauer
+        /// aus Calendar.FireSafetyWatchDefaultHours.</summary>
+        [Column("EndDateTime")]
+        public DateTime? EndDateTime { get; set; }
+
         [Column("Status"), NotNull]
         public ListStatus Status { get; set; } = ListStatus.Open;
 

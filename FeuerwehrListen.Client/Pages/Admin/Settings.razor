@@ -37,6 +37,13 @@
                     </small>
                 </div>
                 @Num("Calendar.ApprovalTokenHours", "Gültigkeit der Freigabe-Links (Stunden)", min: 1, max: 8760)
+                <div class="mb-3">
+                    @Num("Calendar.FireSafetyWatchDefaultHours", "Angenommene Dauer alter Brandsicherheitswachen (Stunden)", min: 1, max: 72)
+                    <small class="text-muted">
+                        Gilt nur für Wachen ohne hinterlegtes Ende (vor der Umstellung angelegt).
+                        Bestimmt, wie lange deren Fahrzeuge im Kalender als belegt gelten. Standard: 4.
+                    </small>
+                </div>
             </div></div>
 
             <div class="card mb-4"><div class="card-header"><i class="bi bi-shield-lock me-2"></i>Zugriffsschutz</div><div class="card-body">

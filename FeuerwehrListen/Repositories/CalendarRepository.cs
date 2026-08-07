@@ -107,6 +107,62 @@ public class CalendarRepository
         return rows.Select(x => (x.r, x.e)).ToList();
     }
 
+    /// <summary>
+    /// Belegungen durch Brandsicherheitswachen. Diese liegen in einer eigenen Tabelle und
+    /// haengen ueber die Anforderungen am Fahrzeug - sie tauchen daher NICHT in
+    /// CalendarEventResource auf und muessen getrennt geprueft werden.
+    ///
+    /// Das Ende ist optional; fehlt es (Altdaten), gilt defaultHours ab Beginn. Die
+    /// Ueberschneidung wird im Speicher gerechnet, weil LinqToDB die Datumsarithmetik
+    /// auf Spalten nicht uebersetzen kann.
+    /// </summary>
+    public async Task<List<(string WatchName, DateTime Start, DateTime End)>> GetWatchConflictsAsync(
+        int vehicleId, DateTime start, DateTime end, int defaultHours)
+    {
+        // Vorfilter grosszuegig: Beginn darf bis defaultHours vor dem Zeitfenster liegen.
+        var earliest = start.AddHours(-Math.Max(defaultHours, 24));
+
+        var rows = await (
+            from req in _db.FireSafetyWatchRequirements
+            join w in _db.FireSafetyWatches on req.FireSafetyWatchId equals w.Id
+            where req.VehicleId == vehicleId
+                  && !w.IsArchived
+                  && w.EventDateTime < end
+                  && w.EventDateTime >= earliest
+            select new { w.Name, w.EventDateTime, w.EndDateTime }).ToListAsync();
+
+        var result = new List<(string, DateTime, DateTime)>();
+        foreach (var r in rows.DistinctBy(x => new { x.Name, x.EventDateTime }))
+        {
+            var wEnd = r.EndDateTime ?? r.EventDateTime.AddHours(defaultHours);
+            if (r.EventDateTime < end && wEnd > start)
+                result.Add((r.Name, r.EventDateTime, wEnd));
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Kalenderbuchungen eines Fahrzeugs im Zeitraum - fuer die Gegenrichtung: beim
+    /// Anlegen einer Brandsicherheitswache darf das Fahrzeug nicht schon belegt sein.
+    /// </summary>
+    public async Task<List<(string Title, DateTime Start, DateTime End)>> GetVehicleBookingsAsync(
+        int vehicleId, DateTime start, DateTime end)
+    {
+        var rows = await (
+            from r in _db.CalendarEventResources
+            join e in _db.CalendarEvents on r.CalendarEventId equals e.Id
+            where r.ResourceKind == CalendarResourceKind.Vehicle
+                  && r.ResourceId == vehicleId
+                  && r.Status != CalendarResourceStatus.Abgelehnt
+                  && e.Status != CalendarEventStatus.Storniert
+                  && e.Status != CalendarEventStatus.Abgelehnt
+                  && e.StartTime < end
+                  && e.EndTime > start
+            select new { e.Title, e.StartTime, e.EndTime }).ToListAsync();
+
+        return rows.Select(x => (x.Title, x.StartTime, x.EndTime)).ToList();
+    }
+
     /// <summary>Alle Belegungen im Zeitraum - fuer die Verfuegbarkeitsanzeige im Buchungsdialog.</summary>
     public async Task<List<(CalendarEventResource Resource, CalendarEvent Event)>> GetBookingsInRangeAsync(DateTime rangeStart, DateTime rangeEnd)
     {

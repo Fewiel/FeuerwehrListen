@@ -12,7 +12,14 @@
         <div class="card mt-4"><div class="card-body">
             <div class="mb-3"><label class="form-label">Name / Anlass</label><input class="form-control" @bind="_name" /></div>
             <div class="mb-3"><label class="form-label">Ort</label><input class="form-control" @bind="_location" /></div>
-            <div class="mb-3"><label class="form-label">Datum &amp; Uhrzeit</label><input type="datetime-local" class="form-control" @bind="_eventTime" /></div>
+            <div class="row">
+                <div class="col-md-6 mb-3"><label class="form-label">Beginn</label><input type="datetime-local" class="form-control" @bind="_eventTime" /></div>
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">Ende</label>
+                    <input type="datetime-local" class="form-control" @bind="_eventEndTime" />
+                    <div class="form-text">Bestimmt, wie lange die Fahrzeuge im Kalender belegt sind.</div>
+                </div>
+            </div>
             <hr />
             <h5>Personal- &amp; Fahrzeuganforderungen</h5>
             @foreach (var req in _requirements)
@@ -36,6 +43,18 @@
             <button class="btn btn-secondary mt-2" @onclick="AddRequirement">Anforderung hinzufügen</button>
             <hr />
             @if (_error is not null) { <div class="alert alert-danger">@_error</div> }
+            @if (_conflicts is { Count: > 0 })
+            {
+                <div class="alert alert-warning">
+                    <strong>Bereits gebucht:</strong>
+                    <ul class="mb-0">
+                        @foreach (var c in _conflicts)
+                        {
+                            <li>@c.Resource – „@c.Title" (@c.Start.ToString("dd.MM. HH:mm") – @c.End.ToString("dd.MM. HH:mm"))</li>
+                        }
+                    </ul>
+                </div>
+            }
             <button class="btn btn-primary mt-2" @onclick="Save" disabled="@_saving">Brandsicherheitswache anlegen</button>
         </div></div>
     </div>
@@ -44,12 +63,14 @@
 @code {
     private string _name = "", _location = "";
     private DateTime _eventTime = DateTime.Today.AddHours(8);
+    private DateTime _eventEndTime = DateTime.Today.AddHours(12);
     private List<ReqRow> _requirements = new() { new() };
     private List<FuncDto> _functions = new();
     private List<VehDto> _vehicles = new();
     private int _defaultFuncId;
     private bool _saving;
     private string? _error;
+    private List<ConflictDto>? _conflicts;
 
     protected override async Task OnInitializedAsync()
     {
@@ -68,6 +89,7 @@
     {
         _error = null;
         if (string.IsNullOrWhiteSpace(_name) || string.IsNullOrWhiteSpace(_location)) { _error = "Name und Ort erforderlich."; return; }
+        if (_eventEndTime <= _eventTime) { _error = "Das Ende muss nach dem Beginn liegen."; return; }
         // Keine Funktion gewählt (FunctionDefId = 0) ist erlaubt -> wird als "Trupp" gefuehrt.
         var reqs = _requirements.Where(r => r.Amount > 0)
             .Select(r => new { FunctionDefId = r.FunctionDefId, Amount = r.Amount, VehicleId = string.IsNullOrEmpty(r.VehicleId) ? (int?)null : int.Parse(r.VehicleId) }).ToList();
@@ -75,8 +97,17 @@
         _saving = true;
         try
         {
-            var resp = await Http.PostAsJsonAsync("client-api/admin/firesafetywatches", new { Name = _name, Location = _location, EventTime = _eventTime, Requirements = reqs });
+            var resp = await Http.PostAsJsonAsync("client-api/admin/firesafetywatches",
+                new { Name = _name, Location = _location, EventTime = _eventTime, EventEndTime = _eventEndTime, Requirements = reqs });
             if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized) { _error = "Sitzung abgelaufen – bitte neu anmelden."; return; }
+            if (resp.StatusCode == System.Net.HttpStatusCode.Conflict)
+            {
+                // Ein Fahrzeug ist im Kalender bereits gebucht - Wache wird nicht angelegt.
+                var c = await resp.Content.ReadFromJsonAsync<ConflictResponse>();
+                _conflicts = c?.Conflicts ?? new();
+                _error = "Ein benötigtes Fahrzeug ist in diesem Zeitraum bereits im Kalender gebucht.";
+                return;
+            }
             if (resp.IsSuccessStatusCode) Nav.NavigateTo("/firesafetywatches", forceLoad: true);
             else _error = "Anlegen fehlgeschlagen.";
         }
@@ -85,6 +116,8 @@
     }
 
     private class ReqRow { public int FunctionDefId { get; set; } public int Amount { get; set; } = 1; public string VehicleId { get; set; } = ""; }
+    private record ConflictResponse(string Status, List<ConflictDto>? Conflicts);
+    private record ConflictDto(string Resource, string Title, DateTime Start, DateTime End);
     private record FuncDto(int Id, string Name, bool IsDefault);
     private record VehDto(int Id, string Name, string CallSign, string Type, bool IsActive, DateTime CreatedAt);
 }

@@ -29,6 +29,10 @@ public static class SettingKeys
     /// <summary>Gueltigkeitsdauer eines Freigabe-Links in Stunden (Standard 168 = 7 Tage).</summary>
     public const string CalendarApprovalTokenHours = "Calendar.ApprovalTokenHours";
 
+    /// <summary>Angenommene Dauer einer Brandsicherheitswache ohne hinterlegtes Ende
+    /// (Altdaten). Bestimmt, wie lange deren Fahrzeuge im Kalender belegt sind.</summary>
+    public const string CalendarFireSafetyWatchDefaultHours = "Calendar.FireSafetyWatchDefaultHours";
+
     // --- Zugriffsschutz ---
 
     /// <summary>Hauptschalter: ausserhalb der vertrauenswuerdigen Netze nur noch die

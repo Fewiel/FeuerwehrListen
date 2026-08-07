@@ -1593,11 +1593,24 @@ app.MapPost("/client-api/firesafetywatch/{id:int}/close", async (int id, FireSaf
     return Results.Ok();
 }).RequireAuthorization().DisableAntiforgery();
 
-admin.MapPost("/firesafetywatches", async (FireSafetyWatchRepository repo, VehicleRepository vehicleRepo, FswCreateRequest r) =>
+admin.MapPost("/firesafetywatches", async (FireSafetyWatchRepository repo, VehicleRepository vehicleRepo, CalendarService calendar, FswCreateRequest r) =>
 {
     // Name/Ort ohne Null-Check zu trimmen wuerde bei leerem Body eine 500 werfen statt 400.
     if (string.IsNullOrWhiteSpace(r.Name) || string.IsNullOrWhiteSpace(r.Location)) return Results.BadRequest();
-    var watch = new FireSafetyWatch { Name = r.Name.Trim(), Location = r.Location.Trim(), EventDateTime = r.EventTime, Status = ListStatus.Open };
+
+    // Ende: entweder angegeben oder Standarddauer ab Beginn.
+    var end = r.EventEndTime is DateTime e && e > r.EventTime
+        ? e
+        : r.EventTime.AddHours(calendar.GetWatchDefaultHours());
+
+    var watch = new FireSafetyWatch
+    {
+        Name = r.Name.Trim(),
+        Location = r.Location.Trim(),
+        EventDateTime = r.EventTime,
+        EndDateTime = end,
+        Status = ListStatus.Open
+    };
     // Nur einsatz-taugliche Fahrzeuge zulassen; unbekannte/kalender-only werden zu "ohne Fahrzeug".
     var allowedVehicleIds = (await vehicleRepo.GetForOperationsAsync()).Select(v => v.Id).ToHashSet();
     // Keine Funktion gewaehlt (FunctionDefId = 0) ist erlaubt -> Anzeige faellt auf "Trupp" zurueck.
@@ -1609,6 +1622,22 @@ admin.MapPost("/firesafetywatches", async (FireSafetyWatchRepository repo, Vehic
             VehicleId = x.VehicleId is int vid && allowedVehicleIds.Contains(vid) ? vid : null
         }).ToList();
     if (reqs.Count == 0) return Results.BadRequest();
+
+    // Gegenrichtung: ein im Kalender bereits gebuchtes Fahrzeug blockiert die Wache.
+    var vehicleIds = reqs.Where(x => x.VehicleId.HasValue).Select(x => x.VehicleId!.Value).ToList();
+    if (vehicleIds.Count > 0)
+    {
+        var conflicts = await calendar.GetWatchVehicleConflictsAsync(vehicleIds, r.EventTime, end);
+        if (conflicts.Count > 0)
+        {
+            return Results.Json(new
+            {
+                status = "conflict",
+                conflicts = conflicts.Select(c => new { resource = c.ResourceName, title = c.ConflictTitle, start = c.Start, end = c.End })
+            }, statusCode: StatusCodes.Status409Conflict);
+        }
+    }
+
     await repo.InsertFireSafetyWatchWithRequirements(watch, reqs);
     return Results.Ok();
 });
@@ -1658,8 +1687,9 @@ app.MapGet("/client-api/calendar", async (DateTime? from, DateTime? to,
         });
     }
 
-    // Brandsicherheitswachen werden projiziert, nicht dupliziert. Sie haben nur einen
-    // Beginn (kein Ende) - fuer die Darstellung nehmen wir zwei Stunden an.
+    // Brandsicherheitswachen werden projiziert, nicht dupliziert. Ohne hinterlegtes Ende
+    // (Altdaten) gilt die einstellbare Standarddauer.
+    var watchDefaultHours = svc.GetWatchDefaultHours();
     foreach (var w in await fswRepo.GetInRangeAsync(start, end))
     {
         items.Add(new
@@ -1669,7 +1699,7 @@ app.MapGet("/client-api/calendar", async (DateTime? from, DateTime? to,
             title = w.Name,
             location = w.Location,
             start = w.EventDateTime,
-            end = w.EventDateTime.AddHours(2),
+            end = w.EndDateTime ?? w.EventDateTime.AddHours(watchDefaultHours),
             allDay = false,
             status = w.Status == ListStatus.Open ? "Offen" : "Abgeschlossen",
             requestedBy = (string?)null,
@@ -2210,7 +2240,7 @@ public record MittelReq(string? Name, int Anzahl, string? Dauer, bool IsCustom);
 public record VsReq(string? VehicleName, string? Staerke);
 public record FswRegisterRequest(int RequirementId, string? Code, int? MemberId);
 public record FswReqItem(int FunctionDefId, int Amount, int? VehicleId);
-public record FswCreateRequest(string Name, string Location, DateTime EventTime, List<FswReqItem>? Requirements);
+public record FswCreateRequest(string Name, string Location, DateTime EventTime, List<FswReqItem>? Requirements, DateTime? EventEndTime = null);
 public record DefectReportRequest(string Description, int? VehicleId, string? CustomVehicle, string? ReporterNumber);
 public record DefectStatusRequest(string NewStatus, string? Comment, string? MemberNumber);
 // B4: Nextcloud-Verbindungstest. Alle Felder optional -> null testet die gespeicherten Settings.
