@@ -79,6 +79,12 @@
        iPads (iOS 12-15/Safari) fehlerhaft und macht Links/Navigation kaputt. Alle Links
        machen so eine normale Vollnavigation, zuverlaessig auf allen Geraeten. *@
     <FeuerwehrListen.Client.Routes @rendermode="Mode" />
+    @* Lebenszeichen nur im Server-Modus: ohne Circuit gibt es nichts zu ueberwachen.
+       Die Komponente liegt im Server-Projekt und kann nicht per WASM gerendert werden. *@
+    @if (IsServerMode)
+    {
+        <CircuitHeartbeat @rendermode="@ServerMode" />
+    }
 
     <script src="lib/barcode-detector/polyfill.min.js"></script>
     <script>
@@ -184,6 +190,33 @@
                     } else { location.reload(); }
                 } catch (e) { location.reload(); }
             });
+            // (1b) Stiller Tod: auf iOS 12 reisst das Long-Polling haeufig ab, OHNE dass
+            // Blazor es bemerkt - kein Reconnect-Fenster, die Oberflaeche ist einfach tot.
+            // Deshalb nicht auf Blazors Meinung verlassen, sondern die Lebenszeichen der
+            // CircuitHeartbeat-Komponente pruefen (alle 10 s ein neuer Zeitstempel).
+            // Bleiben sie laenger als 45 s aus und die Seite ist sichtbar -> Circuit tot.
+            var lastSeen = 0, lastAt = 0, reloading = false;
+            setInterval(function () {
+                var el = document.getElementById('fw-heartbeat');
+                if (!el) return;                          // WASM-Modus: nichts zu tun
+                if (document.visibilityState !== 'visible') return;  // im Hintergrund drosselt iOS ohnehin
+                var now = new Date().getTime();
+                var t = parseInt(el.getAttribute('data-t') || '0', 10);
+                if (t !== lastSeen) { lastSeen = t; lastAt = now; return; }
+                if (lastAt === 0) { lastAt = now; return; }
+                if (now - lastAt < 45000 || reloading) return;
+                reloading = true;
+                try {
+                    if (window.Blazor && typeof Blazor.reconnect === 'function') {
+                        var p = Blazor.reconnect();
+                        if (p && typeof p.then === 'function') {
+                            p.then(function (ok) { if (ok === false) location.reload(); else { reloading = false; lastAt = new Date().getTime(); } },
+                                   function () { location.reload(); });
+                        } else { location.reload(); }
+                    } else { location.reload(); }
+                } catch (e) { location.reload(); }
+            }, 5000);
+
             // (2) Scheitert der Reconnect endgueltig (Circuit serverseitig verworfen) -> neu laden.
             var tries = 0;
             (function watch() {
@@ -232,6 +265,8 @@
             return IsOldBrowser(ctx.Request.Headers.UserAgent.ToString()) ? ServerMode : WasmMode;
         }
     }
+
+    private bool IsServerMode => ReferenceEquals(Mode, ServerMode);
 
     // iOS 10-13 (kein .NET-8-WASM) an der UA erkennen.
     private static bool IsOldBrowser(string ua) =>

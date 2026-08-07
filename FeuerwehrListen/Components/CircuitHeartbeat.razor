@@ -1,0 +1,58 @@
+@implements IDisposable
+
+@*
+    Lebenszeichen des SignalR-Circuits.
+
+    Der vorhandene Recovery-Watcher in App.razor greift nur, wenn Blazor den Abbruch
+    selbst bemerkt und sein Reconnect-Fenster einblendet. Auf iOS 12 stirbt das
+    Long-Polling aber haeufig STILL: der Client haelt sich fuer verbunden, es erscheint
+    kein Hinweis, und die Oberflaeche reagiert einfach nicht mehr.
+
+    Diese Komponente schreibt alle paar Sekunden einen Zeitstempel ins DOM. Kommt der
+    nicht mehr an, ist der Circuit tot - unabhaengig davon, was Blazor meint. Den Rest
+    erledigt der Watchdog in App.razor.
+
+    Wird nur im Server-Modus gerendert; ohne Circuit ergibt sie keinen Sinn.
+*@
+<div id="fw-heartbeat" data-t="@_tick" style="display:none"></div>
+
+@code {
+    private System.Threading.Timer? _timer;
+    private long _tick;
+    private bool _disposed;
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (!firstRender || _disposed) return;
+        _timer = new System.Threading.Timer(_ =>
+        {
+            // Bewusst kein async void: Ausnahmen aus einer abgeraeumten Verbindung
+            // wuerden sonst unbeobachtet auf dem Thread-Pool landen.
+            _ = BeatAsync();
+        }, null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+    }
+
+    private async Task BeatAsync()
+    {
+        try
+        {
+            await InvokeAsync(() =>
+            {
+                _tick = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                StateHasChanged();
+            });
+        }
+        catch
+        {
+            // Circuit ist weg - Timer abstellen, weiteres Klopfen waere sinnlos.
+            Dispose();
+        }
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        _timer?.Dispose();
+        _timer = null;
+    }
+}

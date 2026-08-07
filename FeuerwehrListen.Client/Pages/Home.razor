@@ -296,9 +296,20 @@
         // disposed (Nutzer weg-navigiert), keinen Timer starten -> sonst pollt er ewig weiter.
         if (!_disposed)
         {
-            _timer = new System.Threading.Timer(async _ => await InvokeAsync(LoadAsync), null,
-                TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+            // Kein "async _ =>": eine Ausnahme aus einem abgeraeumten Circuit landete
+            // sonst als unbeobachtete Ausnahme auf dem Thread-Pool. Stattdessen fangen
+            // und den Timer abstellen - auf einem toten Circuit ist weiteres Laden sinnlos.
+            _timer = new System.Threading.Timer(_ =>
+            {
+                _ = SafeReloadAsync();
+            }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
         }
+    }
+
+    private async Task SafeReloadAsync()
+    {
+        try { await InvokeAsync(LoadAsync); }
+        catch { _timer?.Dispose(); _timer = null; }
     }
 
     private async Task LoadAsync()
