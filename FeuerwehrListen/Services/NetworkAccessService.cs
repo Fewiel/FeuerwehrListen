@@ -34,6 +34,15 @@ public sealed class NetworkAccessService
     private static readonly string[] AllModules =
         { ModuleAttendance, ModuleOperations, ModuleFireSafety, ModuleDefects, ModuleCalendar };
 
+    /// <summary>
+    /// Sonderprofil "approve": auf diesem Host ist NUR der Freigabe-Weg offen.
+    /// Gedacht fuer eine Subdomain ohne Passwortschutz, deren Link per Mail nach
+    /// draussen geht. Ein leeres Modulprofil reicht dafuer NICHT - Endpunkte wie
+    /// die Mitgliedersuche oder die Anmeldung sind bewusst nicht modulgebunden
+    /// und blieben sonst erreichbar.
+    /// </summary>
+    public const string ProfileApproveOnly = "approve";
+
     // ------------------------------------------------------------------ IP
 
     /// <summary>
@@ -117,11 +126,32 @@ public sealed class NetworkAccessService
             var mods = line[(eq + 1)..]
                 .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Select(x => x.ToLowerInvariant())
-                .Where(x => AllModules.Contains(x))
+                .Where(x => AllModules.Contains(x) || x == ProfileApproveOnly)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
             return mods;
         }
         return null;
+    }
+
+    /// <summary>
+    /// True, wenn fuer diesen Host nur der Freigabe-Weg offen ist.
+    /// Gilt bewusst AUCH fuer angemeldete Benutzer und unabhaengig von
+    /// HostProfilesApplyToLoggedIn: die Subdomain ist oeffentlich erreichbar,
+    /// da darf es keinen Weg an der Beschraenkung vorbei geben.
+    /// </summary>
+    public bool IsApproveOnlyHost(HttpContext ctx)
+    {
+        var profile = GetHostProfile(ctx.Request.Host.Value);
+        return profile != null && profile.Contains(ProfileApproveOnly);
+    }
+
+    /// <summary>Die einzigen Endpunkte, die ein "approve"-Host erreichen darf:
+    /// der Freigabe-Vorgang selbst und der App-Kontext fuer die Kopfzeile.</summary>
+    public static bool IsApproveOnlyAllowedPath(PathString path)
+    {
+        if (!path.HasValue) return false;
+        var p = path.Value!.ToLowerInvariant();
+        return p.StartsWith("/client-api/approve") || p.StartsWith("/client-api/app-context");
     }
 
     /// <summary>Module, die dieser Request tatsaechlich nutzen darf.</summary>

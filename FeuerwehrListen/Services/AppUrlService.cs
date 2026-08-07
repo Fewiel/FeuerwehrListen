@@ -45,8 +45,22 @@ public sealed class AppUrlService
         return string.IsNullOrEmpty(baseUrl) ? "/" + path : $"{baseUrl}/{path}";
     }
 
+    /// <summary>
+    /// Absolute URL fuer Freigabe-Links. Nutzt App.ApproveBaseUrl, wenn gesetzt -
+    /// etwa eine eigene passwortfreie Subdomain -, sonst die normale Basis-URL.
+    /// </summary>
+    public string BuildApproveUrl(string relativePath)
+    {
+        var path = (relativePath ?? string.Empty).TrimStart('/');
+        var special = _settings.GetSetting(SettingKeys.AppApproveBaseUrl);
+        if (!string.IsNullOrWhiteSpace(special))
+            return $"{Normalize(special)}/{path}";
+        return BuildUrl(path);
+    }
+
     /// <summary>True, wenn absolute Links erzeugt werden koennen (sonst kaputte Mail-Links).</summary>
-    public bool HasAbsoluteBase() => !string.IsNullOrEmpty(GetBaseUrl());
+    public bool HasAbsoluteBase() => !string.IsNullOrEmpty(GetBaseUrl())
+        || !string.IsNullOrWhiteSpace(_settings.GetSetting(SettingKeys.AppApproveBaseUrl));
 
     private static string Normalize(string url) => (url ?? string.Empty).Trim().TrimEnd('/');
 }

@@ -52,6 +52,15 @@
                         die interne Adresse und die Links funktionieren für die Empfänger nicht.
                     </small>
                 </div>
+                <div class="mb-3">
+                    <label class="form-label">Abweichende Adresse für Freigabe-Links (optional)</label>
+                    <input class="form-control" placeholder="https://freigabe.example.de"
+                           @bind:get='Get("App.ApproveBaseUrl")' @bind:set='(string v) => Set("App.ApproveBaseUrl", v)' />
+                    <small class="text-muted">
+                        Nur nötig, wenn die Freigabe über eine eigene, passwortfreie Subdomain läuft.
+                        Leer lassen = die Basis-URL oben wird verwendet.
+                    </small>
+                </div>
                 @Num("Calendar.ApprovalTokenHours", "Gültigkeit der Freigabe-Links (Stunden)", min: 1, max: 8760)
                 <div class="mb-3">
                     @Num("Calendar.FireSafetyWatchDefaultHours", "Angenommene Dauer alter Brandsicherheitswachen (Stunden)", min: 1, max: 72)
@@ -114,6 +123,11 @@
                     <small class="text-muted">
                         Ein Eintrag je Zeile: <code>host = modul1, modul2</code>. Hostnamen ohne Profil zeigen alles.
                         Wirkt auch bei direkter Eingabe einer URL – nicht nur im Menü.
+                        <br />
+                        Sonderwert <code>approve</code>: Auf diesem Host ist <strong>ausschließlich</strong> die
+                        Freigabe-Seite erreichbar – auch Mitgliedersuche und Anmeldung sind gesperrt.
+                        Für eine passwortfreie Subdomain, deren Link per Mail nach außen geht.
+                        Gilt auch für angemeldete Benutzer.
                     </small>
                 </div>
                 @Switch("Security.HostProfilesApplyToLoggedIn", "Host-Profile auch für angemeldete Benutzer erzwingen")

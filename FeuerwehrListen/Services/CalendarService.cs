@@ -340,7 +340,7 @@ public class CalendarService
             return false;
         }
 
-        var link = _urls.BuildUrl($"approve/{row.ApprovalToken}");
+        var link = _urls.BuildApproveUrl($"approve/{row.ApprovalToken}");
         if (!_urls.HasAbsoluteBase())
             _logger.LogWarning("App.BaseUrl ist nicht gesetzt - der Freigabe-Link in der Mail ist relativ und damit unbrauchbar.");
 

@@ -26,6 +26,13 @@ public static class SettingKeys
     /// </summary>
     public const string AppBaseUrl = "App.BaseUrl";
 
+    /// <summary>
+    /// Optionale, abweichende Basis-URL fuer Freigabe-Links. Sinnvoll, wenn die
+    /// Freigabe ueber eine eigene, passwortfreie Subdomain laeuft, waehrend die
+    /// Anwendung selbst hinter einem Proxy-Passwort liegt. Leer = App.BaseUrl.
+    /// </summary>
+    public const string AppApproveBaseUrl = "App.ApproveBaseUrl";
+
     /// <summary>Gueltigkeitsdauer eines Freigabe-Links in Stunden (Standard 168 = 7 Tage).</summary>
     public const string CalendarApprovalTokenHours = "Calendar.ApprovalTokenHours";
 

@@ -311,10 +311,26 @@ app.Use(async (ctx, next) =>
     var path = ctx.Request.Path;
     if (path.StartsWithSegments("/client-api"))
     {
+        var access = ctx.RequestServices.GetRequiredService<FeuerwehrListen.Services.NetworkAccessService>();
+
+        // Freigabe-Host: alles ausser dem Freigabe-Vorgang sperren. Bewusst als
+        // Positivliste - eine reine Modulsperre wuerde Mitgliedersuche, Anmeldung
+        // und den QR-Pruefer offen lassen, die nicht modulgebunden sind.
+        if (access.IsApproveOnlyHost(ctx)
+            && !FeuerwehrListen.Services.NetworkAccessService.IsApproveOnlyAllowedPath(path))
+        {
+            ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
+            await ctx.Response.WriteAsJsonAsync(new
+            {
+                error = "approve_only_host",
+                message = "Ueber diese Adresse ist nur die Freigabe erreichbar."
+            });
+            return;
+        }
+
         var module = FeuerwehrListen.Services.NetworkAccessService.ModuleForPath(path);
         if (module != null)
         {
-            var access = ctx.RequestServices.GetRequiredService<FeuerwehrListen.Services.NetworkAccessService>();
             if (!access.GetAllowedModules(ctx).Contains(module))
             {
                 ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
