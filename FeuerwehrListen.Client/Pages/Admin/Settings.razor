@@ -131,10 +131,79 @@
                     </small>
                 </div>
                 @Switch("Security.HostProfilesApplyToLoggedIn", "Host-Profile auch für angemeldete Benutzer erzwingen")
-                <small class="text-muted d-block">
+                <small class="text-muted d-block mb-3">
                     Standard: aus. Damit siehst du als angemeldeter Benutzer auf jeder Subdomain die ganze
                     Anwendung und kannst dich nicht versehentlich aussperren.
+                    Der Sonderwert <code>approve</code> gilt davon unabhängig immer.
                 </small>
+
+                <hr />
+                <h6>Diagnose</h6>
+                <p class="text-muted mb-2" style="font-size:.92rem;">
+                    Zeigt, was die Anwendung bei <strong>diesem</strong> Aufruf tatsächlich sieht.
+                    Ruf die Seite einmal über jede Adresse auf, die du prüfen willst.
+                </p>
+                <button class="btn btn-outline-secondary btn-sm mb-2" @onclick="RunAccessCheck" disabled="@_acBusy">
+                    <i class="bi bi-activity me-1"></i>Zugriff prüfen
+                </button>
+                @if (_ac is not null)
+                {
+                    <div class="table-responsive">
+                        <table class="table table-sm mb-0">
+                            <tbody>
+                                <tr><td>Aufgerufener Host</td><td><code>@_ac.Host</code></td></tr>
+                                <tr>
+                                    <td>Absender laut Verbindung</td>
+                                    <td><code>@_ac.RemoteIp</code></td>
+                                </tr>
+                                <tr>
+                                    <td>X-Forwarded-For</td>
+                                    <td>@(string.IsNullOrWhiteSpace(_ac.ForwardedFor) ? "—" : _ac.ForwardedFor)</td>
+                                </tr>
+                                <tr>
+                                    <td>Proxy erkannt</td>
+                                    <td>
+                                        @if (_ac.ProxyRecognised) { <span class="badge bg-success">ja</span> }
+                                        else { <span class="badge bg-secondary">nein</span> }
+                                        @if (!_ac.ProxyRecognised && !string.IsNullOrWhiteSpace(_ac.ForwardedFor))
+                                        {
+                                            <span class="text-danger ms-2">
+                                                Header kommt an, wird aber nicht ausgewertet – trage
+                                                <code>@_ac.RemoteIp</code> bei „Adressen des Reverse-Proxys“ ein.
+                                            </span>
+                                        }
+                                    </td>
+                                </tr>
+                                <tr><td><strong>Gewertete Client-Adresse</strong></td><td><code>@_ac.ClientIp</code></td></tr>
+                                <tr>
+                                    <td>Gilt als lokales Netz</td>
+                                    <td>
+                                        @if (_ac.IsTrustedNetwork) { <span class="badge bg-success">ja</span> }
+                                        else { <span class="badge bg-warning text-dark">nein</span> }
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>Host-Profil</td>
+                                    <td>
+                                        @if (_ac.ApproveOnlyHost) { <span class="badge bg-danger">nur Freigabe</span> }
+                                        else if (_ac.HostProfileFound) { <text>@string.Join(", ", _ac.HostProfileModules)</text> }
+                                        else { <span class="text-muted">keines – zeigt alles</span> }
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Erlaubte Module</strong></td>
+                                    <td>
+                                        @if (_ac.AllowedModules.Count == 0) { <span class="badge bg-danger">keine</span> }
+                                        else { <text>@string.Join(", ", _ac.AllowedModules)</text> }
+                                    </td>
+                                </tr>
+                                <tr><td>Angemeldet</td><td>@(_ac.Authenticated ? "ja" : "nein")</td></tr>
+                                <tr><td>Als lokal geltende Netze</td><td><small><code>@_ac.ConfiguredTrustedNetworks</code></small></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else if (_acError is not null) { <div class="alert alert-danger py-2 mb-0">@_acError</div> }
             </div></div>
 
             <div class="card mb-4"><div class="card-header"><i class="bi bi-envelope me-2"></i>E-Mail SMTP</div><div class="card-body">
@@ -245,6 +314,26 @@
     private bool _saving, _saved;
     private bool _loadFailed;
     private string? _error;
+
+    // Zugriffsschutz-Diagnose
+    private AccessCheckDto? _ac;
+    private bool _acBusy;
+    private string? _acError;
+
+    private async Task RunAccessCheck()
+    {
+        _acBusy = true; _acError = null;
+        try { _ac = await Http.GetFromJsonAsync<AccessCheckDto>("client-api/admin/access-check"); }
+        catch { _acError = "Prüfung fehlgeschlagen."; _ac = null; }
+        finally { _acBusy = false; }
+    }
+
+    private record AccessCheckDto(
+        string Host, string? RemoteIp, string ForwardedFor, string ForwardedProto,
+        bool ProxyRecognised, string? ClientIp, bool IsTrustedNetwork, bool RestrictExternal,
+        bool HostProfileFound, List<string> HostProfileModules, bool ApproveOnlyHost,
+        List<string> AllowedModules, bool Authenticated,
+        string ConfiguredTrustedProxies, string ConfiguredTrustedNetworks);
 
     // Nextcloud-Test
     private bool _ncTesting;

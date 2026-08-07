@@ -690,6 +690,42 @@ admin.MapPut("/vehicles/{id:int}", async (int id, VehicleRepository repo, Vehicl
     await repo.UpdateAsync(v); return Results.Ok();
 });
 
+// --- Zugriffsschutz-Diagnose ---
+// Zeigt fuer DIESEN Aufruf, was die App tatsaechlich sieht. Gedacht fuer die
+// Einrichtung hinter einem Reverse-Proxy: dort ist die haeufigste Fehlerquelle,
+// dass die Proxy-Adresse nicht stimmt oder der Host-Header nicht durchgereicht wird.
+admin.MapGet("/access-check", (HttpContext http, NetworkAccessService access, SettingsService settings) =>
+{
+    var remote = http.Connection.RemoteIpAddress;
+    var clientIp = access.GetClientIp(http);
+    var host = http.Request.Host.Value ?? "";
+    var profile = access.GetHostProfile(host);
+    var allowed = access.GetAllowedModules(http);
+
+    return Results.Json(new
+    {
+        host,
+        remoteIp = remote?.ToString(),
+        forwardedFor = http.Request.Headers["X-Forwarded-For"].ToString(),
+        forwardedProto = http.Request.Headers["X-Forwarded-Proto"].ToString(),
+        // Wird X-Forwarded-For ueberhaupt beruecksichtigt? Nur wenn der direkte
+        // Absender als Proxy hinterlegt ist.
+        proxyRecognised = remote != null && clientIp != null && !clientIp.Equals(remote),
+        clientIp = clientIp?.ToString(),
+        isTrustedNetwork = access.IsTrustedNetwork(http),
+        restrictExternal = (settings.GetSetting(SettingKeys.SecurityRestrictExternal) ?? "").Equals("true", StringComparison.OrdinalIgnoreCase),
+        hostProfileFound = profile != null,
+        hostProfileModules = profile?.OrderBy(x => x).ToArray() ?? Array.Empty<string>(),
+        approveOnlyHost = access.IsApproveOnlyHost(http),
+        allowedModules = allowed.OrderBy(x => x).ToArray(),
+        authenticated = http.User.Identity?.IsAuthenticated ?? false,
+        configuredTrustedProxies = settings.GetSetting(SettingKeys.SecurityTrustedProxies) ?? "",
+        configuredTrustedNetworks = string.IsNullOrWhiteSpace(settings.GetSetting(SettingKeys.SecurityTrustedNetworks))
+            ? NetworkAccessService.DefaultTrustedNetworks + "  (Standard)"
+            : settings.GetSetting(SettingKeys.SecurityTrustedNetworks)!
+    });
+});
+
 // --- Raeume ---
 admin.MapGet("/rooms", async (RoomRepository repo) =>
     Results.Json((await repo.GetAllAsync()).Select(x => new { id = x.Id, name = x.Name, description = x.Description, capacity = x.Capacity, requiresApproval = x.RequiresApproval, approverEmails = x.ApproverEmails, isActive = x.IsActive, createdAt = x.CreatedAt })));
