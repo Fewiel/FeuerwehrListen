@@ -3,6 +3,7 @@
 @using System.Net.Http.Json
 @inject HttpClient Http
 @inject NavigationManager Nav
+@inject FeuerwehrListen.Client.Services.AppContextService AppCtx
 
 <PageTitle>Kalender</PageTitle>
 
@@ -149,6 +150,22 @@
                         </select>
                     </div>
                     <div class="mb-2"><label class="form-label">Titel / Anlass</label><input class="form-control" @bind="_fTitle" /></div>
+                    @if (_fType == "Dienst")
+                    {
+                        <div class="mb-2">
+                            <label class="form-label">Einheit</label>
+                            <select class="form-select" @bind="_fUnitNumber">
+                                <option value="">Keine Zuordnung</option>
+                                @foreach (var u in _unitLabels)
+                                {
+                                    <option value="@u.Number">@u.Label</option>
+                                }
+                            </select>
+                            <div class="form-text">
+                                Die Anwesenheitsliste wird kurz vor Beginn automatisch für diese Einheit geöffnet.
+                            </div>
+                        </div>
+                    }
                     <div class="row">
                         <div class="col-md-6 mb-2"><label class="form-label">Beginn</label><input type="datetime-local" class="form-control" @bind="_fStart" /></div>
                         <div class="col-md-6 mb-2"><label class="form-label">Ende</label><input type="datetime-local" class="form-control" @bind="_fEnd" /></div>
@@ -266,6 +283,26 @@
                         </div>
                         <div class="mb-2"><label class="form-label">Ort</label><input class="form-control" @bind="_eLocation" /></div>
                         <div class="mb-2"><label class="form-label">Bemerkung</label><input class="form-control" @bind="_eDescription" /></div>
+                        @if (_full?.Type == "Dienst")
+                        {
+                            <div class="mb-2">
+                                <label class="form-label">Einheit</label>
+                                <select class="form-select" @bind="_eUnitNumber">
+                                    <option value="">Keine Zuordnung</option>
+                                    @foreach (var u in _unitLabels)
+                                    {
+                                        <option value="@u.Number">@u.Label</option>
+                                    }
+                                </select>
+                                @if (_full?.AttendanceListId is not null)
+                                {
+                                    <div class="form-text text-warning">
+                                        Die Anwesenheitsliste wurde bereits geöffnet – eine Änderung der Einheit
+                                        wirkt sich darauf nicht mehr aus.
+                                    </div>
+                                }
+                            </div>
+                        }
                         @if (_detail.SeriesId is not null)
                         {
                             <div class="alert alert-info py-2 mb-0">
@@ -425,6 +462,8 @@
 
     private bool _showCreate;
     private string _fType = "Veranstaltung", _fTitle = "", _fLocation = "", _fDescription = "", _fRequestedBy = "", _fEmail = "";
+    private string _fUnitNumber = "";
+    private List<FeuerwehrListen.Client.Models.UnitLabel> _unitLabels = new();
     private DateTime _fStart = DateTime.Now.Date.AddHours(18);
     private DateTime _fEnd = DateTime.Now.Date.AddHours(20);
     private readonly HashSet<int> _fVehicles = new();
@@ -439,7 +478,7 @@
     private EventDetailDto? _full;
     private bool _loadingDetail, _detailBusy, _confirmDelete, _editing;
     private string? _detailError;
-    private string _eTitle = "", _eLocation = "", _eDescription = "";
+    private string _eTitle = "", _eLocation = "", _eDescription = "", _eUnitNumber = "";
     private DateTime _eStart, _eEnd;
 
     // Laufende Nummer, damit ein aelterer Ausblend-Auftrag einen neueren Hinweis nicht loescht.
@@ -496,6 +535,7 @@
         _eDescription = _full?.Description ?? "";
         _eStart = _full?.Start ?? _detail.Start;
         _eEnd = _full?.End ?? _detail.End;
+        _eUnitNumber = _full?.UnitNumber?.ToString() ?? "";
         _detailError = null;
         _editing = true;
     }
@@ -516,7 +556,8 @@
                 Start = _eStart,
                 End = _eEnd,
                 AllDay = false,
-                UnitNumber = (int?)null
+                // Bestehende Einheit mitsenden - sonst wuerde sie beim Speichern geleert.
+                UnitNumber = string.IsNullOrEmpty(_eUnitNumber) ? (int?)null : int.Parse(_eUnitNumber)
             };
             var resp = await Http.PutAsJsonAsync($"client-api/calendar/events/{_detail.Id}", body);
             if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized) { _detailError = "Sitzung abgelaufen – bitte neu anmelden."; return; }
@@ -548,7 +589,12 @@
         finally { _detailBusy = false; _confirmDelete = false; }
     }
 
-    protected override async Task OnInitializedAsync() => await Load();
+    protected override async Task OnInitializedAsync()
+    {
+        // Einheiten-Bezeichnungen kommen aus dem App-Kontext (dort gecacht).
+        try { _unitLabels = (await AppCtx.GetAsync())?.UnitLabels ?? new(); } catch { }
+        await Load();
+    }
 
     private async Task Load()
     {
@@ -642,6 +688,7 @@
     {
         _formError = null; _conflicts = null;
         _fTitle = ""; _fLocation = ""; _fDescription = ""; _fRequestedBy = ""; _fEmail = "";
+        _fUnitNumber = "";
         _fVehicles.Clear(); _fRooms.Clear();
         var day = _selected ?? _serverToday.Date;
         _fStart = day.Date.AddHours(18);
@@ -700,7 +747,7 @@
                 Start = _fStart,
                 End = _fEnd,
                 AllDay = false,
-                UnitNumber = (int?)null,
+                UnitNumber = string.IsNullOrEmpty(_fUnitNumber) ? (int?)null : int.Parse(_fUnitNumber),
                 RequestedBy = _fRequestedBy,
                 RequestedByEmail = _fEmail,
                 VehicleIds = _fVehicles.ToList(),
@@ -749,7 +796,7 @@
     private record MemberChoice(int Id, string Name, string Number);
     private record EventDetailDto(int Id, string Type, string Title, string? Description, string? Location,
         DateTime Start, DateTime End, bool AllDay, string Status, string RequestedBy, string? RequestedByEmail,
-        string? UnitLabel, int? SeriesId, bool IsSeriesException, int? AttendanceListId, DateTime CreatedAt,
-        List<ResourceDto>? Resources);
+        int? UnitNumber, string? UnitLabel, int? SeriesId, bool IsSeriesException, int? AttendanceListId,
+        DateTime CreatedAt, List<ResourceDto>? Resources);
     private record ResourceDto(string Kind, string Name, string Status, string? ApprovedBy, DateTime? ApprovedAt, string? Comment);
 }

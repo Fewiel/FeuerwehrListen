@@ -1955,6 +1955,7 @@ app.MapGet("/client-api/calendar/events/{id:int}", async (int id, CalendarReposi
         status = e.Status.ToString(),
         requestedBy = e.RequestedBy,
         requestedByEmail = e.RequestedByEmail,
+        unitNumber = e.UnitNumber,
         unitLabel = e.UnitNumber is int un ? settings.GetUnitLabel(un) : null,
         seriesId = e.SeriesId,
         isSeriesException = e.IsSeriesException,
