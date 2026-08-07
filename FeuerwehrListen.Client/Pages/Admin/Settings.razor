@@ -84,7 +84,9 @@
                 <h6>Host-Profile</h6>
                 <div class="mb-3">
                     <label class="form-label">Je Hostname sichtbare Module</label>
-                    <textarea class="form-control" rows="4" placeholder="wachen.example.de = firesafety&#10;kalender.example.de = calendar"
+                    @* Zeilenumbruch aus C# heraus setzen - eine HTML-Entitaet im Attribut
+                       wuerde von Razor maskiert und woertlich angezeigt. *@
+                    <textarea class="form-control" rows="4" placeholder="@_hostProfilePlaceholder"
                               @bind:get='Get("Security.HostProfiles")' @bind:set='(string v) => Set("Security.HostProfiles", v)'></textarea>
                     <small class="text-muted">
                         Ein Eintrag je Zeile: <code>host = modul1, modul2</code>. Hostnamen ohne Profil zeigen alles.
@@ -230,6 +232,8 @@
 
     // Muss zu NetworkAccessService.DefaultTrustedNetworks passen (nur Anzeige).
     private const string _defaultNetworks = "127.0.0.1/32, ::1/128, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16";
+
+    private const string _hostProfilePlaceholder = "wachen.example.de = firesafety\nkalender.example.de = calendar";
 
     private string Get(string k) => _s != null && _s.TryGetValue(k, out var v) ? v : "";
     private void Set(string k, string v) { if (_s != null) _s[k] = v ?? ""; _saved = false; _error = null; }

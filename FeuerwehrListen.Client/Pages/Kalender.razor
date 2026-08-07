@@ -92,7 +92,7 @@
     @if (_selected is DateTime sel)
     {
         <div class="card mt-3"><div class="card-body">
-            <h5>@sel.ToString("dddd, dd.MM.yyyy")</h5>
+            <h5>@WeekdayName(sel.DayOfWeek), @sel.ToString("dd.MM.yyyy")</h5>
             @{ var list = ItemsOn(sel); }
             @if (list.Count == 0)
             {
@@ -337,6 +337,19 @@
         "raum" => "Raumbuchung",
         "geplant" => "Geplante Liste",
         _ => "Veranstaltung"
+    };
+
+    // Wochentag und Monat bewusst selbst uebersetzen: die Server-Kultur ist invariant,
+    // "dddd"/"MMMM" liefern dort Englisch.
+    private static string WeekdayName(DayOfWeek d) => d switch
+    {
+        DayOfWeek.Monday => "Montag",
+        DayOfWeek.Tuesday => "Dienstag",
+        DayOfWeek.Wednesday => "Mittwoch",
+        DayOfWeek.Thursday => "Donnerstag",
+        DayOfWeek.Friday => "Freitag",
+        DayOfWeek.Saturday => "Samstag",
+        _ => "Sonntag"
     };
 
     private static string MonthName(int m) => m switch
