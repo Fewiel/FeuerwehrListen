@@ -501,12 +501,15 @@ app.MapGet("/client-api/open-lists", async (
     var calendarItems = new List<ListItemDto>();
     if (allowed.Contains(NetworkAccessService.ModuleCalendar))
     {
-        var from = DateTime.Now;
-        var to = from.AddDays(30);
-        var events = (await calRepo.GetEventsInRangeAsync(from, to))
-            .Where(e => e.EndTime >= from && e.Status != CalendarEventStatus.Abgelehnt)
+        // Nur was HEUTE stattfindet. Die Uebersicht ist die Tagesansicht der Wache -
+        // die Vorausschau gehoert in den Kalender. Mehrtaegige Termine erscheinen an
+        // jedem Tag, an dem sie laufen.
+        var today = DateTime.Now.Date;
+        var tomorrow = today.AddDays(1);
+        var events = (await calRepo.GetEventsInRangeAsync(today, tomorrow))
+            .Where(e => e.Status != CalendarEventStatus.Abgelehnt)
             .OrderBy(e => e.StartTime)
-            .Take(12)
+            .Take(20)
             .ToList();
 
         if (events.Count > 0)
