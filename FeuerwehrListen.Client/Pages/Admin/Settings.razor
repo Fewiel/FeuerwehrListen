@@ -39,6 +39,65 @@
                 @Num("Calendar.ApprovalTokenHours", "Gültigkeit der Freigabe-Links (Stunden)", min: 1, max: 8760)
             </div></div>
 
+            <div class="card mb-4"><div class="card-header"><i class="bi bi-shield-lock me-2"></i>Zugriffsschutz</div><div class="card-body">
+                <p class="text-muted">
+                    Regelt, was von außerhalb des Feuerwehrnetzes erreichbar ist. <strong>Angemeldete Benutzer
+                    sind davon nie betroffen</strong> – du kannst also von unterwegs weiterhin alles nachtragen.
+                    Die Freigabe-Seite <code>/approve/…</code> bleibt immer offen.
+                </p>
+
+                @Switch("Security.RestrictExternal", "Außerhalb der lokalen Netze nur freigegebene Module")
+
+                <div class="mb-3">
+                    <label class="form-label">Lokale Netze (CIDR, kommagetrennt)</label>
+                    <input class="form-control" placeholder="@_defaultNetworks"
+                           @bind:get='Get("Security.TrustedNetworks")' @bind:set='(string v) => Set("Security.TrustedNetworks", v)' />
+                    <small class="text-muted">Leer lassen für den Standard: <code>@_defaultNetworks</code></small>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Adressen des Reverse-Proxys</label>
+                    <input class="form-control" placeholder="127.0.0.1, ::1, 172.18.0.0/16"
+                           @bind:get='Get("Security.TrustedProxies")' @bind:set='(string v) => Set("Security.TrustedProxies", v)' />
+                    <small class="text-muted">
+                        <strong>Wichtig hinter einem Proxy:</strong> Nur von diesen Adressen wird
+                        <code>X-Forwarded-For</code> ausgewertet. Bleibt das Feld leer, sieht die App als Absender
+                        immer den Proxy – die Netz-Schranke würde dann für alle gleich greifen.
+                        Der Header ist frei fälschbar, deshalb wird ihm bewusst nur vom eigenen Proxy geglaubt.
+                        <br />
+                        Läuft der Proxy auf demselben Rechner, trage <code>127.0.0.1</code> <strong>und</strong>
+                        <code>::1</code> ein – Verbindungen über <code>localhost</code> kommen oft als IPv6 an.
+                    </small>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Von extern erlaubte Module</label>
+                    <input class="form-control" placeholder="calendar, firesafety"
+                           @bind:get='Get("Security.ExternalModules")' @bind:set='(string v) => Set("Security.ExternalModules", v)' />
+                    <small class="text-muted">
+                        Mögliche Werte: <code>attendance</code>, <code>operations</code>, <code>firesafety</code>,
+                        <code>defects</code>, <code>calendar</code>. Alles andere ist von außen für Gäste gesperrt.
+                    </small>
+                </div>
+
+                <hr />
+                <h6>Host-Profile</h6>
+                <div class="mb-3">
+                    <label class="form-label">Je Hostname sichtbare Module</label>
+                    <textarea class="form-control" rows="4" placeholder="wachen.example.de = firesafety&#10;kalender.example.de = calendar"
+                              @bind:get='Get("Security.HostProfiles")' @bind:set='(string v) => Set("Security.HostProfiles", v)'></textarea>
+                    <small class="text-muted">
+                        Ein Eintrag je Zeile: <code>host = modul1, modul2</code>. Hostnamen ohne Profil zeigen alles.
+                        Wirkt auch bei direkter Eingabe einer URL – nicht nur im Menü.
+                    </small>
+                </div>
+                @Switch("Security.HostProfilesApplyToLoggedIn", "Host-Profile auch für angemeldete Benutzer erzwingen")
+                <small class="text-muted d-block">
+                    Standard: aus. Damit siehst du als angemeldeter Benutzer auf jeder Subdomain die ganze
+                    Anwendung und kannst dich nicht versehentlich aussperren.
+                </small>
+            </div></div>
+
             <div class="card mb-4"><div class="card-header"><i class="bi bi-envelope me-2"></i>E-Mail SMTP</div><div class="card-body">
                 @Text("Smtp.Host", "SMTP Host")
                 @Num("Smtp.Port", "SMTP Port", min: 1, max: 65535)
@@ -168,6 +227,9 @@
             Set("Nextcloud.BasePath", "/Feuerwehr Billerbeck/Einsatzbilder");
         _saved = false; _error = null;
     }
+
+    // Muss zu NetworkAccessService.DefaultTrustedNetworks passen (nur Anzeige).
+    private const string _defaultNetworks = "127.0.0.1/32, ::1/128, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16";
 
     private string Get(string k) => _s != null && _s.TryGetValue(k, out var v) ? v : "";
     private void Set(string k, string v) { if (_s != null) _s[k] = v ?? ""; _saved = false; _error = null; }

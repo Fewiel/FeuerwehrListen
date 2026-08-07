@@ -29,6 +29,29 @@ public static class SettingKeys
     /// <summary>Gueltigkeitsdauer eines Freigabe-Links in Stunden (Standard 168 = 7 Tage).</summary>
     public const string CalendarApprovalTokenHours = "Calendar.ApprovalTokenHours";
 
+    // --- Zugriffsschutz ---
+
+    /// <summary>Hauptschalter: ausserhalb der vertrauenswuerdigen Netze nur noch die
+    /// freigegebenen Module fuer nicht angemeldete Besucher.</summary>
+    public const string SecurityRestrictExternal = "Security.RestrictExternal";
+
+    /// <summary>Als "lokal" geltende Netze in CIDR-Schreibweise, kommagetrennt.</summary>
+    public const string SecurityTrustedNetworks = "Security.TrustedNetworks";
+
+    /// <summary>IPs/Netze des eigenen Reverse-Proxys. NUR von diesen wird
+    /// X-Forwarded-For ausgewertet - sonst waere die Netz-Schranke faelschbar.</summary>
+    public const string SecurityTrustedProxies = "Security.TrustedProxies";
+
+    /// <summary>Module, die auch von extern ohne Login nutzbar bleiben.</summary>
+    public const string SecurityExternalModules = "Security.ExternalModules";
+
+    /// <summary>Host-Profile, ein Eintrag je Zeile: "host = modul1, modul2".</summary>
+    public const string SecurityHostProfiles = "Security.HostProfiles";
+
+    /// <summary>Host-Profile auch fuer angemeldete Benutzer erzwingen (Standard: nein,
+    /// damit man sich nicht selbst aussperrt).</summary>
+    public const string SecurityHostProfilesApplyToLoggedIn = "Security.HostProfilesApplyToLoggedIn";
+
     /// <summary>Empfänger für Einsatz-Feedback (eine oder mehrere Adressen).</summary>
     public const string NotificationFeedbackRecipients = "Notifications.FeedbackRecipients";
 

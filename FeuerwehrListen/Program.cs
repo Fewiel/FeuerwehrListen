@@ -182,6 +182,7 @@ builder.Services.AddHttpContextAccessor();
 // InteractiveServer).
 builder.Services.AddSingleton<FeuerwehrListen.Services.AppBaseUrlProvider>();
 builder.Services.AddSingleton<FeuerwehrListen.Services.AppUrlService>();
+builder.Services.AddSingleton<FeuerwehrListen.Services.NetworkAccessService>();
 builder.Services.AddSingleton<FeuerwehrListen.Services.InternalAuthSecret>();
 builder.Services.AddScoped<HttpClient>(sp =>
 {
@@ -301,6 +302,35 @@ app.Use(async (ctx, next) =>
 
 app.UseAuthorization();
 
+// Zugriffsschranke: Host-Profile (z. B. wachen.example.de zeigt nur Wachen) und die
+// Netz-Schranke (ausserhalb der lokalen Netze nur freigegebene Module fuer Gaeste).
+// Bewusst NACH der Authentifizierung, damit angemeldete Benutzer erkannt werden.
+// /client-api/approve bleibt immer offen - der Link geht per Mail nach draussen.
+app.Use(async (ctx, next) =>
+{
+    var path = ctx.Request.Path;
+    if (path.StartsWithSegments("/client-api"))
+    {
+        var module = FeuerwehrListen.Services.NetworkAccessService.ModuleForPath(path);
+        if (module != null)
+        {
+            var access = ctx.RequestServices.GetRequiredService<FeuerwehrListen.Services.NetworkAccessService>();
+            if (!access.GetAllowedModules(ctx).Contains(module))
+            {
+                ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
+                await ctx.Response.WriteAsJsonAsync(new
+                {
+                    error = "module_blocked",
+                    module,
+                    message = "Dieser Bereich ist von hier aus nicht verfuegbar. Bitte im Feuerwehrnetz oeffnen oder anmelden."
+                });
+                return;
+            }
+        }
+    }
+    await next();
+});
+
 app.UseMiddleware<ApiKeyAuthMiddleware>();
 
 app.UseAntiforgery();
@@ -323,47 +353,56 @@ app.MapGet("/token", (HttpContext ctx, DownloadTokenService tokenSvc, string pat
 // BEWUSST getrennt von der externen /api (X-API-Key) - die bleibt voellig unveraendert;
 // "/client-api" matcht die ApiKey-Middleware (StartsWithSegments "/api") nicht.
 app.MapGet("/client-api/open-lists", async (
+    HttpContext http,
     AttendanceListRepository attRepo,
     OperationListRepository opRepo,
     FireSafetyWatchRepository fswRepo,
     DefectRepository defectRepo,
+    NetworkAccessService access,
     SettingsService settings) =>
 {
-    var operations = (await opRepo.GetOpenAsync())
-        .OrderByDescending(x => x.AlertTime)
-        .Select(o => new
-        {
-            id = o.Id,
-            title = string.IsNullOrWhiteSpace(o.Keyword) ? o.OperationNumber : o.Keyword,
-            sub = o.Address ?? "",
-            time = o.AlertTime,
-            href = $"/operation/{o.Id}"
-        });
+    // Nach den erlaubten Modulen filtern - sonst wuerden von aussen Titel und Zeiten
+    // gesperrter Listen auf der Startseite auftauchen.
+    var allowed = access.GetAllowedModules(http);
 
-    var attendance = (await attRepo.GetOpenAsync())
-        .OrderByDescending(x => x.CreatedAt)
-        .Select(a => new
-        {
-            id = a.Id,
-            title = a.Title,
-            sub = a.UnitNumber.HasValue ? settings.GetUnitLabel(a.UnitNumber.Value) : a.Unit,
-            time = a.CreatedAt,
-            href = $"/attendance/{a.Id}"
-        });
+    var operations = allowed.Contains(NetworkAccessService.ModuleOperations)
+        ? (await opRepo.GetOpenAsync())
+            .OrderByDescending(x => x.AlertTime)
+            .Select(o => new ListItemDto(
+                o.Id,
+                string.IsNullOrWhiteSpace(o.Keyword) ? o.OperationNumber : o.Keyword,
+                o.Address ?? "",
+                o.AlertTime,
+                $"/operation/{o.Id}"))
+            .ToList()
+        : new List<ListItemDto>();
 
-    var watches = (await fswRepo.GetAllAsync())
-        .Where(w => !w.IsArchived && w.Status == FeuerwehrListen.Models.ListStatus.Open && w.EventDateTime >= DateTime.Now)
-        .OrderBy(w => w.EventDateTime)
-        .Select(w => new
-        {
-            id = w.Id,
-            title = w.Name,
-            sub = w.Location ?? "",
-            time = w.EventDateTime,
-            href = $"/firesafetywatches/{w.Id}"
-        });
+    var attendance = allowed.Contains(NetworkAccessService.ModuleAttendance)
+        ? (await attRepo.GetOpenAsync())
+            .OrderByDescending(x => x.CreatedAt)
+            .Select(a => new ListItemDto(
+                a.Id,
+                a.Title,
+                a.UnitNumber.HasValue ? settings.GetUnitLabel(a.UnitNumber.Value) : a.Unit,
+                a.CreatedAt,
+                $"/attendance/{a.Id}"))
+            .ToList()
+        : new List<ListItemDto>();
 
-    var openDefects = settings.IsModuleVisible(SettingKeys.VisibilityDefects)
+    var watches = allowed.Contains(NetworkAccessService.ModuleFireSafety)
+        ? (await fswRepo.GetAllAsync())
+            .Where(w => !w.IsArchived && w.Status == FeuerwehrListen.Models.ListStatus.Open && w.EventDateTime >= DateTime.Now)
+            .OrderBy(w => w.EventDateTime)
+            .Select(w => new ListItemDto(
+                w.Id,
+                w.Name,
+                w.Location ?? "",
+                w.EventDateTime,
+                $"/firesafetywatches/{w.Id}"))
+            .ToList()
+        : new List<ListItemDto>();
+
+    var openDefects = allowed.Contains(NetworkAccessService.ModuleDefects)
         ? await defectRepo.GetCountAsync(DefectStatus.Open) + await defectRepo.GetCountAsync(DefectStatus.InProgress)
         : 0;
 
@@ -378,24 +417,27 @@ app.MapGet("/client-api/open-lists", async (
 });
 
 // Layout-/Navigations-Kontext fuer den WASM-Client (Modul-Sichtbarkeit + Branding).
-app.MapGet("/client-api/app-context", (SettingsService settings) =>
+app.MapGet("/client-api/app-context", (HttpContext http, SettingsService settings, NetworkAccessService access) =>
 {
     string? branding(string key)
     {
         var v = settings.GetSetting(key);
         return string.IsNullOrWhiteSpace(v) ? null : v;
     }
+    // Die effektiv erlaubten Module melden (Host-Profil + Netz-Schranke), damit die
+    // Oberflaeche nichts anbietet, was der Server anschliessend mit 403 ablehnt.
+    var allowed = access.GetAllowedModules(http);
     return Results.Json(new
     {
         appName = branding(SettingKeys.BrandingAppName) ?? "Feuerwehr Listen",
         logoUrl = branding(SettingKeys.BrandingLogoUrl),
         modules = new
         {
-            attendance = settings.IsModuleVisible(SettingKeys.VisibilityAttendance),
-            operations = settings.IsModuleVisible(SettingKeys.VisibilityOperations),
-            fireSafety = settings.IsModuleVisible(SettingKeys.VisibilityFireSafetyWatch),
-            defects = settings.IsModuleVisible(SettingKeys.VisibilityDefects),
-            calendar = settings.IsModuleVisible(SettingKeys.VisibilityCalendar)
+            attendance = allowed.Contains(NetworkAccessService.ModuleAttendance),
+            operations = allowed.Contains(NetworkAccessService.ModuleOperations),
+            fireSafety = allowed.Contains(NetworkAccessService.ModuleFireSafety),
+            defects = allowed.Contains(NetworkAccessService.ModuleDefects),
+            calendar = allowed.Contains(NetworkAccessService.ModuleCalendar)
         },
         unitLabels = Enumerable.Range(1, 9).Select(i => new { number = i, label = settings.GetUnitLabel(i) })
     });
@@ -2127,6 +2169,8 @@ public record VehicleReq(string Name, string CallSign, string Type, bool IsActiv
     bool ShowInOperations = true, bool IsBookable = true, bool RequiresApproval = false, string? ApproverEmails = null);
 public record KeywordReq(string Name, string? Description);
 public record RoomReq(string Name, string? Description, int? Capacity, bool RequiresApproval, string? ApproverEmails, bool IsActive = true);
+/// <summary>Eintrag fuer /client-api/open-lists - passt zu Client/Models/ListItem.</summary>
+public record ListItemDto(int Id, string Title, string? Sub, DateTime Time, string Href);
 public record CalendarEventRequest(
     string? Type, string? Title, string? Description, string? Location,
     DateTime Start, DateTime End, bool AllDay, int? UnitNumber,

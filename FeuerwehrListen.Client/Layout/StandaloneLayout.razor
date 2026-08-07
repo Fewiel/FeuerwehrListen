@@ -1,0 +1,61 @@
+@inherits LayoutComponentBase
+@inject HttpClient Http
+
+@* Layout ohne Navigation - fuer Seiten, die per Link von aussen aufgerufen werden
+   (Freigabe-Links). Bewusst keine Menuepunkte, damit der Empfaenger nicht in die
+   uebrige Anwendung navigiert. *@
+
+<div class="standalone-wrap">
+    <div class="standalone-head">
+        @if (!string.IsNullOrWhiteSpace(_logoUrl))
+        {
+            <img src="@_logoUrl" alt="" class="standalone-logo" />
+        }
+        <span>@(_appName ?? "Feuerwehr Listen")</span>
+    </div>
+
+    @Body
+</div>
+
+<style>
+    .standalone-wrap {
+        min-height: 100vh;
+        background-color: #f5f5f5;
+    }
+    .standalone-head {
+        background-color: #b32020;
+        color: #fff;
+        padding-top: 12px;
+        padding-bottom: 12px;
+        padding-left: 16px;
+        padding-right: 16px;
+        font-size: 1.15rem;
+        font-weight: 600;
+    }
+    /* Longhand statt inset/gap - aeltere Safari-Versionen kennen die Kurzformen nicht. */
+    .standalone-logo {
+        height: 28px;
+        width: auto;
+        vertical-align: middle;
+        margin-right: 8px;
+    }
+</style>
+
+@code {
+    private string? _appName;
+    private string? _logoUrl;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // App-Kontext ist anonym erreichbar; schlaegt er fehl, bleibt der Standardtitel.
+        try
+        {
+            var ctx = await Http.GetFromJsonAsync<CtxDto>("client-api/app-context");
+            _appName = ctx?.AppName;
+            _logoUrl = ctx?.LogoUrl;
+        }
+        catch { }
+    }
+
+    private record CtxDto(string AppName, string? LogoUrl);
+}
