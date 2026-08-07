@@ -19,10 +19,31 @@ namespace FeuerwehrListen.Services;
 public sealed class NetworkAccessService
 {
     private readonly SettingsService _settings;
+    private readonly InternalAuthSecret _secret;
 
-    public NetworkAccessService(SettingsService settings)
+    public NetworkAccessService(SettingsService settings, InternalAuthSecret secret)
     {
         _settings = settings;
+        _secret = secret;
+    }
+
+    /// <summary>
+    /// Der Host, den der Nutzer tatsaechlich aufgerufen hat.
+    ///
+    /// Im Blazor-Server-Modus (Alt-Geraete) ruft der Server seine eigenen Endpunkte auf.
+    /// Der Host-Header dieses Self-Calls ist dann eine technische Zieladresse und nicht
+    /// die Adresse des Nutzers. Der echte Host kommt deshalb als X-Fw-Host mit - dem
+    /// wird nur geglaubt, wenn der Aufruf das prozess-geheime X-Fw-Internal traegt.
+    /// </summary>
+    public string GetEffectiveHost(HttpContext ctx)
+    {
+        var internalHeader = ctx.Request.Headers["X-Fw-Internal"].ToString();
+        if (!string.IsNullOrEmpty(internalHeader) && internalHeader == _secret.Value)
+        {
+            var forwarded = ctx.Request.Headers["X-Fw-Host"].ToString();
+            if (!string.IsNullOrWhiteSpace(forwarded)) return forwarded;
+        }
+        return ctx.Request.Host.Value ?? string.Empty;
     }
 
     public const string ModuleAttendance = "attendance";
@@ -141,7 +162,7 @@ public sealed class NetworkAccessService
     /// </summary>
     public bool IsApproveOnlyHost(HttpContext ctx)
     {
-        var profile = GetHostProfile(ctx.Request.Host.Value);
+        var profile = GetHostProfile(GetEffectiveHost(ctx));
         return profile != null && profile.Contains(ProfileApproveOnly);
     }
 
@@ -161,7 +182,7 @@ public sealed class NetworkAccessService
         var allowed = GloballyEnabled();
 
         // 1. Host-Profil
-        var profile = GetHostProfile(ctx.Request.Host.Value);
+        var profile = GetHostProfile(GetEffectiveHost(ctx));
         if (profile != null)
         {
             var applyToLoggedIn = IsTrue(_settings.GetSetting(SettingKeys.SecurityHostProfilesApplyToLoggedIn));

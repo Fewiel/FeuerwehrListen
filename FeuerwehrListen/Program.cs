@@ -191,13 +191,50 @@ builder.Services.AddScoped<HttpClient>(sp =>
     var authState = sp.GetRequiredService<AuthenticationStateProvider>();
     var secret = sp.GetRequiredService<FeuerwehrListen.Services.InternalAuthSecret>();
     var ctx = accessor.HttpContext;
-    // BaseAddress zuerst aus dem HttpContext (Prerender), sonst aus dem beim ersten Request
-    // erfassten Provider (gilt auch waehrend des Circuits, wo kein HttpContext existiert).
-    var baseUrl = ctx != null ? $"{ctx.Request.Scheme}://{ctx.Request.Host}" : baseProvider.BaseUrl;
+    // BaseAddress bestimmen. Reihenfolge ist wichtig:
+    // 1. HttpContext (Prerender und normale Requests) - der echte Host des Nutzers.
+    // 2. NavigationManager: im Blazor-Server-Circuit gibt es keinen HttpContext, wohl
+    //    aber die tatsaechlich aufgerufene Adresse des Nutzers.
+    // 3. Erst zuletzt der prozessweite Provider.
+    //
+    // Punkt 2 ist nicht bloss Kosmetik: der Provider haelt den Host des ALLERERSTEN
+    // Requests nach dem Start. Ohne ihn trugen alle Self-Calls im Server-Modus
+    // (Alt-Geraete) diesen fremden Host - und damit griff dessen Host-Profil fuer
+    // jeden Server-Modus-Nutzer, unabhaengig davon, welche Adresse er aufgerufen hat.
+    string? baseUrl = null;
+    if (ctx != null)
+    {
+        baseUrl = $"{ctx.Request.Scheme}://{ctx.Request.Host}";
+    }
+    else
+    {
+        try
+        {
+            var nav = sp.GetService<Microsoft.AspNetCore.Components.NavigationManager>();
+            if (nav != null && !string.IsNullOrEmpty(nav.BaseUri)) baseUrl = nav.BaseUri.TrimEnd('/');
+        }
+        catch { /* ausserhalb eines Circuits nicht verfuegbar */ }
+    }
+    if (string.IsNullOrEmpty(baseUrl)) baseUrl = baseProvider.BaseUrl;
+
+    // Echten Nutzer-Host merken. Er wandert als X-Fw-Host mit dem Self-Call mit, damit
+    // Host-Profile auch im Server-Modus fuer den richtigen Host ausgewertet werden -
+    // unabhaengig davon, welche Zieladresse der Self-Call technisch verwendet.
+    string? originHost = ctx?.Request.Host.Value;
+    if (string.IsNullOrEmpty(originHost) && !string.IsNullOrEmpty(baseUrl)
+        && Uri.TryCreate(baseUrl, UriKind.Absolute, out var ouri))
+        originHost = ouri.IsDefaultPort ? ouri.Host : $"{ouri.Host}:{ouri.Port}";
+
+    // Ist eine interne Adresse hinterlegt, laufen Self-Calls DARUEBER statt ueber die
+    // oeffentliche Adresse. Wichtig hinter einem Reverse-Proxy mit Passwortschutz:
+    // sonst ruft der Server sich selbst von aussen auf und scheitert an dessen Anmeldung.
+    // Der echte Nutzer-Host bleibt in originHost erhalten.
+    var internalBase = sp.GetRequiredService<SettingsService>().GetSetting(SettingKeys.AppInternalBaseUrl);
+    if (!string.IsNullOrWhiteSpace(internalBase)) baseUrl = internalBase.Trim().TrimEnd('/');
     // Eigenen Host fuer die Zertifikatspruefung merken (s. u.).
     string? ownHost = null;
     if (!string.IsNullOrEmpty(baseUrl) && Uri.TryCreate(baseUrl, UriKind.Absolute, out var buri)) ownHost = buri.Host;
-    var handler = new FeuerwehrListen.Services.SelfCookieHandler(accessor, authState, secret, baseProvider)
+    var handler = new FeuerwehrListen.Services.SelfCookieHandler(accessor, authState, secret, baseProvider, originHost, baseUrl)
     {
         InnerHandler = new HttpClientHandler
         {
@@ -289,13 +326,21 @@ app.Use(async (ctx, next) =>
                 System.Text.Encoding.UTF8.GetBytes(sec.ToString()),
                 System.Text.Encoding.UTF8.GetBytes(ctx.RequestServices.GetRequiredService<FeuerwehrListen.Services.InternalAuthSecret>().Value)))
     {
-        var claims = new List<System.Security.Claims.Claim>
+        // NUR mit Benutzernamen eine Identity bauen. Ein ClaimsIdentity mit gesetztem
+        // authenticationType gilt sonst auch ohne Namen als angemeldet - und weil das
+        // interne Kennzeichen bei JEDEM Self-Call mitgeht (auch fuer Gaeste), waeren
+        // damit Netz-Schranke und Host-Profile ausgehebelt.
+        var internalUser = ctx.Request.Headers["X-Fw-User"].ToString();
+        if (!string.IsNullOrWhiteSpace(internalUser))
         {
-            new(System.Security.Claims.ClaimTypes.Name, ctx.Request.Headers["X-Fw-User"].ToString())
-        };
-        foreach (var r in ctx.Request.Headers["X-Fw-Role"].ToString().Split(',', StringSplitOptions.RemoveEmptyEntries))
-            claims.Add(new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Role, r.Trim()));
-        ctx.User = new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity(claims, "FwInternal"));
+            var claims = new List<System.Security.Claims.Claim>
+            {
+                new(System.Security.Claims.ClaimTypes.Name, internalUser)
+            };
+            foreach (var r in ctx.Request.Headers["X-Fw-Role"].ToString().Split(',', StringSplitOptions.RemoveEmptyEntries))
+                claims.Add(new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Role, r.Trim()));
+            ctx.User = new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity(claims, "FwInternal"));
+        }
     }
     await next();
 });

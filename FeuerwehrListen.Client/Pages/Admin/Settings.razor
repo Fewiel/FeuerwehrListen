@@ -53,6 +53,19 @@
                     </small>
                 </div>
                 <div class="mb-3">
+                    <label class="form-label">Interne Adresse der Anwendung (optional)</label>
+                    <input class="form-control" placeholder="https://127.0.0.1:8090"
+                           @bind:get='Get("App.InternalBaseUrl")' @bind:set='(string v) => Set("App.InternalBaseUrl", v)' />
+                    <small class="text-muted">
+                        <strong>Wichtig hinter einem Proxy mit Passwortschutz.</strong> Auf alten Geräten
+                        (iOS 12) läuft die Anwendung im Server-Modus und ruft ihre eigenen Schnittstellen auf.
+                        Ohne diesen Wert nimmt sie dafür die öffentliche Adresse – der Aufruf geht dann nach
+                        außen durch den Proxy und scheitert an dessen Anmeldung. Ergebnis: leere Listen,
+                        Anmeldung schlägt fehl. Trage hier die Adresse ein, unter der die Anwendung sich
+                        selbst direkt erreicht.
+                    </small>
+                </div>
+                <div class="mb-3">
                     <label class="form-label">Abweichende Adresse für Freigabe-Links (optional)</label>
                     <input class="form-control" placeholder="https://freigabe.example.de"
                            @bind:get='Get("App.ApproveBaseUrl")' @bind:set='(string v) => Set("App.ApproveBaseUrl", v)' />

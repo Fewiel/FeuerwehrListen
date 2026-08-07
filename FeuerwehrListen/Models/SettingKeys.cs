@@ -33,6 +33,14 @@ public static class SettingKeys
     /// </summary>
     public const string AppApproveBaseUrl = "App.ApproveBaseUrl";
 
+    /// <summary>
+    /// Interne Adresse, unter der die Anwendung sich SELBST erreicht (z. B.
+    /// https://127.0.0.1:8090). Nur fuer den Blazor-Server-Modus relevant: dort ruft der
+    /// Server seine eigenen Endpunkte auf. Ohne diesen Wert nimmt er die oeffentliche
+    /// Adresse - und laeuft damit hinter einem Reverse-Proxy in dessen Passwortschutz.
+    /// </summary>
+    public const string AppInternalBaseUrl = "App.InternalBaseUrl";
+
     /// <summary>Gueltigkeitsdauer eines Freigabe-Links in Stunden (Standard 168 = 7 Tage).</summary>
     public const string CalendarApprovalTokenHours = "Calendar.ApprovalTokenHours";
 

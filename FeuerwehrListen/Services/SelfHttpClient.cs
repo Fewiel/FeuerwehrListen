@@ -35,13 +35,21 @@ public sealed class SelfCookieHandler : DelegatingHandler
     private readonly AuthenticationStateProvider _auth;
     private readonly InternalAuthSecret _secret;
     private readonly AppBaseUrlProvider _baseUrl;
+    private readonly string? _originHost;
+    private readonly Uri? _selfBase;
 
-    public SelfCookieHandler(IHttpContextAccessor accessor, AuthenticationStateProvider auth, InternalAuthSecret secret, AppBaseUrlProvider baseUrl)
+    /// <param name="originHost">Host, den der Nutzer tatsaechlich aufgerufen hat. Wird als
+    /// X-Fw-Host mitgegeben, damit host-abhaengige Regeln (Host-Profile) auch dann greifen,
+    /// wenn der Self-Call aus technischen Gruenden eine andere Zieladresse verwendet.</param>
+    public SelfCookieHandler(IHttpContextAccessor accessor, AuthenticationStateProvider auth, InternalAuthSecret secret, AppBaseUrlProvider baseUrl, string? originHost = null, string? selfBaseUrl = null)
     {
         _accessor = accessor;
         _auth = auth;
         _secret = secret;
         _baseUrl = baseUrl;
+        _originHost = originHost;
+        if (!string.IsNullOrWhiteSpace(selfBaseUrl) && Uri.TryCreate(selfBaseUrl, UriKind.Absolute, out var u))
+            _selfBase = u;
     }
 
     /// <summary>Prueft, ob das Request-Ziel der eigene Host (Host+Port) ist. Nur dann duerfen
@@ -51,7 +59,14 @@ public sealed class SelfCookieHandler : DelegatingHandler
     private bool IsSelfHost(Uri? target)
     {
         if (target == null) return false;
-        // Eigenen Host bestimmen: bevorzugt aus dem aktuellen HttpContext (Prerender),
+        // Ist eine eigene Ziel-Basis gesetzt (z. B. die interne Adresse hinter einem
+        // Proxy), gilt genau die als "eigener Host" - der Host-Header des Nutzers ist
+        // dann bewusst ein anderer.
+        if (_selfBase != null
+            && string.Equals(target.Host, _selfBase.Host, StringComparison.OrdinalIgnoreCase)
+            && target.Port == _selfBase.Port)
+            return true;
+        // Sonst: bevorzugt aus dem aktuellen HttpContext (Prerender),
         // sonst aus der beim ersten Request erfassten BaseUrl (gilt auch im Circuit).
         var ctx = _accessor.HttpContext;
         string? ownHost = null; int ownPort = -1; string? ownScheme = null;
@@ -86,6 +101,15 @@ public sealed class SelfCookieHandler : DelegatingHandler
         if (!IsSelfHost(request.RequestUri))
             return await base.SendAsync(request, cancellationToken);
 
+        // Das prozess-geheime X-Fw-Internal wird bei JEDEM Self-Call gesetzt - auch beim
+        // Prerender und auch fuer nicht angemeldete Besucher. Daran erkennt der Server
+        // einen echten Self-Call und darf dem mitgeschickten X-Fw-Host vertrauen; nur so
+        // greifen Host-Profile auch dann, wenn der Aufruf technisch an eine interne
+        // Adresse geht.
+        request.Headers.TryAddWithoutValidation("X-Fw-Internal", _secret.Value);
+        if (!string.IsNullOrEmpty(_originHost))
+            request.Headers.TryAddWithoutValidation("X-Fw-Host", _originHost);
+
         var ctx = _accessor.HttpContext;
         if (ctx != null)
         {
@@ -94,7 +118,7 @@ public sealed class SelfCookieHandler : DelegatingHandler
         }
         else
         {
-            // Circuit: angemeldeten Nutzer per internem Header weiterreichen.
+            // Circuit: kein HttpContext - Identitaet per Header weiterreichen.
             try
             {
                 var user = (await _auth.GetAuthenticationStateAsync()).User;
@@ -102,7 +126,6 @@ public sealed class SelfCookieHandler : DelegatingHandler
                     .Concat(user.FindAll("role").Select(c => c.Value)));
                 if (user.Identity?.IsAuthenticated == true)
                 {
-                    request.Headers.TryAddWithoutValidation("X-Fw-Internal", _secret.Value);
                     request.Headers.TryAddWithoutValidation("X-Fw-User", user.Identity.Name ?? "");
                     request.Headers.TryAddWithoutValidation("X-Fw-Role", roleList);
                 }
