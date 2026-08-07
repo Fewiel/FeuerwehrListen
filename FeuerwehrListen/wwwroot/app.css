@@ -138,7 +138,10 @@ main { flex: 1; background: var(--tw-bg); }
     display: none; background: transparent; border: none; color: #fff; cursor: pointer;
     padding: 8px; margin-left: auto; font-size: 1.5rem; line-height: 1;
 }
-.tw-backdrop { position: fixed; top: 0; right: 0; bottom: 0; left: 0; inset: 0; background: rgba(21,25,30,.4); z-index: 1035; }
+/* cursor:pointer ist auf iOS-Safari PFLICHT: auf einem nackten <div> feuert dort sonst
+   kein Klick-Ereignis - das Menue liess sich auf iOS 12 nicht mehr schliessen. */
+.tw-backdrop { position: fixed; top: 0; right: 0; bottom: 0; left: 0; inset: 0; background: rgba(21,25,30,.4); z-index: 1035; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.fb-backdrop { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .tw-mobile-menu {
     position: fixed; top: 0; right: 0; height: 100%; width: min(320px, 86vw);
     background: var(--tw-surface); z-index: 1045; box-shadow: -8px 0 30px rgba(21,25,30,.16);

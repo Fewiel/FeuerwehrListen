@@ -6,6 +6,8 @@ public record OpenListsResponse(
     List<ListItem> Operations,
     List<ListItem> Attendance,
     List<ListItem> Watches,
-    int OpenDefects);
+    int OpenDefects,
+    List<ListItem>? Calendar = null);
 
-public record ListItem(int Id, string Title, string? Sub, DateTime Time, string Href);
+/// <summary>Vehicles enthaelt zugeordnete Fahrzeuge bzw. Raeume, sofern vorhanden.</summary>
+public record ListItem(int Id, string Title, string? Sub, DateTime Time, string Href, List<string>? Vehicles = null);

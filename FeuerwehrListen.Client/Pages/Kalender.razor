@@ -103,7 +103,9 @@
                 <ul class="list-group list-group-flush">
                     @foreach (var it in list)
                     {
-                        <li class="list-group-item px-0">
+                        @* Ganze Zeile anklickbar: ein Handler pro Eintrag statt mehrerer -
+                           im Server-Modus ist jeder Klick ein Netz-Roundtrip. *@
+                        <li class="list-group-item list-group-item-action px-0" style="cursor:pointer;" @onclick="() => OpenDetail(it)">
                             <div class="d-flex justify-content-between align-items-start">
                                 <div>
                                     <span style="color:@ColorOf(it.Kind);">&#9679;</span>
@@ -117,10 +119,7 @@
                                         @if (!string.IsNullOrWhiteSpace(it.RequestedBy)) { <text> · @it.RequestedBy</text> }
                                     </div>
                                 </div>
-                                @if (!string.IsNullOrWhiteSpace(it.Href))
-                                {
-                                    <a class="btn btn-sm btn-outline-primary" href="@it.Href">Öffnen</a>
-                                }
+                                <span class="text-muted small">Details <i class="bi bi-chevron-right"></i></span>
                             </div>
                         </li>
                     }
@@ -244,9 +243,176 @@
     </div>
 }
 
+@* ===================== Termin-Details ===================== *@
+@if (_detail is not null)
+{
+    <div class="modal fade show" style="display:block; background-color:rgba(0,0,0,0.5); cursor:pointer;" @onclick="CloseDetail">
+        <div class="modal-dialog modal-lg modal-dialog-centered" style="cursor:default;" @onclick:stopPropagation="true">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <span style="color:@ColorOf(_detail.Kind);">&#9679;</span>
+                        @_detail.Title
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="CloseDetail"></button>
+                </div>
+                <div class="modal-body">
+                    @if (_editing)
+                    {
+                        <div class="mb-2"><label class="form-label">Titel</label><input class="form-control" @bind="_eTitle" /></div>
+                        <div class="row">
+                            <div class="col-md-6 mb-2"><label class="form-label">Beginn</label><input type="datetime-local" class="form-control" @bind="_eStart" /></div>
+                            <div class="col-md-6 mb-2"><label class="form-label">Ende</label><input type="datetime-local" class="form-control" @bind="_eEnd" /></div>
+                        </div>
+                        <div class="mb-2"><label class="form-label">Ort</label><input class="form-control" @bind="_eLocation" /></div>
+                        <div class="mb-2"><label class="form-label">Bemerkung</label><input class="form-control" @bind="_eDescription" /></div>
+                        @if (_detail.SeriesId is not null)
+                        {
+                            <div class="alert alert-info py-2 mb-0">
+                                Teil einer Serie. Änderungen gelten nur für diesen Termin – er wird danach
+                                von der Serie nicht mehr überschrieben.
+                            </div>
+                        }
+                    }
+                    else
+                    {
+                        <dl class="row mb-0">
+                            <dt class="col-sm-4">Art</dt>
+                            <dd class="col-sm-8">@KindLabel(_detail.Kind)</dd>
+
+                            <dt class="col-sm-4">Zeitraum</dt>
+                            <dd class="col-sm-8">
+                                @(_detail.AllDay
+                                    ? $"{_detail.Start:dd.MM.yyyy} (ganztägig)"
+                                    : $"{_detail.Start:dd.MM.yyyy HH:mm} – {_detail.End:dd.MM.yyyy HH:mm}")
+                            </dd>
+
+                            @if (!string.IsNullOrWhiteSpace(_detail.Location))
+                            {
+                                <dt class="col-sm-4">Ort</dt>
+                                <dd class="col-sm-8">@_detail.Location</dd>
+                            }
+
+                            @if (_full is not null)
+                            {
+                                @if (!string.IsNullOrWhiteSpace(_full.Description))
+                                {
+                                    <dt class="col-sm-4">Bemerkung</dt>
+                                    <dd class="col-sm-8">@_full.Description</dd>
+                                }
+                                <dt class="col-sm-4">Angefragt von</dt>
+                                <dd class="col-sm-8">@_full.RequestedBy</dd>
+
+                                @if (!string.IsNullOrWhiteSpace(_full.UnitLabel))
+                                {
+                                    <dt class="col-sm-4">Einheit</dt>
+                                    <dd class="col-sm-8">@_full.UnitLabel</dd>
+                                }
+
+                                <dt class="col-sm-4">Status</dt>
+                                <dd class="col-sm-8">
+                                    @if (_full.Status == "Bestaetigt") { <span class="badge bg-success">bestätigt</span> }
+                                    else if (_full.Status == "Angefragt") { <span class="badge bg-warning text-dark">Freigabe offen</span> }
+                                    else if (_full.Status == "Abgelehnt") { <span class="badge bg-danger">abgelehnt</span> }
+                                    else { <span class="badge bg-secondary">storniert</span> }
+                                    @if (_full.SeriesId is not null) { <span class="badge bg-light text-dark ms-1">Serie</span> }
+                                </dd>
+
+                                @if (_full.Resources is { Count: > 0 })
+                                {
+                                    <dt class="col-sm-4">Fahrzeuge / Räume</dt>
+                                    <dd class="col-sm-8">
+                                        @foreach (var r in _full.Resources)
+                                        {
+                                            <div>
+                                                <strong>@r.Name</strong> <span class="text-muted small">(@r.Kind)</span>
+                                                @if (r.Status == "Freigegeben") { <span class="badge bg-success ms-1">freigegeben</span> }
+                                                else if (r.Status == "Angefragt") { <span class="badge bg-warning text-dark ms-1">Freigabe offen</span> }
+                                                else if (r.Status == "Abgelehnt") { <span class="badge bg-danger ms-1">abgelehnt</span> }
+                                                @if (!string.IsNullOrWhiteSpace(r.ApprovedBy))
+                                                {
+                                                    <div class="small text-muted">
+                                                        @r.ApprovedBy, @r.ApprovedAt?.ToString("dd.MM.yyyy HH:mm")
+                                                        @if (!string.IsNullOrWhiteSpace(r.Comment)) { <text> – @r.Comment</text> }
+                                                    </div>
+                                                }
+                                            </div>
+                                        }
+                                    </dd>
+                                }
+
+                                @if (_full.AttendanceListId is int alid)
+                                {
+                                    <dt class="col-sm-4">Anwesenheitsliste</dt>
+                                    <dd class="col-sm-8"><a href="/attendance/@alid">Liste öffnen</a></dd>
+                                }
+                            }
+                            else if (_loadingDetail)
+                            {
+                                <dt class="col-sm-4">Weitere Angaben</dt>
+                                <dd class="col-sm-8"><em>Lade…</em></dd>
+                            }
+                        </dl>
+
+                        @if (!string.IsNullOrWhiteSpace(_detail.Href))
+                        {
+                            <a class="btn btn-outline-primary mt-3" href="@_detail.Href">
+                                <i class="bi bi-box-arrow-up-right me-1"></i>Zugehörige Seite öffnen
+                            </a>
+                        }
+                    }
+
+                    @if (_detailError is not null) { <div class="alert alert-danger py-2 mt-3 mb-0">@_detailError</div> }
+                    @if (_confirmDelete)
+                    {
+                        <div class="alert alert-warning mt-3 mb-0">
+                            Diesen Termin wirklich löschen? Das lässt sich nicht rückgängig machen.
+                            <div class="mt-2">
+                                <button class="btn btn-danger btn-sm me-2" @onclick="DeleteEvent" disabled="@_detailBusy">Ja, löschen</button>
+                                <button class="btn btn-secondary btn-sm" @onclick="() => _confirmDelete = false">Abbrechen</button>
+                            </div>
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    @* Ändern und Löschen nur für Verwaltung, und nur für echte Kalendertermine. *@
+                    <AuthorizeView Roles="Admin">
+                        @if (IsCalendarEvent(_detail.Kind))
+                        {
+                            @if (_editing)
+                            {
+                                <button class="btn btn-primary" @onclick="SaveEdit" disabled="@_detailBusy">Speichern</button>
+                                <button class="btn btn-secondary" @onclick="() => _editing = false">Abbrechen</button>
+                            }
+                            else
+                            {
+                                <button class="btn btn-outline-primary me-auto" @onclick="StartEdit">
+                                    <i class="bi bi-pencil me-1"></i>Bearbeiten
+                                </button>
+                                <button class="btn btn-outline-danger" @onclick="() => _confirmDelete = true">
+                                    <i class="bi bi-trash me-1"></i>Löschen
+                                </button>
+                            }
+                        }
+                    </AuthorizeView>
+                    @if (!_editing)
+                    {
+                        <button class="btn btn-secondary" @onclick="CloseDetail">Schließen</button>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 @if (_info is not null)
 {
-    <div class="alert alert-success position-fixed" style="bottom:16px; left:16px; right:16px; z-index:1080;">@_info</div>
+    @* Mit Schliessen-Knopf UND Selbstabbau: ohne beides blieb der Hinweis dauerhaft stehen. *@
+    <div class="alert alert-success position-fixed d-flex justify-content-between align-items-start"
+         style="bottom:16px; left:16px; right:16px; z-index:1080;">
+        <span>@_info</span>
+        <button type="button" class="btn-close ms-3" aria-label="Schließen" @onclick="() => _info = null"></button>
+    </div>
 }
 
 @code {
@@ -267,6 +433,114 @@
     private List<ConflictDto>? _conflicts;
     private List<MemberChoice>? _requesterSuggestions;
     private CancellationTokenSource? _requesterCts;
+
+    // Detail-Fenster
+    private CalItem? _detail;
+    private EventDetailDto? _full;
+    private bool _loadingDetail, _detailBusy, _confirmDelete, _editing;
+    private string? _detailError;
+    private string _eTitle = "", _eLocation = "", _eDescription = "";
+    private DateTime _eStart, _eEnd;
+
+    // Laufende Nummer, damit ein aelterer Ausblend-Auftrag einen neueren Hinweis nicht loescht.
+    private int _infoSeq;
+
+    /// <summary>Hinweis anzeigen und nach einigen Sekunden selbst wieder abbauen.</summary>
+    private void ShowInfo(string text, int seconds = 8)
+    {
+        _info = text;
+        var seq = ++_infoSeq;
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(seconds * 1000);
+            await InvokeAsync(() =>
+            {
+                if (_infoSeq == seq) { _info = null; StateHasChanged(); }
+            });
+        });
+    }
+
+    // Wachen und geplante Listen sind keine Kalendertermine - sie lassen sich hier
+    // nicht bearbeiten oder loeschen.
+    private static bool IsCalendarEvent(string kind) =>
+        kind is "dienst" or "veranstaltung" or "fahrzeug" or "raum";
+
+    private async Task OpenDetail(CalItem it)
+    {
+        _detail = it; _full = null; _detailError = null;
+        _confirmDelete = false; _editing = false;
+        if (!IsCalendarEvent(it.Kind)) return;
+
+        _loadingDetail = true;
+        try { _full = await Http.GetFromJsonAsync<EventDetailDto>($"client-api/calendar/events/{it.Id}"); }
+        catch { _detailError = "Details konnten nicht geladen werden."; }
+        finally { _loadingDetail = false; }
+    }
+
+    private void CloseDetail()
+    {
+        _detail = null; _full = null; _editing = false; _confirmDelete = false; _detailError = null;
+    }
+
+    private void StartEdit()
+    {
+        if (_detail is null) return;
+        _eTitle = _full?.Title ?? _detail.Title;
+        _eLocation = _full?.Location ?? _detail.Location ?? "";
+        _eDescription = _full?.Description ?? "";
+        _eStart = _full?.Start ?? _detail.Start;
+        _eEnd = _full?.End ?? _detail.End;
+        _detailError = null;
+        _editing = true;
+    }
+
+    private async Task SaveEdit()
+    {
+        if (_detail is null) return;
+        if (string.IsNullOrWhiteSpace(_eTitle)) { _detailError = "Bitte einen Titel angeben."; return; }
+        if (_eEnd <= _eStart) { _detailError = "Das Ende muss nach dem Beginn liegen."; return; }
+        _detailBusy = true; _detailError = null;
+        try
+        {
+            var body = new
+            {
+                Title = _eTitle,
+                Description = _eDescription,
+                Location = _eLocation,
+                Start = _eStart,
+                End = _eEnd,
+                AllDay = false,
+                UnitNumber = (int?)null
+            };
+            var resp = await Http.PutAsJsonAsync($"client-api/calendar/events/{_detail.Id}", body);
+            if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized) { _detailError = "Sitzung abgelaufen – bitte neu anmelden."; return; }
+            if (!resp.IsSuccessStatusCode) { _detailError = "Speichern fehlgeschlagen."; return; }
+            _editing = false;
+            CloseDetail();
+            await Load();
+            ShowInfo("Termin geändert.");
+        }
+        catch { _detailError = "Speichern fehlgeschlagen."; }
+        finally { _detailBusy = false; }
+    }
+
+    private async Task DeleteEvent()
+    {
+        if (_detail is null) return;
+        _detailBusy = true; _detailError = null;
+        try
+        {
+            var resp = await Http.DeleteAsync($"client-api/admin/calendar/events/{_detail.Id}");
+            if (resp.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden)
+            { _detailError = "Dafür fehlen die Rechte – bitte als Verwaltung anmelden."; return; }
+            if (!resp.IsSuccessStatusCode) { _detailError = "Löschen fehlgeschlagen."; return; }
+            CloseDetail();
+            await Load();
+            ShowInfo("Termin gelöscht.");
+        }
+        catch { _detailError = "Löschen fehlgeschlagen."; }
+        finally { _detailBusy = false; _confirmDelete = false; }
+    }
 
     protected override async Task OnInitializedAsync() => await Load();
 
@@ -433,11 +707,13 @@
             {
                 case "ok":
                     _showCreate = false;
-                    _info = result.ApprovalRequired
+                    ShowInfo(result.ApprovalRequired
                         ? (result.MailSent
                             ? "Buchung angelegt. Der Freigabe-Link wurde an die Zuständigen verschickt."
                             : "Buchung angelegt – der Freigabe-Link konnte aber NICHT verschickt werden (SMTP prüfen).")
-                        : "Termin angelegt.";
+                        : "Termin angelegt.",
+                        // Der Hinweis auf einen fehlgeschlagenen Versand darf laenger stehen.
+                        result.ApprovalRequired && !result.MailSent ? 20 : 8);
                     await Load();
                     break;
                 case "conflict":
@@ -465,4 +741,9 @@
     private record ConflictDto(string Resource, string Title, DateTime Start, DateTime End);
     private record CreateResult(string Status, int? Id, bool ApprovalRequired, bool MailSent, string? Message, List<ConflictDto>? Conflicts);
     private record MemberChoice(int Id, string Name, string Number);
+    private record EventDetailDto(int Id, string Type, string Title, string? Description, string? Location,
+        DateTime Start, DateTime End, bool AllDay, string Status, string RequestedBy, string? RequestedByEmail,
+        string? UnitLabel, int? SeriesId, bool IsSeriesException, int? AttendanceListId, DateTime CreatedAt,
+        List<ResourceDto>? Resources);
+    private record ResourceDto(string Kind, string Name, string Status, string? ApprovedBy, DateTime? ApprovedAt, string? Comment);
 }

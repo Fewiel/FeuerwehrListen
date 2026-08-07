@@ -111,7 +111,7 @@
     {
         <div class="dash-empty"><i class="bi bi-hourglass-split"></i><p class="mb-0 mt-2">Lade&hellip;</p></div>
     }
-    else if (Ops.Count == 0 && Att.Count == 0 && Fsw.Count == 0)
+    else if (Ops.Count == 0 && Att.Count == 0 && Fsw.Count == 0 && Cal.Count == 0)
     {
         <div class="dash-empty"><i class="bi bi-check2-circle"></i><p class="mb-0 mt-2">Aktuell keine offenen Listen.</p></div>
     }
@@ -150,8 +150,28 @@
                         <div><h4>@w.Title</h4><p class="k">@w.Sub</p></div>
                     </div>
                     <div class="dash-mrow"><span>Beginn</span><span class="v">@w.Time.ToString("dd.MM. HH:mm")</span></div>
+                    @if (w.Vehicles is { Count: > 0 })
+                    {
+                        <div class="dash-mrow"><span>Fahrzeuge</span><span class="v">@string.Join(", ", w.Vehicles)</span></div>
+                    }
                     <div class="dash-mrow"><span>Status</span><span class="st st-plan">geplant</span></div>
                     <a class="dash-open" href="@w.Href">Öffnen <i class="bi bi-arrow-right"></i></a>
+                </div>
+            }
+            @foreach (var c in Cal)
+            {
+                <div class="dash-card">
+                    <div class="dash-ch">
+                        <div class="dash-chip" style="background:#EDE7FB;color:#6f42c1"><i class="bi bi-calendar3"></i></div>
+                        <div><h4>@c.Title</h4><p class="k">@c.Sub</p></div>
+                    </div>
+                    <div class="dash-mrow"><span>Beginn</span><span class="v">@c.Time.ToString("dd.MM. HH:mm")</span></div>
+                    @if (c.Vehicles is { Count: > 0 })
+                    {
+                        <div class="dash-mrow"><span>Fahrzeuge / Räume</span><span class="v">@string.Join(", ", c.Vehicles)</span></div>
+                    }
+                    <div class="dash-mrow"><span>Status</span><span class="st st-plan">geplant</span></div>
+                    <a class="dash-open" href="@c.Href">Öffnen <i class="bi bi-arrow-right"></i></a>
                 </div>
             }
         </div>
@@ -250,6 +270,7 @@
     private List<ListItem> Ops => _data?.Operations ?? new();
     private List<ListItem> Att => _data?.Attendance ?? new();
     private List<ListItem> Fsw => _data?.Watches ?? new();
+    private List<ListItem> Cal => _data?.Calendar ?? new();
 
     // Feedback
     private bool _showFeedback;

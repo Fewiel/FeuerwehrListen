@@ -440,7 +440,11 @@ app.MapGet("/client-api/open-lists", async (
     AttendanceListRepository attRepo,
     OperationListRepository opRepo,
     FireSafetyWatchRepository fswRepo,
+    FireSafetyWatchRequirementRepository fswReqRepo,
     DefectRepository defectRepo,
+    CalendarRepository calRepo,
+    VehicleRepository vehicleRepo,
+    RoomRepository roomRepo,
     NetworkAccessService access,
     SettingsService settings) =>
 {
@@ -472,18 +476,71 @@ app.MapGet("/client-api/open-lists", async (
             .ToList()
         : new List<ListItemDto>();
 
-    var watches = allowed.Contains(NetworkAccessService.ModuleFireSafety)
+    var watchList = allowed.Contains(NetworkAccessService.ModuleFireSafety)
         ? (await fswRepo.GetAllAsync())
             .Where(w => !w.IsArchived && w.Status == FeuerwehrListen.Models.ListStatus.Open && w.EventDateTime >= DateTime.Now)
             .OrderBy(w => w.EventDateTime)
-            .Select(w => new ListItemDto(
-                w.Id,
-                w.Name,
-                w.Location ?? "",
-                w.EventDateTime,
-                $"/firesafetywatches/{w.Id}"))
             .ToList()
-        : new List<ListItemDto>();
+        : new List<FeuerwehrListen.Models.FireSafetyWatch>();
+
+    // Fahrzeuge je Wache gebuendelt nachladen (eine Abfrage statt einer je Wache).
+    var watchVehicles = await fswReqRepo.GetVehicleNamesForWatchesAsync(watchList.Select(w => w.Id).ToList());
+
+    var watches = watchList
+        .Select(w => new ListItemDto(
+            w.Id,
+            w.Name,
+            w.Location ?? "",
+            w.EventDateTime,
+            $"/firesafetywatches/{w.Id}",
+            watchVehicles.TryGetValue(w.Id, out var wv) ? wv : new List<string>()))
+        .ToList();
+
+    // Anstehende Kalendertermine (Dienste, Veranstaltungen, Buchungen) inkl. Fahrzeugen
+    // und Raeumen - bisher tauchten sie in der Uebersicht gar nicht auf.
+    var calendarItems = new List<ListItemDto>();
+    if (allowed.Contains(NetworkAccessService.ModuleCalendar))
+    {
+        var from = DateTime.Now;
+        var to = from.AddDays(30);
+        var events = (await calRepo.GetEventsInRangeAsync(from, to))
+            .Where(e => e.EndTime >= from && e.Status != CalendarEventStatus.Abgelehnt)
+            .OrderBy(e => e.StartTime)
+            .Take(12)
+            .ToList();
+
+        if (events.Count > 0)
+        {
+            var res = await calRepo.GetResourcesForEventsAsync(events.Select(e => e.Id).ToList());
+            var vehicleNames = (await vehicleRepo.GetAllAsync()).ToDictionary(v => v.Id, v => v.Name);
+            var roomNames = (await roomRepo.GetAllAsync()).ToDictionary(r => r.Id, r => r.Name);
+
+            foreach (var e in events)
+            {
+                var names = res.Where(r => r.CalendarEventId == e.Id)
+                    .Select(r => r.ResourceKind == CalendarResourceKind.Vehicle
+                        ? (vehicleNames.TryGetValue(r.ResourceId, out var vn) ? vn : null)
+                        : (roomNames.TryGetValue(r.ResourceId, out var rn) ? rn : null))
+                    .Where(n => n != null).Select(n => n!).Distinct().OrderBy(n => n).ToList();
+
+                calendarItems.Add(new ListItemDto(
+                    e.Id,
+                    e.Title,
+                    string.IsNullOrWhiteSpace(e.Location) ? TypeLabel(e.Type) : $"{TypeLabel(e.Type)} · {e.Location}",
+                    e.StartTime,
+                    "/kalender",
+                    names));
+            }
+        }
+    }
+
+    static string TypeLabel(CalendarEventType t) => t switch
+    {
+        CalendarEventType.Dienst => "Dienst",
+        CalendarEventType.Fahrzeugbuchung => "Fahrzeugbuchung",
+        CalendarEventType.Raumbuchung => "Raumbuchung",
+        _ => "Veranstaltung"
+    };
 
     var openDefects = allowed.Contains(NetworkAccessService.ModuleDefects)
         ? await defectRepo.GetCountAsync(DefectStatus.Open) + await defectRepo.GetCountAsync(DefectStatus.InProgress)
@@ -495,6 +552,7 @@ app.MapGet("/client-api/open-lists", async (
         operations,
         attendance,
         watches,
+        calendar = calendarItems,
         openDefects
     });
 });
@@ -1856,6 +1914,53 @@ app.MapGet("/client-api/calendar", async (DateTime? from, DateTime? to,
     return Results.Json(new { serverTime = DateTime.Now, from = start, to = end, items });
 });
 
+// Einzelner Termin mit allen Angaben - fuer das Detail-Fenster im Kalender.
+app.MapGet("/client-api/calendar/events/{id:int}", async (int id, CalendarRepository repo,
+    VehicleRepository vRepo, RoomRepository rRepo, SettingsService settings) =>
+{
+    var e = await repo.GetEventAsync(id);
+    if (e == null) return Results.NotFound();
+    var res = await repo.GetResourcesForEventAsync(id);
+
+    var resources = new List<object>();
+    foreach (var r in res)
+    {
+        var name = r.ResourceKind == CalendarResourceKind.Vehicle
+            ? (await vRepo.GetByIdAsync(r.ResourceId))?.Name ?? $"Fahrzeug #{r.ResourceId}"
+            : (await rRepo.GetByIdAsync(r.ResourceId))?.Name ?? $"Raum #{r.ResourceId}";
+        resources.Add(new
+        {
+            kind = r.ResourceKind == CalendarResourceKind.Vehicle ? "Fahrzeug" : "Raum",
+            name,
+            status = r.Status.ToString(),
+            approvedBy = r.ApprovedBy,
+            approvedAt = r.ApprovedAt,
+            comment = r.DecisionComment
+        });
+    }
+
+    return Results.Json(new
+    {
+        id = e.Id,
+        type = e.Type.ToString(),
+        title = e.Title,
+        description = e.Description,
+        location = e.Location,
+        start = e.StartTime,
+        end = e.EndTime,
+        allDay = e.IsAllDay,
+        status = e.Status.ToString(),
+        requestedBy = e.RequestedBy,
+        requestedByEmail = e.RequestedByEmail,
+        unitLabel = e.UnitNumber is int un ? settings.GetUnitLabel(un) : null,
+        seriesId = e.SeriesId,
+        isSeriesException = e.IsSeriesException,
+        attendanceListId = e.AttendanceListId,
+        createdAt = e.CreatedAt,
+        resources
+    });
+});
+
 // Buchbare Ressourcen fuer das Buchungsformular (anonym, damit auch ohne Login buchbar).
 app.MapGet("/client-api/calendar/resources", async (VehicleRepository vRepo, RoomRepository rRepo) =>
 {
@@ -2318,8 +2423,9 @@ public record VehicleReq(string Name, string CallSign, string Type, bool IsActiv
     bool ShowInOperations = true, bool IsBookable = true, bool RequiresApproval = false, string? ApproverEmails = null);
 public record KeywordReq(string Name, string? Description);
 public record RoomReq(string Name, string? Description, int? Capacity, bool RequiresApproval, string? ApproverEmails, bool IsActive = true);
-/// <summary>Eintrag fuer /client-api/open-lists - passt zu Client/Models/ListItem.</summary>
-public record ListItemDto(int Id, string Title, string? Sub, DateTime Time, string Href);
+/// <summary>Eintrag fuer /client-api/open-lists - passt zu Client/Models/ListItem.
+/// Vehicles enthaelt Fahrzeuge bzw. Raeume, sofern dem Eintrag welche zugeordnet sind.</summary>
+public record ListItemDto(int Id, string Title, string? Sub, DateTime Time, string Href, List<string>? Vehicles = null);
 public record CalendarEventRequest(
     string? Type, string? Title, string? Description, string? Location,
     DateTime Start, DateTime End, bool AllDay, int? UnitNumber,
