@@ -24,6 +24,16 @@ namespace FeuerwehrListen.Repositories
                 .ToListAsync();
         }
 
+        /// <summary>Anzahl eingetragener Personen je Anforderung - damit die Bearbeitung
+        /// warnen kann, bevor eine besetzte Anforderung entfernt wird.</summary>
+        public async Task<Dictionary<int, int>> GetEntryCountsByRequirementAsync(int watchId)
+        {
+            var rows = await _db.FireSafetyWatchEntries
+                .Where(e => e.FireSafetyWatchId == watchId)
+                .ToListAsync();
+            return rows.GroupBy(e => e.RequirementId).ToDictionary(g => g.Key, g => g.Count());
+        }
+
         public async Task<int> CountByWatchIdAsync(int watchId)
         {
             return await _db.FireSafetyWatchEntries

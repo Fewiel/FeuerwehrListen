@@ -1,0 +1,186 @@
+@page "/firesafetywatches/{Id:int}/edit"
+@layout MainLayout
+@using System.Net.Http.Json
+@inject HttpClient Http
+@inject NavigationManager Nav
+
+<PageTitle>Brandsicherheitswache bearbeiten</PageTitle>
+
+<AuthGuard RequireAdmin="true">
+    <div class="container mt-4">
+        <h1>Brandsicherheitswache bearbeiten</h1>
+
+        @if (_loading) { <p><em>Lade…</em></p> }
+        else if (_loadError is not null)
+        {
+            <div class="alert alert-danger">@_loadError</div>
+            <a class="btn btn-secondary" href="/firesafetywatches">Zurück</a>
+        }
+        else
+        {
+            <div class="card mt-4"><div class="card-body">
+                <div class="mb-3"><label class="form-label">Name / Anlass</label><input class="form-control" @bind="_name" /></div>
+                <div class="mb-3"><label class="form-label">Ort</label><input class="form-control" @bind="_location" /></div>
+                <div class="row">
+                    <div class="col-md-6 mb-3"><label class="form-label">Beginn</label><input type="datetime-local" class="form-control" @bind="_eventTime" /></div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">Ende</label>
+                        <input type="datetime-local" class="form-control" @bind="_eventEndTime" />
+                        <div class="form-text">Bestimmt, wie lange die Fahrzeuge im Kalender belegt sind.</div>
+                    </div>
+                </div>
+
+                <hr />
+                <h5>Personal- &amp; Fahrzeuganforderungen</h5>
+                @foreach (var req in _requirements)
+                {
+                    <div class="row gx-2 mb-2 align-items-end">
+                        <div class="col-md-4"><label class="form-label">Funktion</label>
+                            <select class="form-select" @bind="req.FunctionDefId">
+                                @if (req.FunctionDefId <= 0) { <option value="0">Trupp (Standard)</option> }
+                                @foreach (var f in _functions) { <option value="@f.Id">@f.Name</option> }
+                            </select>
+                        </div>
+                        <div class="col-md-2"><label class="form-label">Anzahl</label><input type="number" class="form-control" @bind="req.Amount" /></div>
+                        <div class="col-md-4"><label class="form-label">Fahrzeug (optional)</label>
+                            <select class="form-select" @bind="req.VehicleId"><option value="">-- Ohne Fahrzeug --</option>
+                                @foreach (var v in _vehicles) { <option value="@v.Id">@v.Name</option> }
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <button class="btn btn-danger w-100" @onclick="() => Remove(req)">Entfernen</button>
+                            @if (req.Assigned > 0)
+                            {
+                                <div class="form-text text-danger">@req.Assigned eingetragen</div>
+                            }
+                        </div>
+                    </div>
+                }
+                <button class="btn btn-secondary mt-2" @onclick="AddRequirement">Anforderung hinzufügen</button>
+
+                <hr />
+                @if (_error is not null) { <div class="alert alert-danger">@_error</div> }
+                @if (_removeWarning is not null) { <div class="alert alert-warning">@_removeWarning</div> }
+                @if (_conflicts is { Count: > 0 })
+                {
+                    <div class="alert alert-warning">
+                        <strong>Fahrzeug bereits gebucht:</strong>
+                        <ul class="mb-0">
+                            @foreach (var c in _conflicts)
+                            {
+                                <li>@c.Resource – „@c.Title" (@c.Start.ToString("dd.MM. HH:mm") – @c.End.ToString("dd.MM. HH:mm"))</li>
+                            }
+                        </ul>
+                    </div>
+                }
+                <button class="btn btn-primary mt-2 me-2" @onclick="Save" disabled="@_saving">Änderungen speichern</button>
+                <a class="btn btn-secondary mt-2" href="/firesafetywatches/@Id">Abbrechen</a>
+            </div></div>
+        }
+    </div>
+</AuthGuard>
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private string _name = "", _location = "";
+    private DateTime _eventTime = DateTime.Today.AddHours(8);
+    private DateTime _eventEndTime = DateTime.Today.AddHours(12);
+    private List<ReqRow> _requirements = new();
+    private List<FuncDto> _functions = new();
+    private List<VehDto> _vehicles = new();
+    private bool _loading = true, _saving;
+    private string? _error, _loadError, _removeWarning;
+    private List<ConflictDto>? _conflicts;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true; _loadError = null;
+        try { _functions = await Http.GetFromJsonAsync<List<FuncDto>>("client-api/admin/functions") ?? new(); } catch { }
+        try { _vehicles = (await Http.GetFromJsonAsync<List<VehDto>>("client-api/admin/vehicles") ?? new()).Where(v => v.IsActive && v.ShowInOperations).ToList(); } catch { }
+
+        try
+        {
+            var w = await Http.GetFromJsonAsync<WatchEditDto>($"client-api/admin/firesafetywatches/{Id}");
+            if (w is null) { _loadError = "Wache nicht gefunden."; return; }
+            _name = w.Name;
+            _location = w.Location;
+            _eventTime = w.EventTime;
+            _eventEndTime = w.EventEndTime ?? w.EventTime.AddHours(4);
+            _requirements = (w.Requirements ?? new()).Select(r => new ReqRow
+            {
+                Id = r.Id,
+                FunctionDefId = r.FunctionDefId,
+                Amount = r.Amount,
+                VehicleId = r.VehicleId?.ToString() ?? "",
+                Assigned = r.Assigned
+            }).ToList();
+            if (_requirements.Count == 0) _requirements.Add(new ReqRow());
+        }
+        catch { _loadError = "Wache konnte nicht geladen werden."; }
+        finally { _loading = false; }
+    }
+
+    private void AddRequirement() => _requirements.Add(new ReqRow());
+
+    private void Remove(ReqRow r)
+    {
+        // Besetzte Anforderungen nicht stillschweigend entfernen - die Eintraege
+        // der Kameraden wuerden mit geloescht.
+        _removeWarning = r.Assigned > 0
+            ? $"Achtung: In dieser Anforderung sind {r.Assigned} Personen eingetragen. Beim Speichern werden diese Einträge mit entfernt."
+            : null;
+        _requirements.Remove(r);
+    }
+
+    private async Task Save()
+    {
+        _error = null; _conflicts = null;
+        if (string.IsNullOrWhiteSpace(_name) || string.IsNullOrWhiteSpace(_location)) { _error = "Name und Ort erforderlich."; return; }
+        if (_eventEndTime <= _eventTime) { _error = "Das Ende muss nach dem Beginn liegen."; return; }
+        var reqs = _requirements.Where(r => r.Amount > 0)
+            .Select(r => new
+            {
+                Id = r.Id,
+                FunctionDefId = r.FunctionDefId,
+                Amount = r.Amount,
+                VehicleId = string.IsNullOrEmpty(r.VehicleId) ? (int?)null : int.Parse(r.VehicleId)
+            }).ToList();
+        if (reqs.Count == 0) { _error = "Mindestens eine Anforderung mit Anzahl > 0."; return; }
+
+        _saving = true;
+        try
+        {
+            var resp = await Http.PutAsJsonAsync($"client-api/admin/firesafetywatches/{Id}",
+                new { Name = _name, Location = _location, EventTime = _eventTime, EventEndTime = _eventEndTime, Requirements = reqs });
+            if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized) { _error = "Sitzung abgelaufen – bitte neu anmelden."; return; }
+            if (resp.StatusCode == System.Net.HttpStatusCode.Conflict)
+            {
+                var c = await resp.Content.ReadFromJsonAsync<ConflictResponse>();
+                _conflicts = c?.Conflicts ?? new();
+                _error = "Ein benötigtes Fahrzeug ist in diesem Zeitraum bereits im Kalender gebucht.";
+                return;
+            }
+            if (!resp.IsSuccessStatusCode) { _error = "Speichern fehlgeschlagen."; return; }
+            Nav.NavigateTo($"/firesafetywatches/{Id}", forceLoad: true);
+        }
+        catch { _error = "Speichern fehlgeschlagen. Bitte erneut versuchen."; }
+        finally { _saving = false; }
+    }
+
+    private class ReqRow
+    {
+        public int Id { get; set; }
+        public int FunctionDefId { get; set; }
+        public int Amount { get; set; } = 1;
+        public string VehicleId { get; set; } = "";
+        public int Assigned { get; set; }
+    }
+
+    private record WatchEditDto(int Id, string Name, string Location, DateTime EventTime, DateTime? EventEndTime, bool IsOpen, List<ReqDto>? Requirements);
+    private record ReqDto(int Id, int FunctionDefId, int Amount, int? VehicleId, int Assigned);
+    private record FuncDto(int Id, string Name, bool IsDefault);
+    private record VehDto(int Id, string Name, string CallSign, string Type, bool IsActive, bool ShowInOperations, bool IsBookable, bool RequiresApproval, string? ApproverEmails, DateTime CreatedAt);
+    private record ConflictResponse(string Status, List<ConflictDto>? Conflicts);
+    private record ConflictDto(string Resource, string Title, DateTime Start, DateTime End);
+}

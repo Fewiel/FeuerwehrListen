@@ -2223,6 +2223,109 @@ app.MapPost("/client-api/approve/{token}", async (string token, ApprovalDecision
     });
 }).DisableAntiforgery();
 
+// Brandsicherheitswache zum Bearbeiten laden (Rohdaten inkl. FunctionDefId und Belegung).
+admin.MapGet("/firesafetywatches/{id:int}", async (int id, FireSafetyWatchRepository repo,
+    FireSafetyWatchRequirementRepository reqRepo, FireSafetyWatchEntryRepository entryRepo) =>
+{
+    var w = await repo.GetByIdAsync(id);
+    if (w == null) return Results.NotFound();
+    var reqs = await reqRepo.GetByWatchIdAsync(id);
+    var counts = await entryRepo.GetEntryCountsByRequirementAsync(id);
+
+    return Results.Json(new
+    {
+        id = w.Id,
+        name = w.Name,
+        location = w.Location,
+        eventTime = w.EventDateTime,
+        eventEndTime = w.EndDateTime,
+        isOpen = w.Status == ListStatus.Open,
+        requirements = reqs.Select(r => new
+        {
+            id = r.Id,
+            functionDefId = r.FunctionDefId,
+            amount = r.Amount,
+            vehicleId = r.VehicleId,
+            // Wie viele Personen haengen an dieser Anforderung? Entscheidet, ob sie
+            // gefahrlos entfernt werden kann.
+            assigned = counts.TryGetValue(r.Id, out var c) ? c : 0
+        })
+    });
+});
+
+// Brandsicherheitswache aendern.
+admin.MapPut("/firesafetywatches/{id:int}", async (int id, FswUpdateRequest r,
+    FireSafetyWatchRepository repo, FireSafetyWatchRequirementRepository reqRepo,
+    VehicleRepository vehicleRepo, CalendarService calendar) =>
+{
+    if (string.IsNullOrWhiteSpace(r.Name) || string.IsNullOrWhiteSpace(r.Location)) return Results.BadRequest();
+    var w = await repo.GetByIdAsync(id);
+    if (w == null) return Results.NotFound();
+
+    var end = r.EventEndTime is DateTime e && e > r.EventTime
+        ? e
+        : r.EventTime.AddHours(calendar.GetWatchDefaultHours());
+
+    var allowedVehicleIds = (await vehicleRepo.GetForOperationsAsync()).Select(v => v.Id).ToHashSet();
+    var incoming = (r.Requirements ?? new()).Where(x => x.Amount > 0).ToList();
+    if (incoming.Count == 0) return Results.BadRequest();
+
+    // Gegenrichtung wie beim Anlegen: die Fahrzeuge duerfen im neuen Zeitraum nicht
+    // bereits im Kalender gebucht sein.
+    var vehicleIds = incoming.Where(x => x.VehicleId is int v && allowedVehicleIds.Contains(v))
+        .Select(x => x.VehicleId!.Value).Distinct().ToList();
+    if (vehicleIds.Count > 0)
+    {
+        var conflicts = await calendar.GetWatchVehicleConflictsAsync(vehicleIds, r.EventTime, end);
+        if (conflicts.Count > 0)
+        {
+            return Results.Json(new
+            {
+                status = "conflict",
+                conflicts = conflicts.Select(c => new { resource = c.ResourceName, title = c.ConflictTitle, start = c.Start, end = c.End })
+            }, statusCode: StatusCodes.Status409Conflict);
+        }
+    }
+
+    w.Name = r.Name.Trim();
+    w.Location = r.Location.Trim();
+    w.EventDateTime = r.EventTime;
+    w.EndDateTime = end;
+    await repo.UpdateAsync(w);
+
+    // Anforderungen abgleichen: vorhandene aktualisieren, neue anlegen, entfallene loeschen.
+    var existing = await reqRepo.GetByWatchIdAsync(id);
+    var keepIds = incoming.Where(x => x.Id > 0).Select(x => x.Id).ToHashSet();
+
+    foreach (var old in existing.Where(x => !keepIds.Contains(x.Id)))
+        await reqRepo.DeleteAsync(old.Id);
+
+    foreach (var item in incoming)
+    {
+        var vid = item.VehicleId is int v && allowedVehicleIds.Contains(v) ? v : (int?)null;
+        var match = existing.FirstOrDefault(x => x.Id == item.Id);
+        if (match != null)
+        {
+            match.FunctionDefId = item.FunctionDefId;
+            match.Amount = item.Amount;
+            match.VehicleId = vid;
+            await reqRepo.UpdateAsync(match);
+        }
+        else
+        {
+            await reqRepo.InsertAsync(new FireSafetyWatchRequirement
+            {
+                FireSafetyWatchId = id,
+                FunctionDefId = item.FunctionDefId,
+                Amount = item.Amount,
+                VehicleId = vid
+            });
+        }
+    }
+
+    return Results.Ok();
+});
+
 // Anwesenheitsliste: abschliessen (angemeldet)
 app.MapPost("/client-api/attendance/{id:int}/close", async (int id, AttendanceListRepository repo, ListNotificationService notif) =>
 {
@@ -2469,6 +2572,9 @@ public record VsReq(string? VehicleName, string? Staerke);
 public record FswRegisterRequest(int RequirementId, string? Code, int? MemberId);
 public record FswReqItem(int FunctionDefId, int Amount, int? VehicleId);
 public record FswCreateRequest(string Name, string Location, DateTime EventTime, List<FswReqItem>? Requirements, DateTime? EventEndTime = null);
+/// <summary>Aenderung einer Wache. Id je Anforderung: 0 = neu, sonst bestehende Zeile.</summary>
+public record FswUpdateRequest(string Name, string Location, DateTime EventTime, DateTime? EventEndTime, List<FswUpdateReqItem>? Requirements);
+public record FswUpdateReqItem(int Id, int FunctionDefId, int Amount, int? VehicleId);
 public record DefectReportRequest(string Description, int? VehicleId, string? CustomVehicle, string? ReporterNumber);
 public record DefectStatusRequest(string NewStatus, string? Comment, string? MemberNumber);
 // B4: Nextcloud-Verbindungstest. Alle Felder optional -> null testet die gespeicherten Settings.

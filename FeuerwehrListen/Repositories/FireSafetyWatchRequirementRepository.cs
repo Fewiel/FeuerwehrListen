@@ -39,6 +39,24 @@ namespace FeuerwehrListen.Repositories
             return result;
         }
 
+        public async Task<int> InsertAsync(FireSafetyWatchRequirement req)
+        {
+            return await _db.InsertWithInt32IdentityAsync(req);
+        }
+
+        public async Task UpdateAsync(FireSafetyWatchRequirement req)
+        {
+            await _db.UpdateAsync(req);
+        }
+
+        /// <summary>Anforderung samt zugehoeriger Eintraege entfernen. Die Eintraege muessen
+        /// mit weg, sonst zeigen sie ins Leere (die App nutzt bewusst keine DB-Fremdschluessel).</summary>
+        public async Task DeleteAsync(int requirementId)
+        {
+            await _db.FireSafetyWatchEntries.Where(e => e.RequirementId == requirementId).DeleteAsync();
+            await _db.FireSafetyWatchRequirements.Where(r => r.Id == requirementId).DeleteAsync();
+        }
+
         public async Task<List<FireSafetyWatchRequirement>> GetByWatchIdAsync(int watchId)
         {
             return await _db.FireSafetyWatchRequirements

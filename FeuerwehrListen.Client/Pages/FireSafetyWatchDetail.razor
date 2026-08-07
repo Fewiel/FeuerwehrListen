@@ -26,6 +26,11 @@
                 <AuthorizeView>
                     @if (_w.IsOpen) { <button class="btn btn-warning" @onclick="Close" disabled="@_busy">Wache abschließen</button> }
                 </AuthorizeView>
+                <AuthorizeView Roles="Admin" Context="adm">
+                    <a class="btn btn-outline-primary" href="/firesafetywatches/@Id/edit">
+                        <i class="bi bi-pencil me-1"></i>Bearbeiten
+                    </a>
+                </AuthorizeView>
                 <a href="/firesafetywatches" class="btn btn-secondary">Zurück</a>
             </div>
         </div>
