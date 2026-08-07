@@ -11,7 +11,23 @@
     <div class="container mt-4">
         <h1 class="mb-4">Einstellungen</h1>
 
-        @if (_s is null) { <p><em>Lade…</em></p> }
+        @* Fehlgeschlagenes Laden NICHT als leeres Formular darstellen: sonst sieht es aus,
+           als waeren alle Einstellungen verschwunden - und ein Speichern in diesem Zustand
+           wuerde mit unvollstaendigen Daten arbeiten. *@
+        @if (_loadFailed)
+        {
+            <div class="alert alert-danger">
+                <h5 class="alert-heading"><i class="bi bi-exclamation-triangle me-2"></i>Einstellungen konnten nicht geladen werden</h5>
+                <p>
+                    Es wurden <strong>keine Werte verändert</strong> – deine gespeicherten Einstellungen sind unverändert.
+                    Häufigste Ursache ist eine abgelaufene Anmeldung. Bitte neu laden oder neu anmelden.
+                </p>
+                <button class="btn btn-danger" @onclick="Reload">
+                    <i class="bi bi-arrow-clockwise me-1"></i>Erneut versuchen
+                </button>
+            </div>
+        }
+        else if (_s is null) { <p><em>Lade…</em></p> }
         else
         {
             @if (_saved) { <div class="alert alert-success">Gespeichert.</div> }
@@ -213,6 +229,7 @@
 @code {
     private Dictionary<string, string>? _s;
     private bool _saving, _saved;
+    private bool _loadFailed;
     private string? _error;
 
     // Nextcloud-Test
@@ -227,10 +244,24 @@
     private bool _iconUploaded;
     private string? _iconError;
 
-    protected override async Task OnInitializedAsync()
+    protected override async Task OnInitializedAsync() => await Reload();
+
+    private async Task Reload()
     {
-        try { _s = await Http.GetFromJsonAsync<Dictionary<string, string>>("client-api/admin/settings") ?? new(); }
-        catch { _s = new(); }
+        _loadFailed = false;
+        try
+        {
+            _s = await Http.GetFromJsonAsync<Dictionary<string, string>>("client-api/admin/settings") ?? new();
+        }
+        catch
+        {
+            // Frueher wurde hier ein leeres Dictionary gesetzt. Dadurch sah die Seite aus,
+            // als waeren alle Einstellungen weg, und ein anschliessendes Speichern hat mit
+            // unvollstaendigem Stand gearbeitet. Jetzt: klarer Fehler statt leerem Formular.
+            _s = null;
+            _loadFailed = true;
+            return;
+        }
         // Standardordner vorbelegen, wenn das Basis-Ordner-Feld leer ist (wie Original).
         if (string.IsNullOrWhiteSpace(Get("Nextcloud.BasePath")))
             Set("Nextcloud.BasePath", "/Feuerwehr Billerbeck/Einsatzbilder");
@@ -401,7 +432,8 @@
 
     private async Task Save()
     {
-        if (_s is null) return;
+        // Nie auf Basis eines fehlgeschlagenen Ladevorgangs speichern.
+        if (_s is null || _loadFailed) return;
         _error = null; _saved = false;
         // SMTP-Port beim Speichern auf gueltigen Bereich clampen (nur wenn gesetzt).
         var port = Get("Smtp.Port");
