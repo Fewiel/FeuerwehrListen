@@ -74,6 +74,14 @@
                         Leer lassen = die Basis-URL oben wird verwendet.
                     </small>
                 </div>
+                <div class="mb-3">
+                    @Num("Calendar.DienstLeadMinutes", "Anwesenheitsliste öffnen … Minuten vor Dienstbeginn", min: 0, max: 1440)
+                    <small class="text-muted">
+                        Gilt als Vorgabe für neue Dienste; je Termin änderbar. Standard: 30.
+                        Bewusst kurz vorher – der Auto-Close rechnet ab Erstellung der Liste,
+                        eine zu früh geöffnete Liste würde sonst vor Dienstbeginn wieder zugehen.
+                    </small>
+                </div>
                 @Num("Calendar.ApprovalTokenHours", "Gültigkeit der Freigabe-Links (Stunden)", min: 1, max: 8760)
                 <div class="mb-3">
                     @Num("Calendar.FireSafetyWatchDefaultHours", "Angenommene Dauer alter Brandsicherheitswachen (Stunden)", min: 1, max: 72)

@@ -72,9 +72,10 @@ public class CalendarEvent
     [Column("AttendanceListId")]
     public int? AttendanceListId { get; set; }
 
-    /// <summary>Vorlauf, mit dem die Anwesenheitsliste vor Beginn erzeugt wird (nur Dienst).</summary>
+    /// <summary>Vorlauf, mit dem die Anwesenheitsliste vor Beginn erzeugt wird (nur Dienst).
+    /// Vorbelegt aus Calendar.DienstLeadMinutes.</summary>
     [Column("MinutesBeforeEvent")]
-    public int MinutesBeforeEvent { get; set; } = 60;
+    public int MinutesBeforeEvent { get; set; } = 30;
 
     [Column("CreatedAt")]
     public DateTime CreatedAt { get; set; }

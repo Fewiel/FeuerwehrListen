@@ -1917,6 +1917,13 @@ app.MapGet("/client-api/calendar", async (DateTime? from, DateTime? to,
     return Results.Json(new { serverTime = DateTime.Now, from = start, to = end, items });
 });
 
+// Vorlauf, mit dem die Anwesenheitsliste eines Diensts geoeffnet wird.
+static int DienstLeadMinutes(SettingsService settings)
+{
+    var raw = settings.GetSetting(SettingKeys.CalendarDienstLeadMinutes);
+    return int.TryParse(raw, out var m) && m >= 0 ? m : 30;
+}
+
 // Einzelner Termin mit allen Angaben - fuer das Detail-Fenster im Kalender.
 app.MapGet("/client-api/calendar/events/{id:int}", async (int id, CalendarRepository repo,
     VehicleRepository vRepo, RoomRepository rRepo, SettingsService settings) =>
@@ -1997,7 +2004,7 @@ app.MapGet("/client-api/calendar/availability", async (DateTime from, DateTime t
     return Results.Json(result);
 });
 
-app.MapPost("/client-api/calendar/events", async (CalendarEventRequest r, CalendarService svc, MemberRepository memberRepo) =>
+app.MapPost("/client-api/calendar/events", async (CalendarEventRequest r, CalendarService svc, MemberRepository memberRepo, SettingsService settings) =>
 {
     // Identifikation ist Pflicht - entweder ein aufloesbares Mitglied oder ein Freitext-Name.
     var who = (r.RequestedBy ?? "").Trim();
@@ -2024,7 +2031,8 @@ app.MapPost("/client-api/calendar/events", async (CalendarEventRequest r, Calend
         RequestedBy = who,
         RequestedByEmail = string.IsNullOrWhiteSpace(r.RequestedByEmail) ? null : r.RequestedByEmail.Trim(),
         MemberId = memberId,
-        MinutesBeforeEvent = r.MinutesBeforeEvent is int mb && mb >= 0 ? mb : 60
+        // Ohne Angabe gilt der eingestellte Vorlauf (Standard 30 Minuten).
+        MinutesBeforeEvent = r.MinutesBeforeEvent is int mb && mb >= 0 ? mb : DienstLeadMinutes(settings)
     };
 
     var resources = new List<(CalendarResourceKind, int)>();
@@ -2072,6 +2080,7 @@ listMgmt.MapPut("/calendar/events/{id:int}", async (int id, CalendarEventRequest
     if (r.End > r.Start) { e.StartTime = r.Start; e.EndTime = r.End; }
     e.IsAllDay = r.AllDay;
     e.UnitNumber = r.UnitNumber is int u && u >= 1 && u <= 9 ? u : null;
+    if (r.MinutesBeforeEvent is int mbe && mbe >= 0) e.MinutesBeforeEvent = mbe;
     // Einzeln geaendert -> Serien-Materialisierung fasst diesen Termin nicht mehr an.
     if (e.SeriesId != null) e.IsSeriesException = true;
     await repo.UpdateEventAsync(e);
@@ -2114,7 +2123,7 @@ listMgmt.MapGet("/calendar/series", async (CalendarRepository repo) =>
         unitNumber = s.UnitNumber, isActive = s.IsActive
     })));
 
-listMgmt.MapPost("/calendar/series", async (CalendarSeriesRequest r, CalendarRepository repo, CalendarService svc) =>
+listMgmt.MapPost("/calendar/series", async (CalendarSeriesRequest r, CalendarRepository repo, CalendarService svc, SettingsService settings) =>
 {
     if (string.IsNullOrWhiteSpace(r.Title)) return Results.BadRequest();
     var s = new CalendarEventSeries
@@ -2131,7 +2140,7 @@ listMgmt.MapPost("/calendar/series", async (CalendarSeriesRequest r, CalendarRep
         DurationMinutes = r.DurationMinutes > 0 ? r.DurationMinutes : 120,
         SeriesStart = r.SeriesStart,
         SeriesEnd = r.SeriesEnd,
-        MinutesBeforeEvent = r.MinutesBeforeEvent is int mb && mb >= 0 ? mb : 60,
+        MinutesBeforeEvent = r.MinutesBeforeEvent is int mb && mb >= 0 ? mb : DienstLeadMinutes(settings),
         RequestedBy = string.IsNullOrWhiteSpace(r.RequestedBy) ? "Planung" : r.RequestedBy.Trim(),
         IsActive = true,
         CreatedAt = DateTime.Now

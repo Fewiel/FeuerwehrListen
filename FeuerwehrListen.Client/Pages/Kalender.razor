@@ -162,8 +162,13 @@
                                 }
                             </select>
                             <div class="form-text">
-                                Die Anwesenheitsliste wird kurz vor Beginn automatisch für diese Einheit geöffnet.
+                                Die Anwesenheitsliste wird automatisch für diese Einheit geöffnet.
                             </div>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label">Liste öffnen … Minuten vor Beginn</label>
+                            <input type="number" class="form-control" style="max-width:200px" min="0" max="1440" @bind="_fLeadMinutes" />
+                            <div class="form-text">Leer lassen für die Vorgabe aus den Einstellungen.</div>
                         </div>
                     }
                     <div class="row">
@@ -463,6 +468,7 @@
     private bool _showCreate;
     private string _fType = "Veranstaltung", _fTitle = "", _fLocation = "", _fDescription = "", _fRequestedBy = "", _fEmail = "";
     private string _fUnitNumber = "";
+    private string _fLeadMinutes = "";
     private List<FeuerwehrListen.Client.Models.UnitLabel> _unitLabels = new();
     private DateTime _fStart = DateTime.Now.Date.AddHours(18);
     private DateTime _fEnd = DateTime.Now.Date.AddHours(20);
@@ -688,7 +694,7 @@
     {
         _formError = null; _conflicts = null;
         _fTitle = ""; _fLocation = ""; _fDescription = ""; _fRequestedBy = ""; _fEmail = "";
-        _fUnitNumber = "";
+        _fUnitNumber = ""; _fLeadMinutes = "";
         _fVehicles.Clear(); _fRooms.Clear();
         var day = _selected ?? _serverToday.Date;
         _fStart = day.Date.AddHours(18);
@@ -752,7 +758,7 @@
                 RequestedByEmail = _fEmail,
                 VehicleIds = _fVehicles.ToList(),
                 RoomIds = _fRooms.ToList(),
-                MinutesBeforeEvent = (int?)null
+                MinutesBeforeEvent = string.IsNullOrWhiteSpace(_fLeadMinutes) ? (int?)null : int.Parse(_fLeadMinutes)
             };
             var resp = await Http.PostAsJsonAsync("client-api/calendar/events", body);
             var result = await resp.Content.ReadFromJsonAsync<CreateResult>();
