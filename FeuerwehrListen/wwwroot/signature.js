@@ -27,6 +27,11 @@ window.signaturePad = {
             c.width = Math.round(cssW * dpr);
             c.height = Math.round(cssH * dpr);
         }
+        // Logische (CSS-)Maße merken. Der Kontext wird gleich per ctx.scale(dpr) skaliert,
+        // deshalb muss load() das Bild in CSS-Maßen (cssW/cssH) zeichnen - sonst wird es auf
+        // HiDPI-/Retina-Geräten um den Faktor dpr zu groß gezeichnet und rutscht aus dem Feld.
+        c.dataset.cssw = cssW;
+        c.dataset.cssh = cssH;
 
         var ctx = c.getContext("2d");
         if (dpr > 1) ctx.scale(dpr, dpr);
@@ -117,9 +122,16 @@ window.signaturePad = {
     load: function (id, dataUrl) {
         var c = document.getElementById(id);
         if (!c || !dataUrl) return;
+        // In CSS-Maßen zeichnen: der Kontext ist (bei HiDPI) bereits per ctx.scale(dpr)
+        // skaliert, daher füllt (0,0,cssW,cssH) exakt die gesamte Zeichenfläche. c.width/
+        // c.height wären die Geräte-Pixel und würden das Bild um dpr vergrößern/verschieben.
+        var w = parseFloat(c.dataset.cssw) || c.width;
+        var h = parseFloat(c.dataset.cssh) || c.height;
         var img = new Image();
         img.onload = function () {
-            c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+            var ctx = c.getContext("2d");
+            ctx.clearRect(0, 0, w, h);
+            ctx.drawImage(img, 0, 0, w, h);
         };
         img.src = dataUrl;
         c.dataset.loaded = "1";

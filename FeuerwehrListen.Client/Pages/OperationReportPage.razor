@@ -301,10 +301,19 @@
 
     private bool _showExtForm; private string? _newRuf, _newStk;
 
+    // Nur die laut Feuerwehrsatzung (Anlage I) abrechenbaren Sach-/Verbrauchskosten.
+    // Reihenfolge: zuerst Verbrauchsmaterial (§3.4) - dieses wird nach Verbrauch zu
+    // Tagespreisen berechnet und ist unabhaengig von der Kostenpflicht des Einsatzes
+    // immer abrechenbar (vgl. §4 Abs. 4). Danach die abrechenbaren Geraete:
+    // 3.2 Sonstige Maschinen/Geraetschaften (Notstromaggregat, Be-/Entlueftungsgeraet),
+    // 3.3 Schutzausruestung (CSA-Anzug).
+    // Nicht abrechenbare Geraete wurden entfernt; sie lassen sich bei Bedarf weiterhin
+    // ueber "Sonstiges" erfassen.
     private static readonly string[] Predefined = {
-        "Lastkraftwagen bis 7,5 t","Lastkraftwagen über 7,5 t","Tragkraftspritze","Schmutzwasserpumpe","Notstromaggregat","Motorsäge",
-        "Industriesauger","Schaumwasserwerfer","Atemschutzgerät","Rettungsschere einschl. Aggregat","Spreizer einschl. Aggregat",
-        "Be- und Entlüftungsgerät","Wärmebildkamera","Löschmittel (Liter)","Ölbindemittel (Sack/Kanister)","Mess- und Prüfröhrchen (Stück)"
+        // Verbrauchsmaterial (§3.4) - immer abrechenbar
+        "Löschmittel (Liter)","Ölbindemittel (Sack/Kanister)","Mess- und Prüfröhrchen (Stück)",
+        // Abrechenbare Geräte (§3.2 / §3.3)
+        "Notstromaggregat","Be- und Entlüftungsgerät","CSA-Anzug (Chemikalienschutzanzug)"
     };
     private bool _showMittel; private List<MEdit> _mittelEdit = new(); private List<MEdit> _customMittel = new();
     private bool _showVsModal;
