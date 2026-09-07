@@ -16,22 +16,28 @@
 
     <nav class="tw-nav">
         <a href="/" class="@Active("/")"><i class="bi bi-house"></i> Übersicht</a>
-        @if (M.Attendance) { <a href="create-attendance" class="@Active("create-attendance")"><i class="bi bi-clipboard-check"></i> Anwesenheit</a> }
-        @if (M.Operations) { <a href="create-operation" class="@Active("create-operation")"><i class="bi bi-truck"></i> Einsatz</a> }
-        @if (M.FireSafety) { <a href="firesafetywatches" class="@Active("firesafetywatches")"><i class="bi bi-shield-check"></i> Wachen</a> }
-        @if (M.Defects) { <a href="defects" class="@Active("defects")"><i class="bi bi-tools"></i> Mängel</a> }
-        @* bi-calendar ist schon fuer "Geplante Listen" belegt - hier bewusst ein anderes Icon. *@
-        @if (M.Calendar) { <a href="kalender" class="@Active("kalender")"><i class="bi bi-calendar3"></i> Kalender</a> }
+        @if (!_authed || _canUseLists)
+        {
+            @if (M.Attendance) { <a href="create-attendance" class="@Active("create-attendance")"><i class="bi bi-clipboard-check"></i> Anwesenheit</a> }
+            @if (M.Operations) { <a href="create-operation" class="@Active("create-operation")"><i class="bi bi-truck"></i> Einsatz</a> }
+            @if (M.FireSafety) { <a href="firesafetywatches" class="@Active("firesafetywatches")"><i class="bi bi-shield-check"></i> Wachen</a> }
+            @if (M.Defects) { <a href="defects" class="@Active("defects")"><i class="bi bi-tools"></i> Mängel</a> }
+            @* bi-calendar ist schon fuer "Geplante Listen" belegt - hier bewusst ein anderes Icon. *@
+            @if (M.Calendar) { <a href="kalender" class="@Active("kalender")"><i class="bi bi-calendar3"></i> Kalender</a> }
+        }
     </nav>
 
     <div class="tw-right">
         @if (_authed)
         {
-            <div class="tw-drop">
-                <button @onclick='() => Toggle("admin")'>
-                    <i class="bi bi-grid"></i> @(_isAdmin ? "Verwaltung" : "Listen") <i class="bi bi-chevron-down" style="font-size:.8rem"></i>
-                </button>
-            </div>
+            @if (_canUseLists)
+            {
+                <div class="tw-drop">
+                    <button @onclick='() => Toggle("admin")'>
+                        <i class="bi bi-grid"></i> @(_isAdmin ? "Verwaltung" : "Listen") <i class="bi bi-chevron-down" style="font-size:.8rem"></i>
+                    </button>
+                </div>
+            }
             <div class="tw-drop">
                 <button @onclick='() => Toggle("user")'>
                     <span class="tw-avatar">@Initials()</span> <i class="bi bi-chevron-down" style="font-size:.8rem"></i>
@@ -69,6 +75,8 @@
             <a href="admin/functions"><i class="bi bi-puzzle"></i> Funktionen</a>
             <a href="admin/keywords"><i class="bi bi-tags"></i> Stichwörter</a>
             <a href="admin/users"><i class="bi bi-people"></i> Benutzer</a>
+            <a href="admin/permission-keys"><i class="bi bi-key-fill"></i> Berechtigungskeys</a>
+            <a href="admin/sso-clients"><i class="bi bi-box-arrow-in-right"></i> SSO-Clients</a>
             <a href="admin/apikeys"><i class="bi bi-key"></i> API Keys</a>
             <a href="admin/statistics"><i class="bi bi-bar-chart"></i> Statistiken</a>
             <a href="admin/service-status"><i class="bi bi-gear"></i> Service Status</a>
@@ -97,19 +105,25 @@
             <button @onclick="Close" aria-label="Schließen"><i class="bi bi-x"></i></button>
         </div>
         <a href="/"><i class="bi bi-house"></i> Übersicht</a>
-        @if (M.Attendance) { <a href="create-attendance"><i class="bi bi-clipboard-check"></i> Neue Anwesenheitsliste</a> }
-        @if (M.Operations) { <a href="create-operation"><i class="bi bi-truck"></i> Neue Einsatzliste</a> }
-        @if (M.FireSafety) { <a href="firesafetywatches"><i class="bi bi-shield-check"></i> Brandsicherheitswachen</a> }
-        @if (M.Defects) { <a href="defects"><i class="bi bi-tools"></i> Mängelliste</a> }
-        @if (M.Calendar) { <a href="kalender"><i class="bi bi-calendar3"></i> Kalender</a> }
+        @if (!_authed || _canUseLists)
+        {
+            @if (M.Attendance) { <a href="create-attendance"><i class="bi bi-clipboard-check"></i> Neue Anwesenheitsliste</a> }
+            @if (M.Operations) { <a href="create-operation"><i class="bi bi-truck"></i> Neue Einsatzliste</a> }
+            @if (M.FireSafety) { <a href="firesafetywatches"><i class="bi bi-shield-check"></i> Brandsicherheitswachen</a> }
+            @if (M.Defects) { <a href="defects"><i class="bi bi-tools"></i> Mängelliste</a> }
+            @if (M.Calendar) { <a href="kalender"><i class="bi bi-calendar3"></i> Kalender</a> }
+        }
 
         @if (_authed)
         {
-            <div class="mm-sect">Listen &amp; Daten</div>
-            <a href="admin/closed-lists"><i class="bi bi-check-circle"></i> Abgeschlossene Listen</a>
-            <a href="admin/archive"><i class="bi bi-archive"></i> Archiv</a>
-            <a href="admin/members"><i class="bi bi-person"></i> Mitglieder</a>
-            <a href="admin/scheduled"><i class="bi bi-calendar"></i> Geplante Listen</a>
+            @if (_canUseLists)
+            {
+                <div class="mm-sect">Listen &amp; Daten</div>
+                <a href="admin/closed-lists"><i class="bi bi-check-circle"></i> Abgeschlossene Listen</a>
+                <a href="admin/archive"><i class="bi bi-archive"></i> Archiv</a>
+                <a href="admin/members"><i class="bi bi-person"></i> Mitglieder</a>
+                <a href="admin/scheduled"><i class="bi bi-calendar"></i> Geplante Listen</a>
+            }
             @if (_isAdmin)
             {
                 <div class="mm-sect">Verwaltung</div>
@@ -118,6 +132,8 @@
                 <a href="admin/functions"><i class="bi bi-puzzle"></i> Funktionen</a>
                 <a href="admin/keywords"><i class="bi bi-tags"></i> Stichwörter</a>
                 <a href="admin/users"><i class="bi bi-people"></i> Benutzer</a>
+                <a href="admin/permission-keys"><i class="bi bi-key-fill"></i> Berechtigungskeys</a>
+                <a href="admin/sso-clients"><i class="bi bi-box-arrow-in-right"></i> SSO-Clients</a>
                 <a href="admin/apikeys"><i class="bi bi-key"></i> API Keys</a>
                 <a href="admin/statistics"><i class="bi bi-bar-chart"></i> Statistiken</a>
                 <a href="admin/service-status"><i class="bi bi-gear"></i> Service Status</a>
@@ -141,6 +157,10 @@
     private string? _open;
     private bool _authed;
     private bool _isAdmin;
+    private bool _hasListAccess;
+    // Admins haben implizit Listen-Zugriff; reine SSO-Konten (kein Admin, kein Listen-Zugriff)
+    // sehen die Listen-Navigation nicht.
+    private bool _canUseLists => _isAdmin || _hasListAccess;
     private string _username = "";
     private string _firstName = "";
     private string _lastName = "";
@@ -162,6 +182,7 @@
         var u = state.User;
         _authed = u.Identity?.IsAuthenticated == true;
         _isAdmin = u.IsInRole("Admin");
+        _hasListAccess = u.FindFirst("ListAccess")?.Value == "true";
         _username = u.Identity?.Name ?? "";
         _firstName = u.FindFirst("FirstName")?.Value ?? "";
         _lastName = u.FindFirst("LastName")?.Value ?? "";

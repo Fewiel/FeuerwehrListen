@@ -16,6 +16,9 @@ public class AppDbConnection : DataConnection
     public ITable<OperationEntry> OperationEntries => this.GetTable<OperationEntry>();
     public ITable<User> Users => this.GetTable<User>();
     public ITable<ApiKey> ApiKeys => this.GetTable<ApiKey>();
+    public ITable<PermissionKey> PermissionKeys => this.GetTable<PermissionKey>();
+    public ITable<UserPermissionKey> UserPermissionKeys => this.GetTable<UserPermissionKey>();
+    public ITable<SsoClient> SsoClients => this.GetTable<SsoClient>();
     public ITable<ScheduledList> ScheduledLists => this.GetTable<ScheduledList>();
     public ITable<Vehicle> Vehicles => this.GetTable<Vehicle>();
     public ITable<Member> Members => this.GetTable<Member>();

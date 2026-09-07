@@ -33,6 +33,11 @@ public class User
     [Column("AdminPin")]
     public string? AdminPin { get; set; }
 
+    // Steuert den Zugriff auf das Listen-Tool. Bestandsnutzer werden per Migration auf true
+    // gesetzt; reine SSO-Konten koennen ohne Listen-Zugriff (false) angelegt werden.
+    [Column("HasListAccess")]
+    public bool HasListAccess { get; set; } = true;
+
     [Column("CreatedAt")]
     public DateTime CreatedAt { get; set; }
 }
