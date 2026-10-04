@@ -102,6 +102,8 @@ builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<DownloadTokenService>();
 // Einmal-Login-Tickets fuer den Cookie-SignIn per Browser-GET (Server-Modus, s. AuthTicketService).
 builder.Services.AddSingleton<AuthTicketService>();
+// SSO-Provider: fluechtige Auth-Codes/Access-Tokens fuer den OAuth2-Flow (/sso/*).
+builder.Services.AddSingleton<SsoTokenService>();
 
 var dbProvider = builder.Configuration["DatabaseSettings:Provider"];
 var connectionString = Environment.GetEnvironmentVariable("DATABASE_CONNECTION_STRING") 
@@ -143,6 +145,8 @@ builder.Services.AddScoped<OperationEntryRepository>();
 builder.Services.AddScoped<MemberRepository>();
 builder.Services.AddScoped<UserRepository>();
 builder.Services.AddScoped<ApiKeyRepository>();
+builder.Services.AddScoped<PermissionKeyRepository>();
+builder.Services.AddScoped<SsoClientRepository>();
 builder.Services.AddScoped<ScheduledListRepository>();
 builder.Services.AddScoped<VehicleRepository>();
 builder.Services.AddScoped<OperationFunctionRepository>();
@@ -409,6 +413,25 @@ app.Use(async (ctx, next) =>
                 });
                 return;
             }
+        }
+
+        // Listen-Zugriff: reine SSO-Konten (HasListAccess=false, kein Admin) duerfen das
+        // Listen-Tool nicht nutzen. Bewusst NUR fuer echte Cookie-Sessions (FwCookie) - die
+        // interne Server-Render-Identity (FwInternal) traegt kein ListAccess-Claim und bliebe
+        // sonst faelschlich gesperrt. Auth-Endpoints bleiben offen, damit An-/Abmeldung und
+        // die SSO-Weiterleitung funktionieren. Bestandsnutzer haben ListAccess=true.
+        if (ctx.User?.Identity?.AuthenticationType == "FwCookie"
+            && !ctx.User.IsInRole("Admin")
+            && ctx.User.FindFirst("ListAccess")?.Value != "true"
+            && !path.StartsWithSegments("/client-api/auth"))
+        {
+            ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
+            await ctx.Response.WriteAsJsonAsync(new
+            {
+                error = "no_list_access",
+                message = "Dieses Konto hat keinen Zugriff auf das Listen-Tool."
+            });
+            return;
         }
     }
     await next();
@@ -677,7 +700,116 @@ app.MapGet("/client-api/auth/me", (HttpContext ctx) =>
         username = ctx.User.Identity!.Name,
         isAdmin = ctx.User.IsInRole("Admin"),
         firstName = ctx.User.FindFirst("FirstName")?.Value,
-        lastName = ctx.User.FindFirst("LastName")?.Value
+        lastName = ctx.User.FindFirst("LastName")?.Value,
+        // Admins haben implizit Listen-Zugriff; sonst entscheidet das ListAccess-Claim.
+        hasListAccess = ctx.User.IsInRole("Admin") || ctx.User.FindFirst("ListAccess")?.Value == "true"
+    });
+});
+
+// ================== SSO-Provider (OAuth2 Authorization Code Flow) ========================
+// FeuerwehrListen als Identity-Provider fuer interne Systeme (z.B. alarmmonitor). Bewusst unter
+// dem eigenen Praefix /sso: die ApiKey-Middleware (nur /api) und die Netz-/Modulschranke (nur
+// /client-api) fassen diese Endpoints NICHT an -> server-to-server von aussen erreichbar. Der
+// bestehende Login/Cookie-Flow wird WIEDERVERWENDET (Redirect nach /login?returnUrl=/sso/...),
+// nicht veraendert.
+
+// 1) Autorisierung: Browser-GET. Validiert Client + redirect_uri, erzwingt Login, prueft die
+//    vom Client benoetigten Keys und gibt bei Erfolg einen Einmal-Code an die redirect_uri zurueck.
+app.MapGet("/sso/authorize", async (HttpContext ctx, SsoClientRepository clients, UserRepository users,
+    PermissionKeyRepository keys, SsoTokenService sso,
+    string? client_id, string? redirect_uri, string? response_type, string? state, string? scope) =>
+{
+    var client = await clients.GetByClientIdAsync(client_id ?? "");
+    if (client == null || !client.IsActive)
+        return Results.Text("Unbekannter oder inaktiver client_id.", "text/plain", null, 400);
+
+    // redirect_uri MUSS exakt einer registrierten URI entsprechen (Open-Redirect-Schutz).
+    var allowedUris = client.RedirectUris
+        .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    if (string.IsNullOrWhiteSpace(redirect_uri) || !allowedUris.Contains(redirect_uri, StringComparer.Ordinal))
+        return Results.Text("Ungueltige redirect_uri.", "text/plain", null, 400);
+
+    // Ab hier ist redirect_uri vertrauenswuerdig -> Fehler duerfen dorthin zurueckgegeben werden.
+    if (!string.IsNullOrEmpty(response_type) && response_type != "code")
+        return Results.Redirect(AppendQuery(redirect_uri, ("error", "unsupported_response_type"), ("state", state)));
+
+    // Nicht angemeldet -> bestehenden Login nutzen und danach hierher zurueckkehren.
+    if (ctx.User?.Identity?.IsAuthenticated != true)
+    {
+        var self = ctx.Request.Path + ctx.Request.QueryString;
+        return Results.Redirect("/login?returnUrl=" + Uri.EscapeDataString(self));
+    }
+
+    var user = await users.GetByUsernameAsync(ctx.User.Identity!.Name ?? "");
+    if (user == null)
+        return Results.Redirect(AppendQuery(redirect_uri, ("error", "access_denied"), ("state", state)));
+
+    var userKeys = (await keys.GetKeysForUserAsync(user.Id)).Select(k => k.Name).ToArray();
+    var requiredKeys = client.RequiredKeys
+        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    // Erforderlich -> Login-Sperre: hat der Client Keys definiert und der Nutzer KEINEN davon, ablehnen.
+    if (requiredKeys.Length > 0 && !requiredKeys.Intersect(userKeys, StringComparer.Ordinal).Any())
+        return Results.Redirect(AppendQuery(redirect_uri, ("error", "access_denied"), ("state", state)));
+
+    // Gewaehrte Keys: bei definierten Required-Keys nur deren Schnittmenge, sonst alle Keys des Nutzers.
+    var grantedKeys = requiredKeys.Length > 0
+        ? requiredKeys.Intersect(userKeys, StringComparer.Ordinal).ToArray()
+        : userKeys;
+
+    var code = sso.CreateAuthCode(user.Id, client.ClientId, redirect_uri, grantedKeys);
+    return Results.Redirect(AppendQuery(redirect_uri, ("code", code), ("state", state)));
+});
+
+// 2) Token: server-to-server POST (application/x-www-form-urlencoded). Tauscht Code + Secret gegen
+//    ein opakes Access-Token.
+app.MapPost("/sso/token", async (HttpContext ctx, SsoClientRepository clients, SsoTokenService sso) =>
+{
+    if (!ctx.Request.HasFormContentType) return Results.Json(new { error = "invalid_request" }, statusCode: 400);
+    var form = await ctx.Request.ReadFormAsync();
+    string? F(string k) => form[k].FirstOrDefault();
+
+    if (F("grant_type") != "authorization_code")
+        return Results.Json(new { error = "unsupported_grant_type" }, statusCode: 400);
+
+    var client = await clients.GetByClientIdAsync(F("client_id") ?? "");
+    if (client == null || !client.IsActive ||
+        !FeuerwehrListen.Services.AuthenticationService.VerifyPassword(client.ClientSecretHash, F("client_secret") ?? ""))
+        return Results.Json(new { error = "invalid_client" }, statusCode: 401);
+
+    if (!sso.TryConsumeAuthCode(F("code"), out var data)
+        || data.ClientId != client.ClientId
+        || data.RedirectUri != (F("redirect_uri") ?? ""))
+        return Results.Json(new { error = "invalid_grant" }, statusCode: 400);
+
+    var token = sso.CreateAccessToken(data.UserId, client.ClientId, data.GrantedKeys);
+    return Results.Json(new
+    {
+        access_token = token,
+        token_type = "Bearer",
+        expires_in = (int)SsoTokenService.TokenLifetime.TotalSeconds,
+        scope = string.Join(' ', data.GrantedKeys)
+    });
+}).DisableAntiforgery();
+
+// 3) Userinfo: Bearer-Token -> Grundidentitaet + gewaehrte Keys.
+app.MapGet("/sso/userinfo", async (HttpContext ctx, UserRepository users, SsoTokenService sso) =>
+{
+    var auth = ctx.Request.Headers.Authorization.FirstOrDefault() ?? "";
+    var token = auth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) ? auth["Bearer ".Length..].Trim() : null;
+    if (!sso.TryGetAccessToken(token, out var data))
+        return Results.Json(new { error = "invalid_token" }, statusCode: 401);
+    var user = await users.GetByIdAsync(data.UserId);
+    if (user == null) return Results.Json(new { error = "invalid_token" }, statusCode: 401);
+    return Results.Json(new
+    {
+        sub = user.Id,
+        username = user.Username,
+        firstName = user.FirstName,
+        lastName = user.LastName,
+        email = user.Email,
+        role = user.Role.ToString(),
+        keys = data.GrantedKeys
     });
 });
 
@@ -1009,9 +1141,15 @@ admin.MapPost("/members/import-csv", async (MemberRepository repo, CsvReq r) =>
 // ein selbst generiertes Klartext-Passwort mitschicken (B17: einmalige Anzeige im Frontend);
 // ist SendWelcomeMail gesetzt und eine Email vorhanden, werden die Zugangsdaten (Benutzername +
 // Klartext-Passwort) per Mail versendet. Der Mail-Versand darf den Anlage-Vorgang nicht crashen.
-admin.MapGet("/users", async (UserRepository repo) =>
-    Results.Json((await repo.GetAllAsync()).Select(u => new { id = u.Id, username = u.Username, firstName = u.FirstName, lastName = u.LastName, email = u.Email, role = u.Role.ToString(), hasQr = !string.IsNullOrEmpty(u.QrAuthCode), hasPin = !string.IsNullOrEmpty(u.AdminPin), createdAt = u.CreatedAt })));
-admin.MapPost("/users", async (UserRepository repo, EmailSenderService email, UserReq r) =>
+admin.MapGet("/users", async (UserRepository repo, PermissionKeyRepository keys) =>
+{
+    var users = await repo.GetAllAsync();
+    var result = new List<object>(users.Count);
+    foreach (var u in users)
+        result.Add(new { id = u.Id, username = u.Username, firstName = u.FirstName, lastName = u.LastName, email = u.Email, role = u.Role.ToString(), hasQr = !string.IsNullOrEmpty(u.QrAuthCode), hasPin = !string.IsNullOrEmpty(u.AdminPin), hasListAccess = u.HasListAccess, keyIds = await keys.GetKeyIdsForUserAsync(u.Id), createdAt = u.CreatedAt });
+    return Results.Json(result);
+});
+admin.MapPost("/users", async (UserRepository repo, PermissionKeyRepository keys, EmailSenderService email, UserReq r) =>
 {
     var user = new User
     {
@@ -1022,9 +1160,11 @@ admin.MapPost("/users", async (UserRepository repo, EmailSenderService email, Us
         PasswordHash = FeuerwehrListen.Services.AuthenticationService.HashPassword(r.Password ?? ""),
         QrAuthCode = string.IsNullOrWhiteSpace(r.QrAuthCode) ? null : r.QrAuthCode.Trim(),
         AdminPin = string.IsNullOrWhiteSpace(r.AdminPin) ? null : r.AdminPin.Trim(),
+        HasListAccess = r.HasListAccess,
         CreatedAt = DateTime.Now
     };
     var id = await repo.CreateAsync(user);
+    await keys.SetKeysForUserAsync(id, r.KeyIds ?? new List<int>());
 
     // Willkommens-Mail mit Zugangsdaten (nur wenn angefordert, Email + Klartext-Passwort vorhanden).
     if (r.SendWelcomeMail && !string.IsNullOrWhiteSpace(user.Email) && !string.IsNullOrWhiteSpace(r.Password))
@@ -1048,7 +1188,7 @@ admin.MapPost("/users", async (UserRepository repo, EmailSenderService email, Us
     }
     return Results.Json(new { id });
 });
-admin.MapPut("/users/{id:int}", async (int id, UserRepository repo, UserReq r) =>
+admin.MapPut("/users/{id:int}", async (int id, UserRepository repo, PermissionKeyRepository keys, UserReq r) =>
 {
     var u = await repo.GetByIdAsync(id); if (u == null) return Results.NotFound();
     u.Username = r.Username.Trim(); u.FirstName = r.FirstName?.Trim() ?? ""; u.LastName = r.LastName?.Trim() ?? "";
@@ -1057,9 +1197,75 @@ admin.MapPut("/users/{id:int}", async (int id, UserRepository repo, UserReq r) =
     if (!string.IsNullOrWhiteSpace(r.Password)) u.PasswordHash = FeuerwehrListen.Services.AuthenticationService.HashPassword(r.Password);
     u.QrAuthCode = string.IsNullOrWhiteSpace(r.QrAuthCode) ? null : r.QrAuthCode.Trim();
     u.AdminPin = string.IsNullOrWhiteSpace(r.AdminPin) ? null : r.AdminPin.Trim();
-    await repo.UpdateAsync(u); return Results.Ok();
+    u.HasListAccess = r.HasListAccess;
+    await repo.UpdateAsync(u);
+    await keys.SetKeysForUserAsync(id, r.KeyIds ?? new List<int>());
+    return Results.Ok();
 });
-admin.MapDelete("/users/{id:int}", async (int id, UserRepository repo) => { await repo.DeleteAsync(id); return Results.Ok(); });
+admin.MapDelete("/users/{id:int}", async (int id, UserRepository repo, PermissionKeyRepository keys) =>
+{
+    await keys.DeleteAssignmentsForUserAsync(id);
+    await repo.DeleteAsync(id);
+    return Results.Ok();
+});
+
+// --- Berechtigungskeys (Permission Keys) ---
+admin.MapGet("/permission-keys", async (PermissionKeyRepository repo) =>
+    Results.Json((await repo.GetAllAsync()).Select(k => new { id = k.Id, name = k.Name, description = k.Description, createdAt = k.CreatedAt })));
+admin.MapPost("/permission-keys", async (PermissionKeyRepository repo, PermissionKeyReq r) =>
+{
+    var name = (r.Name ?? "").Trim();
+    if (string.IsNullOrWhiteSpace(name)) return Results.BadRequest("Name erforderlich.");
+    var id = await repo.CreateAsync(new PermissionKey { Name = name, Description = r.Description?.Trim() ?? "", CreatedAt = DateTime.Now });
+    return Results.Json(new { id });
+});
+admin.MapPut("/permission-keys/{id:int}", async (int id, PermissionKeyRepository repo, PermissionKeyReq r) =>
+{
+    var k = await repo.GetByIdAsync(id); if (k == null) return Results.NotFound();
+    var name = (r.Name ?? "").Trim();
+    if (string.IsNullOrWhiteSpace(name)) return Results.BadRequest("Name erforderlich.");
+    k.Name = name; k.Description = r.Description?.Trim() ?? "";
+    await repo.UpdateAsync(k); return Results.Ok();
+});
+admin.MapDelete("/permission-keys/{id:int}", async (int id, PermissionKeyRepository repo) => { await repo.DeleteAsync(id); return Results.Ok(); });
+
+// --- SSO-Clients (externe Systeme) ---
+admin.MapGet("/sso-clients", async (SsoClientRepository repo) =>
+    Results.Json((await repo.GetAllAsync()).Select(c => new { id = c.Id, clientId = c.ClientId, name = c.Name, redirectUris = c.RedirectUris, requiredKeys = c.RequiredKeys, isActive = c.IsActive, createdAt = c.CreatedAt })));
+admin.MapPost("/sso-clients", async (SsoClientRepository repo, SsoClientReq r) =>
+{
+    // client_id + Secret werden erzeugt; das Secret wird nur JETZT im Klartext zurueckgegeben.
+    var clientId = "cli_" + Convert.ToHexString(Guid.NewGuid().ToByteArray())[..16].ToLowerInvariant();
+    var secret = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
+    var id = await repo.CreateAsync(new SsoClient
+    {
+        ClientId = clientId,
+        ClientSecretHash = FeuerwehrListen.Services.AuthenticationService.HashPassword(secret),
+        Name = r.Name?.Trim() ?? "",
+        RedirectUris = (r.RedirectUris ?? "").Trim(),
+        RequiredKeys = (r.RequiredKeys ?? "").Trim(),
+        IsActive = r.IsActive,
+        CreatedAt = DateTime.Now
+    });
+    return Results.Json(new { id, clientId, clientSecret = secret });
+});
+admin.MapPut("/sso-clients/{id:int}", async (int id, SsoClientRepository repo, SsoClientReq r) =>
+{
+    var c = await repo.GetByIdAsync(id); if (c == null) return Results.NotFound();
+    c.Name = r.Name?.Trim() ?? "";
+    c.RedirectUris = (r.RedirectUris ?? "").Trim();
+    c.RequiredKeys = (r.RequiredKeys ?? "").Trim();
+    c.IsActive = r.IsActive;
+    string? newSecret = null;
+    if (r.RegenerateSecret)
+    {
+        newSecret = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
+        c.ClientSecretHash = FeuerwehrListen.Services.AuthenticationService.HashPassword(newSecret);
+    }
+    await repo.UpdateAsync(c);
+    return Results.Json(new { clientSecret = newSecret });
+});
+admin.MapDelete("/sso-clients/{id:int}", async (int id, SsoClientRepository repo) => { await repo.DeleteAsync(id); return Results.Ok(); });
 
 // --- Statistik ---
 // Vollstaendige Auswertung MIT Filter (Listentyp/Zeitraum/Einheit). Die Fahrzeug-,
@@ -2519,6 +2725,20 @@ app.MapRazorComponents<App>()
 
 app.Run();
 
+// Haengt Query-Parameter an eine (ggf. schon parametrisierte) URL an. Leere Werte werden
+// uebersprungen; Werte werden URL-kodiert. Genutzt fuer die SSO-Redirects an die redirect_uri.
+static string AppendQuery(string url, params (string Key, string? Value)[] pairs)
+{
+    var sep = url.Contains('?') ? '&' : '?';
+    foreach (var (key, value) in pairs)
+    {
+        if (string.IsNullOrEmpty(value)) continue;
+        url += $"{sep}{key}={Uri.EscapeDataString(value)}";
+        sep = '&';
+    }
+    return url;
+}
+
 static async Task SignInUser(HttpContext ctx, User user)
 {
     var claims = new List<Claim>
@@ -2526,7 +2746,8 @@ static async Task SignInUser(HttpContext ctx, User user)
         new(ClaimTypes.Name, user.Username),
         new(ClaimTypes.Role, user.Role.ToString()),
         new("FirstName", user.FirstName ?? ""),
-        new("LastName", user.LastName ?? "")
+        new("LastName", user.LastName ?? ""),
+        new("ListAccess", user.HasListAccess ? "true" : "false")
     };
     var identity = new ClaimsIdentity(claims, "FwCookie", ClaimTypes.Name, ClaimTypes.Role);
     await ctx.SignInAsync("FwCookie", new ClaimsPrincipal(identity),
@@ -2561,7 +2782,10 @@ public record ApiKeyReq(string? Description);
 // B15/B17: Email + optionaler Willkommens-Mail-Versand. Der Client generiert das Klartext-Passwort
 // (Password) und zeigt es einmalig an; ist SendWelcomeMail=true und Email gesetzt, versendet der
 // POST die Zugangsdaten (Benutzername + Klartext-Passwort) per Mail.
-public record UserReq(string Username, string? FirstName, string? LastName, string Role, string? Password, string? QrAuthCode, string? AdminPin, string? Email = null, bool SendWelcomeMail = false);
+public record UserReq(string Username, string? FirstName, string? LastName, string Role, string? Password, string? QrAuthCode, string? AdminPin, string? Email = null, bool SendWelcomeMail = false, bool HasListAccess = true, List<int>? KeyIds = null);
+public record PermissionKeyReq(string? Name, string? Description);
+// RedirectUris zeilenweise, RequiredKeys kommagetrennt. RegenerateSecret nur bei PUT relevant.
+public record SsoClientReq(string? Name, string? RedirectUris, string? RequiredKeys, bool IsActive = true, bool RegenerateSecret = false);
 public record ScheduledReq(string Type, string? Title, string? Unit, string? Description, int? UnitNumber, string? OperationNumber, string? Keyword, DateTime EventTime, int MinutesBefore);
 public record AuthLoginRequest(string? Username, string? Password);
 public record AuthQrRequest(string? Code, string? Pin);

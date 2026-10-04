@@ -144,11 +144,17 @@
     {
         if (string.IsNullOrWhiteSpace(ticket)) { _error = "Login fehlgeschlagen (kein Ticket)."; return; }
         // Echte Browser-Navigation (GET): der Server setzt via /client-api/auth/complete das Cookie
-        // und redirectet auf /. Set-Cookie greift so in beiden Render-Modi (WASM + InteractiveServer).
-        // Hinweis (F33): auth/complete redirectet serverseitig hart auf /, daher kann ein evtl.
-        // vorhandener returnUrl-Parameter nicht ohne Server-Aenderung genutzt werden.
-        Nav.NavigateTo($"client-api/auth/complete?ticket={Uri.EscapeDataString(ticket)}", forceLoad: true);
+        // und redirectet danach zurueck. Set-Cookie greift so in beiden Render-Modi (WASM + Server).
+        // Ist ein returnUrl gesetzt (z.B. SSO-Flow /sso/authorize), wird er an complete durchgereicht
+        // und dort nach Open-Redirect-Pruefung angesteuert; sonst landet der Nutzer wie bisher auf /.
+        var url = $"client-api/auth/complete?ticket={Uri.EscapeDataString(ticket)}";
+        if (!string.IsNullOrWhiteSpace(ReturnUrl))
+            url += $"&returnUrl={Uri.EscapeDataString(ReturnUrl)}";
+        Nav.NavigateTo(url, forceLoad: true);
     }
+
+    [SupplyParameterFromQuery(Name = "returnUrl")]
+    public string? ReturnUrl { get; set; }
 
     private record OkDto(bool Ok, string? Ticket);
     private record QrDto(string Status, string? Ticket);

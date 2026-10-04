@@ -1,0 +1,211 @@
+@page "/admin/sso-clients"
+@layout MainLayout
+@using System.Net.Http.Json
+@inject HttpClient Http
+@inject IJSRuntime JS
+
+<PageTitle>SSO-Clients - Admin</PageTitle>
+
+<AuthGuard RequireAdmin="true">
+    <div class="container mt-4">
+        <div class="row mb-4">
+            <div class="col"><h1>SSO-Clients</h1></div>
+            <div class="col-auto"><button class="btn btn-primary" @onclick="ShowAdd"><i class="bi bi-plus-circle"></i> Neuer Client</button></div>
+        </div>
+
+        <p class="text-muted">
+            Externe Systeme, die FeuerwehrListen als Login-Anbieter (OAuth2 Authorization Code) nutzen.
+            Der Client leitet Nutzer auf <code>/sso/authorize</code>, tauscht den Code an <code>/sso/token</code>
+            und liest die Identität an <code>/sso/userinfo</code>. Fordert der Client Keys an, wird der Login
+            nur mit passendem Key gewährt.
+        </p>
+
+        @if (_newSecret is not null)
+        {
+            <div class="alert alert-success">
+                <strong>Client-Secret (nur jetzt sichtbar):</strong>
+                <div class="d-flex align-items-center gap-2 mt-1">
+                    <code class="p-2 bg-dark text-light rounded">@_newSecret</code>
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => Copy(_newSecret!)"><i class="bi bi-clipboard"></i> Kopieren</button>
+                </div>
+                @if (_newClientId is not null) { <div class="mt-2"><strong>client_id:</strong> <code>@_newClientId</code></div> }
+            </div>
+        }
+
+        @if (_showForm)
+        {
+            <div class="row mb-4"><div class="col-md-8 offset-md-2"><div class="card"><div class="card-body">
+                <h5 class="card-title">@(_editId is null ? "Neuer Client" : "Client bearbeiten")</h5>
+                <div class="mb-3"><label class="form-label">Name</label><input class="form-control" @bind="_name" placeholder="z.B. Alarmmonitor" /></div>
+                <div class="mb-3">
+                    <label class="form-label">Redirect-URIs (eine pro Zeile)</label>
+                    <textarea class="form-control" rows="3" @bind="_redirectUris" placeholder="https://alarmmonitor.example.de/sso/callback"></textarea>
+                    <small class="text-muted">Muss exakt mit der vom Client gesendeten redirect_uri übereinstimmen.</small>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Benötigte Keys</label>
+                    @if (_availableKeys.Count == 0)
+                    {
+                        <div class="text-muted small">Keine Keys vorhanden. Unter „Berechtigungskeys" anlegen. Ohne Keys ist jeder angemeldete Nutzer erlaubt.</div>
+                    }
+                    else
+                    {
+                        <div class="d-flex flex-wrap gap-3">
+                            @foreach (var k in _availableKeys)
+                            {
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="@($"rk{k.Id}")" checked="@_requiredKeys.Contains(k.Name)" @onchange="e => ToggleKey(k.Name, (bool)e.Value!)" />
+                                    <label class="form-check-label" for="@($"rk{k.Id}")">@k.Name</label>
+                                </div>
+                            }
+                        </div>
+                        <small class="text-muted">Nutzer mit mindestens einem dieser Keys wird zugelassen. Keine Auswahl = jeder angemeldete Nutzer.</small>
+                    }
+                </div>
+                <div class="mb-3 form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="active" @bind="_isActive" />
+                    <label class="form-check-label" for="active">Aktiv</label>
+                </div>
+                @if (_editId is not null)
+                {
+                    <div class="mb-3 form-check">
+                        <input class="form-check-input" type="checkbox" id="regen" @bind="_regenerate" />
+                        <label class="form-check-label" for="regen">Neues Client-Secret erzeugen</label>
+                    </div>
+                }
+                @if (_error is not null) { <div class="alert alert-danger py-2">@_error</div> }
+                <button class="btn btn-primary me-2" @onclick="Save" disabled="@_saving">Speichern</button>
+                <button class="btn btn-secondary" @onclick="() => _showForm = false">Abbrechen</button>
+            </div></div></div></div>
+        }
+
+        @if (!_showForm && _error is not null) { <div class="alert alert-danger">@_error</div> }
+
+        <div class="card"><div class="card-body">
+            @if (_items is null) { <p><em>Lade…</em></p> }
+            else if (_items.Count == 0) { <p class="text-muted">Keine SSO-Clients vorhanden</p> }
+            else
+            {
+                <div class="table-responsive"><table class="table table-hover">
+                    <thead><tr><th>Name</th><th>client_id</th><th>Keys</th><th>Status</th><th>Aktionen</th></tr></thead>
+                    <tbody>
+                        @foreach (var c in _items)
+                        {
+                            <tr>
+                                <td>@c.Name</td>
+                                <td><code>@c.ClientId</code></td>
+                                <td>@(string.IsNullOrWhiteSpace(c.RequiredKeys) ? "-" : c.RequiredKeys)</td>
+                                <td>@if (c.IsActive) { <span class="badge bg-success">Aktiv</span> } else { <span class="badge bg-secondary">Inaktiv</span> }</td>
+                                <td>
+                                    <button class="btn btn-sm btn-primary me-2" @onclick="() => Edit(c)">Bearbeiten</button>
+                                    <button class="btn btn-sm btn-danger" @onclick="() => Delete(c.Id)">Löschen</button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table></div>
+            }
+        </div></div>
+    </div>
+</AuthGuard>
+
+@code {
+    private List<ClientDto>? _items;
+    private List<KeyDto> _availableKeys = new();
+    private bool _showForm, _saving;
+    private int? _editId;
+    private string _name = "", _redirectUris = "";
+    private HashSet<string> _requiredKeys = new();
+    private bool _isActive = true, _regenerate;
+    private string? _newSecret, _newClientId;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadKeys();
+        await Load();
+    }
+
+    private async Task LoadKeys()
+    {
+        try { _availableKeys = await Http.GetFromJsonAsync<List<KeyDto>>("client-api/admin/permission-keys") ?? new(); }
+        catch { _availableKeys = new(); }
+    }
+
+    private async Task Load() { try { _items = await Http.GetFromJsonAsync<List<ClientDto>>("client-api/admin/sso-clients"); } catch { _items = new(); } }
+
+    private void ShowAdd()
+    {
+        _editId = null; _name = ""; _redirectUris = ""; _requiredKeys = new(); _isActive = true; _regenerate = false;
+        _newSecret = null; _newClientId = null; _error = null; _showForm = true;
+    }
+
+    private void Edit(ClientDto c)
+    {
+        _editId = c.Id; _name = c.Name; _redirectUris = c.RedirectUris; _isActive = c.IsActive; _regenerate = false;
+        _requiredKeys = string.IsNullOrWhiteSpace(c.RequiredKeys)
+            ? new()
+            : new HashSet<string>(c.RequiredKeys.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        _newSecret = null; _newClientId = null; _error = null; _showForm = true;
+    }
+
+    private void ToggleKey(string name, bool selected)
+    {
+        if (selected) _requiredKeys.Add(name); else _requiredKeys.Remove(name);
+    }
+
+    private async Task Save()
+    {
+        _error = null;
+        if (string.IsNullOrWhiteSpace(_name)) { _error = "Name erforderlich."; return; }
+        if (string.IsNullOrWhiteSpace(_redirectUris)) { _error = "Mindestens eine Redirect-URI erforderlich."; return; }
+        _saving = true;
+        try
+        {
+            var body = new
+            {
+                Name = _name,
+                RedirectUris = _redirectUris,
+                RequiredKeys = string.Join(",", _requiredKeys),
+                IsActive = _isActive,
+                RegenerateSecret = _regenerate
+            };
+            if (_editId is int id)
+            {
+                var resp = await Http.PutAsJsonAsync($"client-api/admin/sso-clients/{id}", body);
+                if (!resp.IsSuccessStatusCode) { _error = "Speichern fehlgeschlagen."; return; }
+                var r = await resp.Content.ReadFromJsonAsync<SecretDto>();
+                _newSecret = r?.ClientSecret; _newClientId = null;
+            }
+            else
+            {
+                var resp = await Http.PostAsJsonAsync("client-api/admin/sso-clients", body);
+                if (!resp.IsSuccessStatusCode) { _error = "Speichern fehlgeschlagen."; return; }
+                var r = await resp.Content.ReadFromJsonAsync<CreatedDto>();
+                _newSecret = r?.ClientSecret; _newClientId = r?.ClientId;
+            }
+            _showForm = false;
+            await Load();
+        }
+        catch { _error = "Speichern fehlgeschlagen."; }
+        finally { _saving = false; }
+    }
+
+    private async Task Delete(int id)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", "Diesen SSO-Client wirklich löschen?")) return;
+        _error = null;
+        try { await Http.DeleteAsync($"client-api/admin/sso-clients/{id}"); await Load(); }
+        catch { _error = "Löschen fehlgeschlagen."; }
+    }
+
+    private async Task Copy(string text)
+    {
+        try { await JS.InvokeVoidAsync("navigator.clipboard.writeText", text); } catch { }
+    }
+
+    private record ClientDto(int Id, string ClientId, string Name, string RedirectUris, string RequiredKeys, bool IsActive, DateTime CreatedAt);
+    private record KeyDto(int Id, string Name, string Description);
+    private record CreatedDto(int Id, string ClientId, string ClientSecret);
+    private record SecretDto(string? ClientSecret);
+}

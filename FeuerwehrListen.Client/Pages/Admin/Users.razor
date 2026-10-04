@@ -79,6 +79,33 @@
                             <small class="text-muted">Sendet Benutzername und Passwort an die angegebene E-Mail-Adresse.</small>
                         </div>
                     }
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label d-block">Listen-Zugriff</label>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="listAccess" @bind="_hasListAccess" />
+                            <label class="form-check-label" for="listAccess">Darf das Listen-Tool nutzen</label>
+                        </div>
+                        <small class="text-muted">Deaktivieren für reine SSO-Konten.</small>
+                    </div>
+                    <div class="col-12 mb-3">
+                        <label class="form-label">Berechtigungskeys (SSO)</label>
+                        @if (_availableKeys.Count == 0)
+                        {
+                            <div class="text-muted small">Keine Keys vorhanden. Unter „Berechtigungskeys" anlegen.</div>
+                        }
+                        else
+                        {
+                            <div class="d-flex flex-wrap gap-3">
+                                @foreach (var k in _availableKeys)
+                                {
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="@($"key{k.Id}")" checked="@_keyIds.Contains(k.Id)" @onchange="e => ToggleKey(k.Id, (bool)e.Value!)" />
+                                        <label class="form-check-label" for="@($"key{k.Id}")" title="@k.Description">@k.Name</label>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
                 </div>
                 @if (_error is not null) { <div class="alert alert-danger py-2">@_error</div> }
                 <button class="btn btn-primary me-2" @onclick="Save" disabled="@_saving">Speichern</button>
@@ -112,7 +139,7 @@
             else
             {
                 <div class="table-responsive"><table class="table table-hover">
-                    <thead><tr><th>Benutzername</th><th>Name</th><th>Email</th><th>Rolle</th><th>QR/PIN</th>@if (_hasCreatedAt) { <th>Erstellt am</th> }<th>Aktionen</th></tr></thead>
+                    <thead><tr><th>Benutzername</th><th>Name</th><th>Email</th><th>Rolle</th><th>Zugriff</th>@if (_hasCreatedAt) { <th>Erstellt am</th> }<th>Aktionen</th></tr></thead>
                     <tbody>
                         @foreach (var u in _items)
                         {
@@ -121,7 +148,11 @@
                                 <td>@u.FirstName @u.LastName</td>
                                 <td>@u.Email</td>
                                 <td>@if (u.Role == "Admin") { <span class="badge bg-danger">Admin</span> } else { <span class="badge bg-secondary">Benutzer</span> }</td>
-                                <td>@if (u.HasQr) { <span class="badge bg-info me-1">QR</span> }@if (u.HasPin) { <span class="badge bg-warning">PIN</span> }</td>
+                                <td>
+                                    @if (u.HasQr) { <span class="badge bg-info me-1">QR</span> }@if (u.HasPin) { <span class="badge bg-warning me-1">PIN</span> }
+                                    @if (u.HasListAccess) { <span class="badge bg-success me-1">Listen</span> }
+                                    @if (u.KeyIds is { Count: > 0 }) { <span class="badge bg-primary" title="Berechtigungskeys">@u.KeyIds.Count SSO</span> }
+                                </td>
                                 @if (_hasCreatedAt) { <td>@(u.CreatedAt?.ToString("dd.MM.yyyy"))</td> }
                                 <td>
                                     <button class="btn btn-sm btn-primary me-2" @onclick="() => Edit(u)">Bearbeiten</button>
@@ -138,6 +169,7 @@
 
 @code {
     private List<UserDto>? _items;
+    private List<KeyDto> _availableKeys = new();
     private bool _showForm, _saving;
     private bool _showQrScannerModal;
     private bool _showGeneratedPassword;
@@ -145,10 +177,22 @@
     private bool _hasCreatedAt;
     private int? _editId;
     private string _username = "", _firstName = "", _lastName = "", _email = "", _role = "User", _password = "", _qr = "", _pin = "";
+    private bool _hasListAccess = true;
+    private HashSet<int> _keyIds = new();
     private string _generatedPassword = "";
     private string? _error;
 
-    protected override async Task OnInitializedAsync() => await Load();
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadKeys();
+        await Load();
+    }
+
+    private async Task LoadKeys()
+    {
+        try { _availableKeys = await Http.GetFromJsonAsync<List<KeyDto>>("client-api/admin/permission-keys") ?? new(); }
+        catch { _availableKeys = new(); }
+    }
 
     private async Task Load()
     {
@@ -163,6 +207,7 @@
     private void ShowAdd()
     {
         _editId = null; _username = ""; _firstName = ""; _lastName = ""; _email = ""; _role = "User"; _password = ""; _qr = ""; _pin = "";
+        _hasListAccess = true; _keyIds = new();
         _sendWelcomeMail = false; _showGeneratedPassword = false; _error = null; _showForm = true;
     }
 
@@ -170,6 +215,12 @@
     {
         _editId = u.Id; _username = u.Username; _firstName = u.FirstName; _lastName = u.LastName; _email = u.Email ?? "";
         _role = u.Role; _password = ""; _qr = ""; _pin = ""; _sendWelcomeMail = false; _error = null; _showForm = true;
+        _hasListAccess = u.HasListAccess; _keyIds = u.KeyIds is null ? new() : new HashSet<int>(u.KeyIds);
+    }
+
+    private void ToggleKey(int keyId, bool selected)
+    {
+        if (selected) _keyIds.Add(keyId); else _keyIds.Remove(keyId);
     }
 
     private static readonly string PwChars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
@@ -216,7 +267,9 @@
                 Password = _password,
                 QrAuthCode = _qr,
                 AdminPin = _role == "Admin" ? _pin : "",
-                SendWelcomeMail = welcome
+                SendWelcomeMail = welcome,
+                HasListAccess = _hasListAccess,
+                KeyIds = _keyIds.ToList()
             };
             var resp = _editId is int id ? await Http.PutAsJsonAsync($"client-api/admin/users/{id}", body) : await Http.PostAsJsonAsync("client-api/admin/users", body);
             if (!resp.IsSuccessStatusCode) { _error = "Speichern fehlgeschlagen."; return; }
@@ -242,5 +295,6 @@
         catch { _error = "Löschen fehlgeschlagen."; }
     }
 
-    private record UserDto(int Id, string Username, string FirstName, string LastName, string? Email, string Role, bool HasQr, bool HasPin, DateTime? CreatedAt);
+    private record UserDto(int Id, string Username, string FirstName, string LastName, string? Email, string Role, bool HasQr, bool HasPin, bool HasListAccess, List<int>? KeyIds, DateTime? CreatedAt);
+    private record KeyDto(int Id, string Name, string Description);
 }

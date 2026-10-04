@@ -1,0 +1,103 @@
+@page "/admin/permission-keys"
+@layout MainLayout
+@using System.Net.Http.Json
+@inject HttpClient Http
+@inject IJSRuntime JS
+
+<PageTitle>Berechtigungskeys - Admin</PageTitle>
+
+<AuthGuard RequireAdmin="true">
+    <div class="container mt-4">
+        <div class="row mb-4">
+            <div class="col"><h1>Berechtigungskeys</h1></div>
+            <div class="col-auto"><button class="btn btn-primary" @onclick="ShowAdd"><i class="bi bi-plus-circle"></i> Neuer Key</button></div>
+        </div>
+
+        <p class="text-muted">
+            Benannte Schlüssel (z.B. <code>alarmmonitor_admin</code>), die Benutzern zugewiesen und von
+            externen SSO-Clients angefordert werden. Zuweisung erfolgt unter „Benutzer".
+        </p>
+
+        @if (_showForm)
+        {
+            <div class="row mb-4"><div class="col-md-8 offset-md-2"><div class="card"><div class="card-body">
+                <h5 class="card-title">@(_editId is null ? "Neuer Key" : "Key bearbeiten")</h5>
+                <div class="mb-3"><label class="form-label">Name</label><input class="form-control" @bind="_name" placeholder="z.B. alarmmonitor_admin" /></div>
+                <div class="mb-3"><label class="form-label">Beschreibung</label><input class="form-control" @bind="_desc" placeholder="Wofür wird dieser Key verwendet?" /></div>
+                @if (_error is not null) { <div class="alert alert-danger py-2">@_error</div> }
+                <button class="btn btn-primary me-2" @onclick="Save" disabled="@_saving">Speichern</button>
+                <button class="btn btn-secondary" @onclick="() => _showForm = false">Abbrechen</button>
+            </div></div></div></div>
+        }
+
+        @if (!_showForm && _error is not null) { <div class="alert alert-danger">@_error</div> }
+
+        <div class="card"><div class="card-body">
+            @if (_items is null) { <p><em>Lade…</em></p> }
+            else if (_items.Count == 0) { <p class="text-muted">Keine Keys vorhanden</p> }
+            else
+            {
+                <div class="table-responsive"><table class="table table-hover">
+                    <thead><tr><th>Name</th><th>Beschreibung</th><th>Erstellt</th><th>Aktionen</th></tr></thead>
+                    <tbody>
+                        @foreach (var k in _items)
+                        {
+                            <tr>
+                                <td><code>@k.Name</code></td>
+                                <td>@k.Description</td>
+                                <td>@k.CreatedAt.ToString("dd.MM.yyyy")</td>
+                                <td>
+                                    <button class="btn btn-sm btn-primary me-2" @onclick="() => Edit(k)">Bearbeiten</button>
+                                    <button class="btn btn-sm btn-danger" @onclick="() => Delete(k.Id)">Löschen</button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table></div>
+            }
+        </div></div>
+    </div>
+</AuthGuard>
+
+@code {
+    private List<KeyDto>? _items;
+    private bool _showForm, _saving;
+    private int? _editId;
+    private string _name = "", _desc = "";
+    private string? _error;
+
+    protected override async Task OnInitializedAsync() => await Load();
+    private async Task Load() { try { _items = await Http.GetFromJsonAsync<List<KeyDto>>("client-api/admin/permission-keys"); } catch { _items = new(); } }
+
+    private void ShowAdd() { _editId = null; _name = ""; _desc = ""; _error = null; _showForm = true; }
+    private void Edit(KeyDto k) { _editId = k.Id; _name = k.Name; _desc = k.Description; _error = null; _showForm = true; }
+
+    private async Task Save()
+    {
+        _error = null;
+        if (string.IsNullOrWhiteSpace(_name)) { _error = "Name erforderlich."; return; }
+        _saving = true;
+        try
+        {
+            var body = new { Name = _name, Description = _desc };
+            var resp = _editId is int id
+                ? await Http.PutAsJsonAsync($"client-api/admin/permission-keys/{id}", body)
+                : await Http.PostAsJsonAsync("client-api/admin/permission-keys", body);
+            if (!resp.IsSuccessStatusCode) { _error = "Speichern fehlgeschlagen."; return; }
+            _showForm = false;
+            await Load();
+        }
+        catch { _error = "Speichern fehlgeschlagen."; }
+        finally { _saving = false; }
+    }
+
+    private async Task Delete(int id)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", "Diesen Key wirklich löschen? Zuweisungen werden entfernt.")) return;
+        _error = null;
+        try { await Http.DeleteAsync($"client-api/admin/permission-keys/{id}"); await Load(); }
+        catch { _error = "Löschen fehlgeschlagen."; }
+    }
+
+    private record KeyDto(int Id, string Name, string Description, DateTime CreatedAt);
+}

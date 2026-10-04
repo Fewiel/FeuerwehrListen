@@ -110,3 +110,8 @@ crontab -e -u docker
 ### Datenpersistenz
 
 Die SQLite-Datenbank wird in einem Docker-Volume gespeichert. Ihre Daten bleiben auch nach einem Neustart des Containers oder des Servers erhalten. Die `docker-compose.override.yml` ist gitignored und wird beim Auto-Update nicht überschrieben.
+
+## Dokumentation
+
+* [REST-API (X-API-Key) für externe Systeme](API-DOCUMENTATION.md)
+* [SSO-Provider (OAuth2) für internen Single-Sign-On](SSO-PROVIDER.md)
