@@ -113,19 +113,13 @@
                     </tbody>
                 </table></div>
             }
-            @if (_detail.Status != "Done")
-            {
+            @{
                 <hr />
                 <h6>Status ändern</h6>
                 <div class="mb-2"><select class="form-select" @bind="_newStatus">
-                    @if (_detail.Status == "Open")
+                    @foreach (var s in AllStatuses.Where(s => s != _detail.Status))
                     {
-                        <option value="InProgress">In Arbeit</option>
-                        <option value="Done">Erledigt</option>
-                    }
-                    else
-                    {
-                        <option value="Done">Erledigt</option>
+                        <option value="@s">@StatusLabel(s)</option>
                     }
                 </select></div>
                 <div class="mb-2"><input class="form-control" placeholder="Kommentar (optional)" @bind="_comment" /></div>
@@ -232,7 +226,7 @@
 
     private async Task OpenDetail(DefectDto d)
     {
-        _detail = d; _newStatus = d.Status == "Open" ? "InProgress" : "Done"; _comment = ""; _scNumber = ""; _scError = null; _statusResults = new();
+        _detail = d; _newStatus = d.Status switch { "Open" => "InProgress", "InProgress" => "Done", _ => "InProgress" }; _comment = ""; _scNumber = ""; _scError = null; _statusResults = new();
         try { _history = await Http.GetFromJsonAsync<List<HistDto>>($"client-api/defects/{d.Id}/history") ?? new(); } catch { _history = new(); }
     }
 
@@ -281,6 +275,7 @@
         catch { return new(); }
     }
 
+    private static readonly string[] AllStatuses = { "Open", "InProgress", "Done" };
     private string StatusLabel(string s) => s switch { "Open" => "Offen", "InProgress" => "In Arbeit", "Done" => "Erledigt", _ => s };
     private RenderFragment Badge(string s) =>@<span class="badge @(s == "Open" ? "bg-danger" : s == "InProgress" ? "bg-warning" : "bg-success")">@StatusLabel(s)</span>;
 
