@@ -1897,13 +1897,14 @@ app.MapGet("/client-api/defects/{id:int}/history", async (int id, DefectReposito
 app.MapPost("/client-api/defects/{id:int}/status", async (int id, DefectRepository repo, MemberRepository mRepo, DefectStatusRequest r) =>
 {
     var d = await repo.GetByIdAsync(id); if (d == null) return Results.NotFound();
-    if (!Enum.TryParse<DefectStatus>(r.NewStatus, out var ns)) return Results.BadRequest();
+    if (!Enum.TryParse<DefectStatus>(r.NewStatus, out var ns) || !Enum.IsDefined(ns) || ns == d.Status) return Results.BadRequest();
     var member = await mRepo.GetByMemberNumberAsync((r.MemberNumber ?? "").Trim());
     if (member == null) return Results.Json(new { status = "notfound" });
     var disp = $"{member.FirstName} {member.LastName} ({member.MemberNumber})";
     await repo.AddStatusChangeAsync(new DefectStatusChange { DefectId = id, OldStatus = d.Status, NewStatus = ns, ChangedByName = disp, ChangedAt = DateTime.Now, Comment = string.IsNullOrWhiteSpace(r.Comment) ? null : r.Comment.Trim() });
     d.Status = ns;
     if (ns == DefectStatus.Done) { d.ResolvedAt = DateTime.Now; d.ResolvedByMemberId = member.Id; d.ResolvedByName = disp; }
+    else { d.ResolvedAt = null; d.ResolvedByMemberId = null; d.ResolvedByName = null; } // Wiedereroeffnet
     await repo.UpdateAsync(d);
     return Results.Json(new { status = "ok" });
 }).DisableAntiforgery();

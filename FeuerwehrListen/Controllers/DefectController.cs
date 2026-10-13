@@ -129,6 +129,12 @@ public class DefectController : ControllerBase
             defect.ResolvedByName = request.ChangedByName.Trim();
             defect.ResolvedAt = DateTime.Now;
         }
+        else
+        {
+            defect.ResolvedByMemberId = null;
+            defect.ResolvedByName = null;
+            defect.ResolvedAt = null;
+        }
 
         await _defectRepo.UpdateAsync(defect);
 
