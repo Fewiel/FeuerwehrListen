@@ -11,6 +11,7 @@ using LinqToDB.AspNet.Logging;
 using FluentMigrator.Runner;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.DataProtection;
 using System.Security.Claims;
 using System.Text.RegularExpressions;
 using PdfSharp.Fonts;
@@ -204,6 +205,24 @@ builder.Services.AddSingleton<FeuerwehrListen.Services.AppBaseUrlProvider>();
 builder.Services.AddSingleton<FeuerwehrListen.Services.AppUrlService>();
 builder.Services.AddSingleton<FeuerwehrListen.Services.UserAccessService>();
 builder.Services.AddSingleton<FeuerwehrListen.Services.DataPathService>();
+// Data-Protection-Schluessel (Auth-Cookies, versiegelte Circuit-Daten) im Datenverzeichnis neben
+// der Datenbank ablegen - im Docker-Volume. Ohne das liegen sie im Container und jedes Image-
+// Update erzeugt neue Schluessel -> alle Benutzer-/Mitglieder-Anmeldungen waren ungueltig.
+{
+    var dataPath = new FeuerwehrListen.Services.DataPathService(builder.Configuration, builder.Environment).Root;
+    var keyDir = Path.Combine(dataPath, "keys");
+    try
+    {
+        Directory.CreateDirectory(keyDir);
+        builder.Services.AddDataProtection()
+            .SetApplicationName("FeuerwehrListen")
+            .PersistKeysToFileSystem(new DirectoryInfo(keyDir));
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"Data-Protection-Schluesselordner {keyDir} nicht nutzbar ({ex.Message}) - Standardablage.");
+    }
+}
 builder.Services.AddSingleton<FeuerwehrListen.Services.PasswordEnrollmentService>();
 builder.Services.AddSingleton<FeuerwehrListen.Services.SimpleRateLimiter>();
 builder.Services.AddSingleton<FeuerwehrListen.Services.LoginThrottle>();
