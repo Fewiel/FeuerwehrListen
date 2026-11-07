@@ -219,7 +219,7 @@
                                 <td><strong>@u.Username</strong></td>
                                 <td>@u.FirstName @u.LastName</td>
                                 <td>@u.Email</td>
-                                <td>@if (u.Role == "Admin") { <span class="badge bg-danger">Admin</span> } else if (u.Role == "Device") { <span class="badge bg-dark"><i class="bi bi-tablet"></i> Gerät</span> } else { <span class="badge bg-secondary">Benutzer</span> }</td>
+                                <td>@if (u.Role == "Admin") { <span class="badge bg-danger">Admin</span> } else if (u.Role == "Device") { <span class="badge" style="background:#374151;color:#fff;"><i class="bi bi-tablet"></i> Gerät</span> } else { <span class="badge bg-secondary">Benutzer</span> }</td>
                                 <td>
                                     @if (u.Role == "Device")
                                     {
