@@ -417,7 +417,8 @@ app.Use(async (ctx, next) =>
     // Export-Token ...), auch wenn das Modul fuer sie sichtbar ist.
     if ((path.StartsWithSegments("/client-api") || path.StartsWithSegments("/token"))
         && FeuerwehrListen.Services.NetworkAccessService.IsMemberForbiddenPath(path, ctx.Request.Method)
-        && ctx.User.IsInRole("Member"))
+        && (ctx.User.IsInRole("Member")
+            || ctx.RequestServices.GetRequiredService<FeuerwehrListen.Services.UserAccessService>().Get(ctx)?.IsMember == true))
     {
         ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
         await ctx.Response.WriteAsJsonAsync(new { error = "member_forbidden", message = "Diese Aktion ist Verwaltungskonten vorbehalten." });

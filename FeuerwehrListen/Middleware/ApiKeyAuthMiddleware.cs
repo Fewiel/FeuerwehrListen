@@ -19,7 +19,8 @@ public class ApiKeyAuthMiddleware
         {
             // Angemeldete Verwaltungskonten duerfen die API ohne Key nutzen - Mitglieder-Konten
             // (Mitgliederbereich) ausdruecklich NICHT: die API liefert z. B. die Mitgliederliste.
-            if (context.User?.Identity?.IsAuthenticated == true && !context.User.IsInRole("Member"))
+            if (context.User?.Identity?.IsAuthenticated == true && !context.User.IsInRole("Member")
+                && !(context.User.Identity.Name ?? "").StartsWith(Services.UserAccessService.MemberPrefix, StringComparison.Ordinal))
             {
                 await _next(context);
                 return;
