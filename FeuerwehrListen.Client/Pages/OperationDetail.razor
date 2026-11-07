@@ -205,9 +205,50 @@ else
             <button class="btn btn-primary" @onclick="ExportPdf"><i class="bi bi-file-earmark-pdf me-1"></i>PDF Export</button>
         </div>
 
+        @if (_info is not null) { <div class="alert alert-success mt-3">@_info</div> }
+        @if (_showMerge)
+        {
+            <div class="modal fade show" style="display:block;background-color:rgba(0,0,0,0.5);" tabindex="-1">
+                <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">Einsatz zusammenlegen</h5>
+                            <button type="button" class="btn-close" aria-label="Schließen" @onclick="() => _showMerge = false"></button>
+                        </div>
+                        <div class="modal-body">
+                            <p class="text-muted small">Doppelt alarmiert? Wähle den <strong>anderen</strong> Einsatz – seine Einträge, der Bericht und die Bilder werden in <strong>diesen</strong> Einsatz (@_data.Number) übernommen, der andere wird gelöscht.</p>
+                            <div class="input-group mb-2">
+                                <input class="form-control" placeholder="Suche: Nummer, Stichwort, Adresse" @bind="_mergeQuery" @bind:event="oninput" @onkeyup="@(async e => { if (e.Key == "Enter") await SearchMerge(); })" />
+                                <button class="btn btn-outline-secondary" @onclick="SearchMerge"><i class="bi bi-search"></i></button>
+                            </div>
+                            @if (_mergeCandidates.Count == 0) { <p class="text-muted mb-0">Keine anderen Einsätze gefunden.</p> }
+                            else
+                            {
+                                <div class="list-group">
+                                    @foreach (var c in _mergeCandidates)
+                                    {
+                                        <button type="button" class="list-group-item list-group-item-action @(_mergeSelected?.Id == c.Id ? "active" : "")" @onclick="() => _mergeSelected = c">
+                                            <div class="d-flex justify-content-between"><strong>@c.Number · @c.Keyword</strong><span>@c.Time.ToString("dd.MM. HH:mm")</span></div>
+                                            <div class="small">@c.Address</div>
+                                        </button>
+                                    }
+                                </div>
+                            }
+                            @if (_mergeError is not null) { <div class="alert alert-danger py-2 mt-2 mb-0">@_mergeError</div> }
+                        </div>
+                        <div class="modal-footer">
+                            <button class="btn btn-secondary" @onclick="() => _showMerge = false">Abbrechen</button>
+                            <button class="btn btn-danger" @onclick="DoMerge" disabled="@(_mergeSelected is null || _merging)">@(_merging ? "Wird zusammengelegt…" : "In diesen Einsatz übernehmen")</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+
         <AuthorizeView Roles="Admin,User">
             <div class="d-grid gap-2 mt-4" style="max-width:500px;">
                 <a class="btn btn-outline-secondary" href="@($"/operation/{Id}/edit-entries")"><i class="bi bi-pencil me-1"></i>Einträge bearbeiten</a>
+                <button class="btn btn-outline-secondary" @onclick="OpenMerge"><i class="bi bi-union me-1"></i>Mit anderem Einsatz zusammenlegen</button>
                 @if (_data.IsOpen)
                 {
                     <button class="btn btn-outline-secondary" @onclick="() => _showAddress = !_showAddress"><i class="bi bi-geo-alt me-1"></i>Einsatzadresse @(string.IsNullOrWhiteSpace(_data.Address) ? "hinzufügen" : "ändern")</button>
@@ -228,6 +269,55 @@ else
     [Parameter] public int Id { get; set; }
 
     private OpDto? _data;
+
+    // --- Zusammenlegen (Doppelalarmierung) ---
+    private bool _showMerge, _merging;
+    private string _mergeQuery = "";
+    private List<MergeCandidate> _mergeCandidates = new();
+    private MergeCandidate? _mergeSelected;
+    private string? _mergeError;
+
+    private async Task OpenMerge()
+    {
+        _showMerge = true; _mergeSelected = null; _mergeError = null; _mergeQuery = "";
+        await SearchMerge();
+    }
+
+    private async Task SearchMerge()
+    {
+        try
+        {
+            var q = string.IsNullOrWhiteSpace(_mergeQuery) ? "" : $"?q={Uri.EscapeDataString(_mergeQuery.Trim())}";
+            _mergeCandidates = (await Http.GetFromJsonAsync<List<MergeCandidate>>($"client-api/operations/recent{q}") ?? new())
+                .Where(c => c.Id != Id).ToList();
+        }
+        catch { _mergeCandidates = new(); }
+    }
+
+    private async Task DoMerge()
+    {
+        if (_mergeSelected is null || _merging) return;
+        if (!await JS.InvokeAsync<bool>("confirm", $"Einsatz „{_mergeSelected.Keyword} ({_mergeSelected.Number})“ in diesen Einsatz übernehmen?\n\nAlle Einträge, der Bericht und die Bilder wandern hierher, der andere Einsatz wird gelöscht. Das lässt sich nicht rückgängig machen."))
+            return;
+        _merging = true; _mergeError = null;
+        try
+        {
+            var resp = await Http.PostAsJsonAsync($"client-api/operation/{Id}/merge", new { SourceId = _mergeSelected.Id });
+            if (!resp.IsSuccessStatusCode) { _mergeError = resp.StatusCode == System.Net.HttpStatusCode.Forbidden ? "Keine Berechtigung." : await resp.Content.ReadAsStringAsync(); return; }
+            var r = await resp.Content.ReadFromJsonAsync<MergeResultDto>();
+            _showMerge = false;
+            _error = "";
+            _info = $"Einsatz {r?.SourceNumber} übernommen: {r?.MovedEntries} Einträge übernommen" + (r?.SkippedDuplicates > 0 ? $", {r.SkippedDuplicates} doppelte übersprungen" : "")
+                  + (r?.ImagesMoved > 0 ? $", {r.ImagesMoved} Bilder verschoben" : "") + (r?.ImageErrors is { Count: > 0 } ? $", {r.ImageErrors.Count} Bilder konnten nicht verschoben werden" : "") + ".";
+            await Load();
+        }
+        catch { _mergeError = "Zusammenlegen fehlgeschlagen."; }
+        finally { _merging = false; }
+    }
+
+    private record MergeCandidate(int Id, string Keyword, string Address, string Number, DateTime Time);
+    private record MergeResultDto(int MovedEntries, int SkippedDuplicates, int ImagesMoved, List<string>? ImageErrors, string? SourceNumber);
+    private string? _info;
     private string? _loadError;
     private bool _busy;
     private int _confirmSeq;

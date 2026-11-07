@@ -12,6 +12,7 @@ using FluentMigrator.Runner;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Authentication;
 using System.Security.Claims;
+using System.Text.RegularExpressions;
 using PdfSharp.Fonts;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -176,6 +177,7 @@ builder.Services.AddScoped<CalendarRepository>();
 builder.Services.AddScoped<CalendarService>();
 builder.Services.AddScoped<LeadershipRepository>();
 builder.Services.AddScoped<LeadershipService>();
+builder.Services.AddScoped<OperationMergeService>();
 builder.Services.AddScoped<StatisticsService>();
 builder.Services.AddScoped<PdfExportService>();
 // GeocodingService ueber IHttpClientFactory (typed client) - kein new HttpClient() je Scope.
@@ -1953,6 +1955,11 @@ app.MapPost("/client-api/operation/{id:int}/report", async (int id, OperationRep
     var existing = await repo.GetOrCreateAsync(id);
     var r = req.Report;
     r.Id = existing.Id; r.OperationListId = id; r.CreatedAt = existing.CreatedAt; r.UpdatedAt = DateTime.Now;
+    // Unterschriften nie stillschweigend durch "leer" ueberschreiben: Ein zweites Geraet, das den
+    // Bericht vor der Unterschrift geladen hatte, wuerde sie sonst beim Speichern loeschen. Entfernt
+    // wird nur auf ausdrueckliches Loeschen (Flag).
+    if (string.IsNullOrEmpty(r.UnterschriftIukImage) && !req.ClearIukSignature) r.UnterschriftIukImage = existing.UnterschriftIukImage;
+    if (string.IsNullOrEmpty(r.UnterschriftEinsatzleiterImage) && !req.ClearElSignature) r.UnterschriftEinsatzleiterImage = existing.UnterschriftEinsatzleiterImage;
     await repo.UpdateAsync(r);
 
     var oldForces = await repo.GetExternalForcesAsync(existing.Id);
@@ -2009,6 +2016,47 @@ app.MapPost("/client-api/operation/{id:int}/report/images", async (int id, HttpR
     var count = await nc.CountFilesAsync(folder);
     return Results.Json(new { ok, skipped, errors, count = count >= 0 ? count : ok });
 }).DisableAntiforgery(); // Einsatzbericht bewusst ohne Login (Kiosk-Wunsch)
+
+// Einsatzbericht: vorhandene Bilder auflisten / anzeigen / loeschen (Nextcloud).
+// Wie der Upload bewusst ohne Login (Kiosk-Wunsch); Dateinamen werden gegen den Ordnerinhalt geprueft.
+app.MapGet("/client-api/operation/{id:int}/report/images", async (int id, OperationListRepository opRepo, NextcloudService nc) =>
+{
+    var list = await opRepo.GetByIdAsync(id);
+    if (list == null || !nc.IsConfigured) return Results.Json(Array.Empty<object>());
+    var files = await nc.ListFilesAsync(nc.BuildOperationFolder(list.AlertTime.Year, list.OperationNumber));
+    return Results.Json(files.Where(f => f.ContentType == null || f.ContentType.StartsWith("image/") || Regex.IsMatch(f.Name, @"\.(jpe?g|png|gif|webp|heic)$", RegexOptions.IgnoreCase))
+        .Select(f => new { name = f.Name, size = f.Size }));
+}).DisableAntiforgery();
+
+app.MapGet("/client-api/operation/{id:int}/report/images/{name}", async (int id, string name, bool? thumb, HttpContext http,
+    OperationListRepository opRepo, NextcloudService nc) =>
+{
+    var list = await opRepo.GetByIdAsync(id);
+    if (list == null || !nc.IsConfigured || !IsSafeFileName(name)) return Results.NotFound();
+    var folder = nc.BuildOperationFolder(list.AlertTime.Year, list.OperationNumber);
+    var file = thumb == true ? await nc.PreviewAsync(folder, name, 320) : await nc.DownloadAsync(folder, name);
+    if (file == null) return Results.NotFound();
+    http.Response.Headers.CacheControl = "private, max-age=3600";
+    return Results.File(file.Value.Data, file.Value.ContentType);
+}).DisableAntiforgery();
+
+app.MapDelete("/client-api/operation/{id:int}/report/images/{name}", async (int id, string name, OperationListRepository opRepo, NextcloudService nc) =>
+{
+    var list = await opRepo.GetByIdAsync(id);
+    if (list == null || !nc.IsConfigured || !IsSafeFileName(name)) return Results.NotFound();
+    var folder = nc.BuildOperationFolder(list.AlertTime.Year, list.OperationNumber);
+    var existing = await nc.GetExistingFileNamesAsync(folder);
+    if (!existing.Contains(name)) return Results.NotFound();
+    return await nc.DeleteAsync(folder, name) ? Results.Ok() : Results.Problem("Löschen in Nextcloud fehlgeschlagen.");
+}).DisableAntiforgery();
+
+// Zwei Einsatzlisten zusammenlegen (Doppelalarmierung der Leitstelle): Eintraege, Bericht und
+// Bilder des Quell-Einsatzes wandern in diesen Einsatz, die Quelle wird geloescht. Angemeldet.
+app.MapPost("/client-api/operation/{id:int}/merge", async (int id, OperationMergeService merge, MergeRequest req) =>
+{
+    var result = await merge.MergeAsync(id, req.SourceId);
+    return result.Error != null ? Results.BadRequest(result.Error) : Results.Json(result);
+}).RequireAuthorization().DisableAntiforgery();
 
 // Einsatz-Eintrag loeschen (Bearbeiten-Seite, angemeldet)
 app.MapDelete("/client-api/operation/{id:int}/entry/{entryId:int}", async (int entryId, OperationEntryRepository repo) =>
@@ -3053,6 +3101,11 @@ static async Task SignInMember(HttpContext ctx, Member member)
         new AuthenticationProperties { IsPersistent = true });
 }
 
+// Dateiname aus der URL: nur ein einzelner Name, keine Pfade.
+static bool IsSafeFileName(string? name) =>
+    !string.IsNullOrWhiteSpace(name) && name.Length <= 255 && name != "." && name != ".."
+    && name.IndexOfAny(new[] { '/', '\\', '\0' }) < 0;
+
 static async Task SignInUser(HttpContext ctx, User user)
 {
     var claims = new List<Claim>
@@ -3114,7 +3167,9 @@ public record ExcuseReq(string? Code);
 public record ExcuseToggleReq(int MemberId, bool Excused);
 public record OpCloseReq(string? Address);
 public record OperationAddRequest(int MemberId, int? VehicleId, bool NoVehicle, bool BreathingApparatus, List<int>? FunctionIds);
-public record ReportSaveRequest(OperationReport Report, List<ExtForceReq>? ExternalForces, List<MittelReq>? Mittel, List<VsReq>? VehicleStrengths);
+public record MergeRequest(int SourceId);
+public record ReportSaveRequest(OperationReport Report, List<ExtForceReq>? ExternalForces, List<MittelReq>? Mittel, List<VsReq>? VehicleStrengths,
+    bool ClearIukSignature = false, bool ClearElSignature = false);
 public record ExtForceReq(string? Rufname, string? Staerke);
 public record MittelReq(string? Name, int Anzahl, string? Dauer, bool IsCustom);
 public record VsReq(string? VehicleName, string? Staerke);

@@ -231,13 +231,35 @@
                     {
                         <div class="alert alert-warning py-2 small"><i class="bi bi-exclamation-triangle me-1"></i>Bild-Upload ist auf diesem (älteren) Gerät nur eingeschränkt möglich und kann fehlschlagen. Bei Problemen bitte ein moderneres Gerät nutzen. Empfohlen: wenige, kleinere Bilder gleichzeitig.</div>
                     }
+                    @if (_ncImages.Count > 0)
+                    {
+                        <div class="nc-gallery mb-3">
+                            @foreach (var img in _ncImages)
+                            {
+                                <div class="nc-thumb">
+                                    <a href="@ImageUrl(img.Name, false)" target="_blank" rel="noopener" title="@img.Name">
+                                        <img src="@ImageUrl(img.Name, true)" alt="@img.Name" loading="lazy" />
+                                    </a>
+                                    <button type="button" class="btn btn-sm btn-danger nc-del" aria-label="Bild löschen" title="Bild löschen" @onclick="() => DeleteImage(img)" disabled="@_uploading"><i class="bi bi-trash"></i></button>
+                                    <div class="nc-name">@img.Name</div>
+                                </div>
+                            }
+                        </div>
+                    }
                     <InputFile OnChange="OnImages" multiple accept="image/*" class="form-control mb-2" />
                     @if (_images.Count > 0) { <button class="btn btn-primary" @onclick="Upload" disabled="@_uploading">@(_uploading ? "Lädt…" : $"{_images.Count} Bild(er) hochladen")</button> }
                     @if (_ncMsg is not null) { <div class="mt-2 @(_ncErr ? "text-danger" : "text-success")">@_ncMsg</div> }
                 </div></div>
             }
 
-            <div class="card mb-4"><div class="card-header"><h5 class="mb-0">Unterschriften</h5></div><div class="card-body row g-4">
+            <style>
+    .nc-gallery { display: flex; flex-wrap: wrap; margin-left: -4px; margin-right: -4px; }
+    .nc-thumb { position: relative; width: 120px; margin: 4px; }
+    .nc-thumb img { width: 120px; height: 120px; object-fit: cover; border-radius: 8px; background: #E3E0DB; display: block; }
+    .nc-del { position: absolute; top: 4px; right: 4px; width: 32px; height: 32px; padding: 0; border-radius: 16px; }
+    .nc-name { font-size: .7rem; color: #5C5853; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+</style>
+<div class="card mb-4"><div class="card-header"><h5 class="mb-0">Unterschriften</h5></div><div class="card-body row g-4">
                 <div class="col-md-6"><label class="form-label">Unterschrift IuK</label><SignaturePad @ref="_sigIuk" Initial="@r.UnterschriftIukImage" /><input class="form-control mt-2" placeholder="Name (Druckbuchstaben)" @bind="r.UnterschriftIuk" /></div>
                 <div class="col-md-6"><label class="form-label">Unterschrift Einsatzleiter</label><SignaturePad @ref="_sigEl" Initial="@r.UnterschriftEinsatzleiterImage" /><input class="form-control mt-2" placeholder="Name (Druckbuchstaben)" @bind="r.UnterschriftEinsatzleiter" /></div>
             </div></div>
@@ -319,6 +341,33 @@
     private bool _showVsModal;
 
     private int _ncCount;
+    private List<NcImage> _ncImages = new();
+
+    private string ImageUrl(string name, bool thumb) =>
+        $"client-api/operation/{OperationListId}/report/images/{Uri.EscapeDataString(name)}{(thumb ? "?thumb=1" : "")}";
+
+    private async Task LoadImages()
+    {
+        try
+        {
+            _ncImages = await Http.GetFromJsonAsync<List<NcImage>>($"client-api/operation/{OperationListId}/report/images") ?? new();
+            _ncCount = _ncImages.Count;
+        }
+        catch { }
+    }
+
+    private async Task DeleteImage(NcImage img)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", $"Bild „{img.Name}“ wirklich löschen?")) return;
+        _ncMsg = null; _ncErr = false;
+        try
+        {
+            var resp = await Http.DeleteAsync(ImageUrl(img.Name, false));
+            if (resp.IsSuccessStatusCode) { _ncMsg = "Bild gelöscht."; await LoadImages(); }
+            else { _ncErr = true; _ncMsg = "Löschen fehlgeschlagen."; }
+        }
+        catch { _ncErr = true; _ncMsg = "Löschen fehlgeschlagen."; }
+    }
     private List<IBrowserFile> _images = new(); private bool _uploading, _ncErr; private string? _ncMsg;
 
     protected override async Task OnParametersSetAsync() => await Load();
@@ -346,7 +395,7 @@
         // wo _b beim ersten Render noch null war -> Badge blieb dauerhaft "Noch keine").
         if (_b?.Nextcloud.Configured == true)
         {
-            try { var c = await Http.GetFromJsonAsync<CountDto>($"client-api/operation/{OperationListId}/report/image-count"); _ncCount = c?.Count ?? 0; } catch { }
+            await LoadImages();
         }
     }
 
@@ -438,6 +487,7 @@
             var resp = await Http.PostAsync($"client-api/operation/{OperationListId}/report/images", content);
             var r = await resp.Content.ReadFromJsonAsync<UploadResult>();
             _ncCount = r?.Count ?? _ncCount;
+            await LoadImages();
             _ncMsg = $"{r?.Ok} hochgeladen" + (r?.Skipped > 0 ? $", {r.Skipped} übersprungen" : "") + (r?.Errors?.Count > 0 ? $", {r.Errors.Count} fehlgeschlagen" : "") + ".";
             _ncErr = r?.Errors?.Count > 0;
             if (!_ncErr) _images = new();
@@ -452,10 +502,15 @@
         _saving = true; _savedMsg = null;
         try
         {
-            if (_sigIuk != null) _b.Report.UnterschriftIukImage = await _sigIuk.GetDataUrlAsync();
-            if (_sigEl != null) _b.Report.UnterschriftEinsatzleiterImage = await _sigEl.GetDataUrlAsync();
+            // Unterschriften: neu gezeichnet oder unveraendert -> mitsenden; bewusst geloescht -> Flag.
+            // Ohne Flag behaelt der Server eine vorhandene Unterschrift (schuetzt vor Ueberschreiben
+            // durch ein zweites Geraet, das den Bericht vor der Unterschrift geladen hatte).
+            bool clearIuk = false, clearEl = false;
+            if (_sigIuk != null) { _b.Report.UnterschriftIukImage = await _sigIuk.GetDataUrlAsync(); clearIuk = await _sigIuk.IsClearedAsync(); }
+            if (_sigEl != null) { _b.Report.UnterschriftEinsatzleiterImage = await _sigEl.GetDataUrlAsync(); clearEl = await _sigEl.IsClearedAsync(); }
             var resp = await Http.PostAsJsonAsync($"client-api/operation/{OperationListId}/report",
-                new { Report = _b.Report, ExternalForces = _b.ExternalForces, Mittel = _b.Mittel, VehicleStrengths = _b.VehicleStrengths });
+                new { Report = _b.Report, ExternalForces = _b.ExternalForces, Mittel = _b.Mittel, VehicleStrengths = _b.VehicleStrengths,
+                      ClearIukSignature = clearIuk, ClearElSignature = clearEl });
             if (resp.IsSuccessStatusCode) { _savedErr = false; _savedMsg = "Gespeichert"; await Load(); }
             else { _savedErr = true; _savedMsg = "Fehler beim Speichern"; }
         }
@@ -475,6 +530,7 @@
 
     private class MEdit { public string Name { get; set; } = ""; public bool Active { get; set; } public int Anzahl { get; set; } public string? Dauer { get; set; } }
     private record CountDto(int Count);
+    private record NcImage(string Name, long Size);
     private record UploadResult(int Ok, int Skipped, List<string> Errors, int Count);
     private record GesamtDto(string Gesamt);
 

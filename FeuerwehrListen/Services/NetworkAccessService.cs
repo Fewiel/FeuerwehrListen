@@ -338,7 +338,7 @@ public sealed class NetworkAccessService
         var p = path.Value!.ToLowerInvariant();
         if (p == "/token") return true;
         if (HttpMethods.IsGet(method)) return p.Contains("/excuse-candidates");
-        return p.EndsWith("/close") || p.Contains("/excuse") || p.EndsWith("/address") || p.Contains("/entry/")
+        return p.EndsWith("/close") || p.EndsWith("/merge") || p.Contains("/excuse") || p.EndsWith("/address") || p.Contains("/entry/")
             || p.Contains("/calendar/series") || p.EndsWith("/create-attendance");
     }
 
