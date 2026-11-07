@@ -205,6 +205,8 @@ builder.Services.AddSingleton<FeuerwehrListen.Services.DataPathService>();
 builder.Services.AddSingleton<FeuerwehrListen.Services.PasswordEnrollmentService>();
 builder.Services.AddSingleton<FeuerwehrListen.Services.SimpleRateLimiter>();
 builder.Services.AddScoped<FeuerwehrListen.Services.CircuitClientInfo>();
+builder.Services.AddSingleton<FeuerwehrListen.Services.DeviceSessionService>();
+builder.Services.AddScoped<DeviceSessionRepository>();
 builder.Services.AddSingleton<FeuerwehrListen.Services.NetworkAccessService>();
 builder.Services.AddSingleton<FeuerwehrListen.Services.InternalAuthSecret>();
 builder.Services.AddScoped<HttpClient>(sp =>
@@ -382,9 +384,10 @@ app.Use(async (ctx, next) =>
 {
     var path = ctx.Request.Path;
 
-    // Benutzerrechte einmal je Request asynchron vorladen (Modulpruefung ist synchron).
+    // Benutzerrechte und Geraetekonto einmal je Request asynchron vorladen (Pruefungen sind synchron).
     await ctx.RequestServices.GetRequiredService<FeuerwehrListen.Services.UserAccessService>().PreloadAsync(ctx);
     var gate = ctx.RequestServices.GetRequiredService<FeuerwehrListen.Services.NetworkAccessService>();
+    await ctx.RequestServices.GetRequiredService<FeuerwehrListen.Services.DeviceSessionService>().PreloadAsync(ctx, gate.GetClientIp(ctx)?.ToString());
     var isPageNavigation = HttpMethods.IsGet(ctx.Request.Method)
         && ctx.Request.Headers.Accept.ToString().Contains("text/html", StringComparison.OrdinalIgnoreCase);
 
@@ -710,8 +713,10 @@ app.MapGet("/client-api/app-context", (HttpContext http, SettingsService setting
             // Listen & Daten (abgeschlossene Listen, Archiv) - nur mit Vollzugang.
             fullAccess = access.HasFullUserAccess(http)
         },
-        // Login-Pflicht greift fuer diesen Besucher (nicht angemeldet, nicht auf der Whitelist).
+        // Login-Pflicht greift fuer diesen Besucher (nicht angemeldet, nicht auf der Whitelist, kein Geraet).
         loginRequired = access.IsLoginRequired(http),
+        // Geraetekonto (ELW, KdoW, Geraetehaus-Tablet) - zeigt die Oberflaeche den Geraetenamen.
+        deviceName = access.GetDevice(http)?.Name,
         // Einheiten-Namen erst nach Anmeldung bzw. von der Whitelist - sonst nichts Internes verraten.
         unitLabels = access.IsLoginRequired(http) ? Array.Empty<object>()
             : Enumerable.Range(1, 9).Select(i => (object)new { number = i, label = settings.GetUnitLabel(i) })
@@ -737,6 +742,9 @@ app.MapPost("/client-api/auth/login", async (HttpContext http, UserRepository us
     {
         if (!FeuerwehrListen.Services.AuthenticationService.VerifyPassword(user.PasswordHash, req.Password))
             return Results.Json(new { ok = false });
+        // Geraetekonto: dauerhafte Geraete-Sitzung statt Benutzer-Anmeldung.
+        if (user.Role == UserRole.Device)
+            return Results.Json(new { ok = true, ticket = tickets.CreateDeviceTicket(user.Id), device = true });
         return Results.Json(new { ok = true, ticket = tickets.CreateTicket(user.Id) });
     }
 
@@ -765,7 +773,7 @@ app.MapPost("/client-api/auth/login", async (HttpContext http, UserRepository us
 app.MapPost("/client-api/auth/qr", async (UserRepository users, AuthTicketService tickets, AuthQrRequest req) =>
 {
     var user = await users.GetByQrAuthCodeAsync((req.Code ?? "").Trim());
-    if (user == null) return Results.Json(new { status = "invalid" });
+    if (user == null || user.Role == UserRole.Device) return Results.Json(new { status = "invalid" });
     if (user.Role == UserRole.Admin && !string.IsNullOrWhiteSpace(user.AdminPin))
     {
         if (string.IsNullOrWhiteSpace(req.Pin)) return Results.Json(new { status = "pin" });
@@ -777,14 +785,22 @@ app.MapPost("/client-api/auth/qr", async (UserRepository users, AuthTicketServic
 // Login-ABSCHLUSS: echte Top-Level-Browser-GET -> hier wird der Cookie gesetzt, sodass
 // das Set-Cookie im Server-Modus tatsaechlich im Browser ankommt. Kein RequireAuthorization
 // (das ist ja der Anmeldevorgang selbst). Ticket ist einmalig und 60s gueltig.
-app.MapGet("/client-api/auth/complete", async (HttpContext ctx, UserRepository users, MemberRepository members, AuthTicketService tickets, string? ticket, string? returnUrl) =>
+app.MapGet("/client-api/auth/complete", async (HttpContext ctx, UserRepository users, MemberRepository members, AuthTicketService tickets,
+    DeviceSessionService devices, NetworkAccessService access, string? ticket, string? returnUrl) =>
 {
     // Nach dem Cookie-SignIn zurueck zur Ausgangsseite (returnUrl) - so bleibt der QR-Direktlogin
     // auf einer Detailseite dort, statt auf / zu springen. Nur lokale Pfade (Open-Redirect-Schutz).
     var hasBack = !string.IsNullOrEmpty(returnUrl) && returnUrl.StartsWith("/") && !returnUrl.StartsWith("//");
     var back = hasBack ? returnUrl! : "/";
-    if (!tickets.TryConsume(ticket, out var userId, out var isMember)) return Results.Redirect("/login");
-    if (isMember)
+    if (!tickets.TryConsume(ticket, out var userId, out var kind)) return Results.Redirect("/login");
+    if (kind == AuthTicketService.TicketKind.Device)
+    {
+        var dev = await users.GetByIdAsync(userId);
+        if (dev == null || dev.Role != UserRole.Device) return Results.Redirect("/login");
+        await devices.SignInAsync(ctx, dev, access.GetClientIp(ctx)?.ToString());
+        return Results.Redirect("/");
+    }
+    if (kind == AuthTicketService.TicketKind.Member)
     {
         var member = await members.GetByIdAsync(userId);
         if (member == null || !member.IsActive || string.IsNullOrEmpty(member.PasswordHash)) return Results.Redirect("/login");
@@ -793,7 +809,7 @@ app.MapGet("/client-api/auth/complete", async (HttpContext ctx, UserRepository u
         return Results.Redirect(hasBack && back != "/" ? back : "/mein");
     }
     var user = await users.GetByIdAsync(userId);
-    if (user == null) return Results.Redirect("/login");
+    if (user == null || user.Role == UserRole.Device) return Results.Redirect("/login");
     await SignInUser(ctx, user);
     return Results.Redirect(back);
 }).DisableAntiforgery();
@@ -1128,6 +1144,7 @@ admin.MapGet("/access-check", (HttpContext http, NetworkAccessService access, Se
         authenticated = http.User.Identity?.IsAuthenticated ?? false,
         loginGateEnabled = access.IsLoginGateEnabled(),
         isLoginExemptIp = access.IsLoginExemptIp(http),
+        deviceName = access.GetDevice(http)?.Name,
         configuredTrustedProxies = settings.GetSetting(SettingKeys.SecurityTrustedProxies) ?? "",
         configuredTrustedNetworks = string.IsNullOrWhiteSpace(settings.GetSetting(SettingKeys.SecurityTrustedNetworks))
             ? NetworkAccessService.DefaultTrustedNetworks + "  (Standard)"
@@ -1313,12 +1330,15 @@ admin.MapPost("/members/import-csv", async (MemberRepository repo, CsvReq r) =>
 // ein selbst generiertes Klartext-Passwort mitschicken (B17: einmalige Anzeige im Frontend);
 // ist SendWelcomeMail gesetzt und eine Email vorhanden, werden die Zugangsdaten (Benutzername +
 // Klartext-Passwort) per Mail versendet. Der Mail-Versand darf den Anlage-Vorgang nicht crashen.
-admin.MapGet("/users", async (UserRepository repo, PermissionKeyRepository keys) =>
+admin.MapGet("/users", async (UserRepository repo, PermissionKeyRepository keys, DeviceSessionRepository sessions) =>
 {
     var users = await repo.GetAllAsync();
+    var devices = await sessions.GetActiveSummaryAsync();
     var result = new List<object>(users.Count);
     foreach (var u in users)
-        result.Add(new { id = u.Id, username = u.Username, firstName = u.FirstName, lastName = u.LastName, email = u.Email, role = u.Role.ToString(), hasQr = !string.IsNullOrEmpty(u.QrAuthCode), hasPin = !string.IsNullOrEmpty(u.AdminPin), hasListAccess = u.HasListAccess, fullAccess = u.ModuleAccess == UserAccessService.FullAccess, modules = UserAccessService.ParseModules(u.ModuleAccess)?.OrderBy(x => Array.IndexOf(UserAccessService.SelectableModules, x)).ToArray() ?? UserAccessService.SelectableModules, keyIds = await keys.GetKeyIdsForUserAsync(u.Id), createdAt = u.CreatedAt });
+        result.Add(new { id = u.Id, username = u.Username, firstName = u.FirstName, lastName = u.LastName, email = u.Email, role = u.Role.ToString(), hasQr = !string.IsNullOrEmpty(u.QrAuthCode), hasPin = !string.IsNullOrEmpty(u.AdminPin), hasListAccess = u.HasListAccess,
+            allowEnrollment = u.AllowEnrollment,
+            deviceCount = devices.TryGetValue(u.Id, out var ds) ? ds.Count : 0, deviceLastSeen = devices.TryGetValue(u.Id, out var ds2) ? ds2.LastSeen : null, deviceLastIp = devices.TryGetValue(u.Id, out var ds3) ? ds3.LastIp : null, fullAccess = u.ModuleAccess == UserAccessService.FullAccess, modules = UserAccessService.ParseModules(u.ModuleAccess)?.OrderBy(x => Array.IndexOf(UserAccessService.SelectableModules, x)).ToArray() ?? UserAccessService.SelectableModules, keyIds = await keys.GetKeyIdsForUserAsync(u.Id), createdAt = u.CreatedAt });
     return Results.Json(result);
 });
 admin.MapPost("/users", async (UserRepository repo, PermissionKeyRepository keys, EmailSenderService email, UserReq r) =>
@@ -1335,8 +1355,15 @@ admin.MapPost("/users", async (UserRepository repo, PermissionKeyRepository keys
         HasListAccess = r.HasListAccess,
         // Neue Benutzer: Vollzugang oder gezielt ausgewaehlte Module.
         ModuleAccess = UserAccessService.SerializeModules(r.FullAccess, r.Modules),
+        AllowEnrollment = r.AllowEnrollment,
         CreatedAt = DateTime.Now
     };
+    // Geraetekonten: nie Vollzugang, kein Listen-Tool als Benutzer, kein QR/PIN.
+    if (user.Role == UserRole.Device)
+    {
+        user.ModuleAccess = UserAccessService.SerializeModules(false, r.Modules);
+        user.HasListAccess = false; user.QrAuthCode = null; user.AdminPin = null;
+    }
     var id = await repo.CreateAsync(user);
     await keys.SetKeysForUserAsync(id, r.KeyIds ?? new List<int>());
 
@@ -1362,10 +1389,11 @@ admin.MapPost("/users", async (UserRepository repo, PermissionKeyRepository keys
     }
     return Results.Json(new { id });
 });
-admin.MapPut("/users/{id:int}", async (int id, UserRepository repo, PermissionKeyRepository keys, UserAccessService userAccess, UserReq r) =>
+admin.MapPut("/users/{id:int}", async (int id, UserRepository repo, PermissionKeyRepository keys, UserAccessService userAccess, DeviceSessionService devices, UserReq r) =>
 {
     var u = await repo.GetByIdAsync(id); if (u == null) return Results.NotFound();
     userAccess.Invalidate(u.Username);
+    var passwordChanged = !string.IsNullOrWhiteSpace(r.Password);
     u.Username = r.Username.Trim(); u.FirstName = r.FirstName?.Trim() ?? ""; u.LastName = r.LastName?.Trim() ?? "";
     u.Email = r.Email?.Trim() ?? "";
     u.Role = Enum.TryParse<UserRole>(r.Role, out var role) ? role : u.Role;
@@ -1374,17 +1402,34 @@ admin.MapPut("/users/{id:int}", async (int id, UserRepository repo, PermissionKe
     u.AdminPin = string.IsNullOrWhiteSpace(r.AdminPin) ? null : r.AdminPin.Trim();
     u.HasListAccess = r.HasListAccess;
     u.ModuleAccess = UserAccessService.SerializeModules(r.FullAccess, r.Modules);
+    u.AllowEnrollment = r.AllowEnrollment;
+    if (u.Role == UserRole.Device)
+    {
+        u.ModuleAccess = UserAccessService.SerializeModules(false, r.Modules);
+        u.HasListAccess = false; u.QrAuthCode = null; u.AdminPin = null;
+    }
     await repo.UpdateAsync(u);
     userAccess.Invalidate(u.Username);
+    // Passwort neu oder Rolle weg von "Geraet": alle Geraete dieses Kontos abmelden.
+    if (passwordChanged || u.Role != UserRole.Device) await devices.RevokeAllAsync(u.Id);
     await keys.SetKeysForUserAsync(id, r.KeyIds ?? new List<int>());
     return Results.Ok();
 });
-admin.MapDelete("/users/{id:int}", async (int id, UserRepository repo, PermissionKeyRepository keys, UserAccessService userAccess) =>
+admin.MapDelete("/users/{id:int}", async (int id, UserRepository repo, PermissionKeyRepository keys, UserAccessService userAccess, DeviceSessionService devices, DeviceSessionRepository sessions) =>
 {
     var existing = await repo.GetByIdAsync(id);
     if (existing != null) userAccess.Invalidate(existing.Username);
+    await devices.RevokeAllAsync(id);
+    await sessions.DeleteForUserAsync(id);
     await keys.DeleteAssignmentsForUserAsync(id);
     await repo.DeleteAsync(id);
+    return Results.Ok();
+});
+
+// Geraetekonto: alle angemeldeten Geraete abmelden (verlorenes iPad, Weitergabe des Passworts).
+admin.MapPost("/users/{id:int}/devices/logout-all", async (int id, DeviceSessionService devices) =>
+{
+    await devices.RevokeAllAsync(id);
     return Results.Ok();
 });
 
@@ -3050,7 +3095,7 @@ public record ApiKeyReq(string? Description);
 // (Password) und zeigt es einmalig an; ist SendWelcomeMail=true und Email gesetzt, versendet der
 // POST die Zugangsdaten (Benutzername + Klartext-Passwort) per Mail.
 public record UserReq(string Username, string? FirstName, string? LastName, string Role, string? Password, string? QrAuthCode, string? AdminPin, string? Email = null, bool SendWelcomeMail = false, bool HasListAccess = true, List<int>? KeyIds = null,
-    bool FullAccess = true, List<string>? Modules = null);
+    bool FullAccess = true, List<string>? Modules = null, bool AllowEnrollment = false);
 public record PermissionKeyReq(string? Name, string? Description);
 // RedirectUris zeilenweise, RequiredKeys kommagetrennt. RegenerateSecret nur bei PUT relevant.
 public record SsoClientReq(string? Name, string? RedirectUris, string? RequiredKeys, bool IsActive = true, bool RegenerateSecret = false);

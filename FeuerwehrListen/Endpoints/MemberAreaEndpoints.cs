@@ -244,7 +244,7 @@ public static class MemberAreaEndpoints
         admin.MapGet("/enrollment", async (HttpContext http, NetworkAccessService access, PasswordEnrollmentService enroll, MemberRepository members) =>
         {
             var ip = access.GetClientIp(http)?.ToString() ?? "";
-            var session = enroll.GetActive(http.User.Identity?.Name, ip);
+            var session = enroll.GetActive(http.User.Identity?.Name, access.EnrollmentClientKey(http));
             var today = (await members.GetAllAsync())
                 .Where(m => m.PasswordSetAt?.Date == DateTime.Today && m.PasswordSetByUserId != null)
                 .OrderByDescending(m => m.PasswordSetAt)
@@ -253,7 +253,9 @@ public static class MemberAreaEndpoints
             {
                 active = session != null,
                 startedAt = session?.StartedAt,
-                allowedDevice = access.IsLoginExemptIp(http),
+                allowedDevice = access.IsEnrollmentDevice(http),
+                deviceName = access.GetDevice(http)?.Name,
+                deviceAllowsEnrollment = access.GetDevice(http)?.AllowEnrollment,
                 clientIp = ip,
                 today
             });
@@ -261,11 +263,11 @@ public static class MemberAreaEndpoints
 
         admin.MapPost("/enrollment/start", async (HttpContext http, NetworkAccessService access, PasswordEnrollmentService enroll, UserRepository users) =>
         {
-            if (!access.IsLoginExemptIp(http))
+            if (!access.IsEnrollmentDevice(http))
                 return Results.Json(new { ok = false, error = "device" });
             var user = await users.GetByUsernameAsync(http.User.Identity?.Name ?? "");
             if (user == null) return Results.Forbid();
-            enroll.Start(user.Username, user.Id, access.GetClientIp(http)?.ToString() ?? "");
+            enroll.Start(user.Username, user.Id, access.EnrollmentClientKey(http));
             return Results.Json(new { ok = true });
         });
 
@@ -320,9 +322,9 @@ public static class MemberAreaEndpoints
 
     private static PasswordEnrollmentService.Session? ActiveEnrollment(HttpContext http, NetworkAccessService access, PasswordEnrollmentService enroll)
     {
-        // Jede Aktion prueft erneut: Whitelist-Geraet, gleiche IP wie beim Start, nicht abgelaufen.
-        if (!access.IsLoginExemptIp(http)) return null;
-        return enroll.GetActive(http.User.Identity?.Name, access.GetClientIp(http)?.ToString(), touch: true);
+        // Jede Aktion prueft erneut: zugelassenes Geraet, gleicher Client wie beim Start, nicht abgelaufen.
+        if (!access.IsEnrollmentDevice(http)) return null;
+        return enroll.GetActive(http.User.Identity?.Name, access.EnrollmentClientKey(http), touch: true);
     }
 
     /// <summary>Das angemeldete Mitglied (nur Mitglieder-Konten, nicht Admins/Benutzer).</summary>

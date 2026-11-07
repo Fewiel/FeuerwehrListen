@@ -1,6 +1,7 @@
 namespace FeuerwehrListen.Client.Models;
 
-public record AppContextDto(string AppName, string? LogoUrl, ModuleFlags Modules, List<UnitLabel>? UnitLabels = null, bool LoginRequired = false);
+/// <param name="DeviceName">Gesetzt, wenn der Aufruf von einem dauerhaft angemeldeten Geraetekonto kommt.</param>
+public record AppContextDto(string AppName, string? LogoUrl, ModuleFlags Modules, List<UnitLabel>? UnitLabels = null, bool LoginRequired = false, string? DeviceName = null);
 
 public record UnitLabel(int Number, string Label);
 

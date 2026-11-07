@@ -128,6 +128,9 @@ public sealed class SelfCookieHandler : DelegatingHandler
         }
         else
         {
+            // Circuit: Geraete-Cookie (Geraetekonto) aus dem versiegelten Token weiterreichen.
+            if (!string.IsNullOrEmpty(_circuit?.DeviceToken))
+                request.Headers.TryAddWithoutValidation(DeviceSessionService.ForwardHeader, _circuit.DeviceToken);
             // Circuit: kein HttpContext - Identitaet per Header weiterreichen.
             try
             {

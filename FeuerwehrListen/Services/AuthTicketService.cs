@@ -15,7 +15,8 @@ namespace FeuerwehrListen.Services;
 /// </summary>
 public sealed class AuthTicketService
 {
-    private sealed record Entry(int UserId, DateTime ExpiresUtc, bool IsMember = false);
+    public enum TicketKind { User, Member, Device }
+    private sealed record Entry(int UserId, DateTime ExpiresUtc, TicketKind Kind = TicketKind.User);
 
     private readonly ConcurrentDictionary<string, Entry> _tickets = new();
     private static readonly TimeSpan Lifetime = TimeSpan.FromSeconds(60);
@@ -24,7 +25,10 @@ public sealed class AuthTicketService
     public string CreateTicket(int userId) => Create(new Entry(userId, DateTime.UtcNow.Add(Lifetime)));
 
     /// <summary>Ticket fuer ein Mitglieder-Konto (Mitgliederbereich); id = Member.Id.</summary>
-    public string CreateMemberTicket(int memberId) => Create(new Entry(memberId, DateTime.UtcNow.Add(Lifetime), IsMember: true));
+    public string CreateMemberTicket(int memberId) => Create(new Entry(memberId, DateTime.UtcNow.Add(Lifetime), TicketKind.Member));
+
+    /// <summary>Ticket fuer ein Geraetekonto (dauerhafte Geraete-Sitzung statt Benutzer-Cookie).</summary>
+    public string CreateDeviceTicket(int userId) => Create(new Entry(userId, DateTime.UtcNow.Add(Lifetime), TicketKind.Device));
 
     private string Create(Entry entry)
     {
@@ -34,14 +38,14 @@ public sealed class AuthTicketService
     }
 
     /// <summary>Loest ein Ticket EINMALIG ein: entfernt es und liefert die userId zurueck.</summary>
-    public bool TryConsume(string? ticket, out int userId, out bool isMember)
+    public bool TryConsume(string? ticket, out int userId, out TicketKind kind)
     {
-        userId = 0; isMember = false;
+        userId = 0; kind = TicketKind.User;
         if (string.IsNullOrEmpty(ticket)) return false;
         if (!_tickets.TryRemove(ticket, out var entry)) return false;
         if (entry.ExpiresUtc < DateTime.UtcNow) return false;
         userId = entry.UserId;
-        isMember = entry.IsMember;
+        kind = entry.Kind;
         return true;
     }
 }

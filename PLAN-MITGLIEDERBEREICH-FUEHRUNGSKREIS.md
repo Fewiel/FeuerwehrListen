@@ -192,3 +192,11 @@ Jeder Schritt einzeln lauffähig und ohne Wirkung auf bestehende Abläufe (Kiosk
 Beispieldaten: `python3 tools/seed-testdata.py http://127.0.0.1:5180` gegen eine frisch migrierte Test-DB
 (Aufruf von 127.0.0.1, da die Passwort-Vergabe ein Whitelist-Gerät braucht). Legt Mitglieder mit
 Zugang/Lichtbild, Wachen, Dienste, drei Führungskreis-Sitzungen (eine abgeschlossen) und Aufgaben an.
+
+## Nachtrag: Gerätekonten (07.11.2026)
+
+Für Geräte mit wechselnder IP (ELW, KdoW, Tablets) gibt es Benutzer mit Rolle „Gerät“: einmal
+auf dem Gerät anmelden → dauerhaftes Cookie `fw_device` (2 Jahre), Gerät gilt als Feuerwehrnetz
+mit den freigegebenen Bereichen, ist aber nicht „angemeldet“ (keine Verwaltung). Mitglieder/Admins
+melden sich obendrauf an. Sperren über „Alle Geräte abmelden“, Passwortwechsel oder Löschen.
+Details: LOGIN-ZUGRIFF.md › Gerätekonten. QA: tools/qa-device-accounts.py, tools/qa-device-browser.py.

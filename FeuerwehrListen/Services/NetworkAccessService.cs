@@ -21,13 +21,29 @@ public sealed class NetworkAccessService
     private readonly SettingsService _settings;
     private readonly InternalAuthSecret _secret;
     private readonly UserAccessService _userAccess;
+    private readonly DeviceSessionService _devices;
 
-    public NetworkAccessService(SettingsService settings, InternalAuthSecret secret, UserAccessService userAccess)
+    public NetworkAccessService(SettingsService settings, InternalAuthSecret secret, UserAccessService userAccess, DeviceSessionService devices)
     {
         _settings = settings;
         _secret = secret;
         _userAccess = userAccess;
+        _devices = devices;
     }
+
+    /// <summary>Angemeldetes Geraetekonto dieses Requests (Cookie fw_device), sonst null.</summary>
+    public DeviceSessionService.DeviceInfo? GetDevice(HttpContext ctx) => _devices.Get(ctx);
+
+    /// <summary>Vertrauenswuerdiger Client: Adresse auf der Login-Whitelist ODER Geraetekonto.</summary>
+    public bool IsTrustedClient(HttpContext ctx) => IsLoginExemptIp(ctx) || GetDevice(ctx) != null;
+
+    /// <summary>Darf die Passwort-Vergabe hosten: Whitelist-Adresse oder Geraetekonto mit Freigabe.</summary>
+    public bool IsEnrollmentDevice(HttpContext ctx) => IsLoginExemptIp(ctx) || (GetDevice(ctx)?.AllowEnrollment ?? false);
+
+    /// <summary>Schluessel, an den eine Passwort-Vergabe-Sitzung gebunden wird: das Geraet, sonst die IP
+    /// (ein LTE-Geraet wechselt die Adresse auch mal mitten in der Vergabe).</summary>
+    public string EnrollmentClientKey(HttpContext ctx) =>
+        GetDevice(ctx) is { } d ? "device:" + d.SessionId : "ip:" + (GetClientIp(ctx)?.ToString() ?? "");
 
     /// <summary>Echter Server-eigener Self-Call (Server-Modus/Prerender)?</summary>
     private bool IsInternalCall(HttpContext ctx)
@@ -118,6 +134,8 @@ public sealed class NetworkAccessService
 
     public bool IsTrustedNetwork(HttpContext ctx)
     {
+        // Geraetekonten gelten als Feuerwehrnetz - egal von welcher Adresse (ELW/KdoW per LTE).
+        if (GetDevice(ctx) != null) return true;
         var ip = GetClientIp(ctx);
         if (ip == null) return false;
         var networks = ParseList(_settings.GetSetting(SettingKeys.SecurityTrustedNetworks));
@@ -152,7 +170,7 @@ public sealed class NetworkAccessService
     {
         if (!IsLoginGateEnabled()) return false;
         if (ctx.User.Identity?.IsAuthenticated ?? false) return false;
-        return !IsLoginExemptIp(ctx);
+        return !IsTrustedClient(ctx);
     }
 
     /// <summary>
@@ -277,6 +295,10 @@ public sealed class NetworkAccessService
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
             allowed.IntersectWith(external);
         }
+
+        // 2b. Geraetekonto ohne zusaetzliche Anmeldung: nur die fuer das Geraet freigegebenen Bereiche.
+        if (!authenticated && GetDevice(ctx) is { } device)
+            allowed.IntersectWith(device.Modules);
 
         // Der Wachen-Direktlink haengt am Wachen-Modul: wo Wachen sichtbar sind, geht auch der Link.
         if (allowed.Contains(ModuleFireSafety)) allowed.Add(UserAccessService.ModuleFireSafetyLink);

@@ -110,6 +110,7 @@
                 @Switch("Security.LoginRequired", "Login-Pflicht aktivieren")
                 <div class="mb-3">
                     <label class="form-label">IP-Whitelist (ohne Login)</label>
+                    <div class="form-text mb-1">Für Geräte mit wechselnder IP (ELW, KdoW, Tablets) stattdessen ein <strong>Gerätekonto</strong> anlegen (Verwaltung › Benutzer › Rolle „Gerät“) und sich damit einmal auf dem Gerät anmelden.</div>
                     <input class="form-control" placeholder="z. B. 203.0.113.10, 192.168.10.0/24"
                            @bind:get='Get("Security.LoginWhitelist")' @bind:set='(string v) => Set("Security.LoginWhitelist", v)' />
                     <small class="text-muted">
@@ -250,6 +251,7 @@
                                     <td>Login-Pflicht</td>
                                     <td>
                                         @if (!_ac.LoginGateEnabled) { <span class="badge bg-secondary">aus</span> }
+                                        else if (_ac.DeviceName is not null) { <span class="badge bg-success">an – Gerätekonto „@_ac.DeviceName“</span> }
                                         else if (_ac.IsLoginExemptIp) { <span class="badge bg-success">an – diese Adresse ist auf der Whitelist</span> }
                                         else { <span class="badge bg-warning text-dark">an – von hier nur mit Anmeldung</span> }
                                     </td>
@@ -403,7 +405,7 @@
         bool HostProfileFound, List<string> HostProfileModules, bool ApproveOnlyHost,
         List<string> AllowedModules, bool Authenticated,
         string ConfiguredTrustedProxies, string ConfiguredTrustedNetworks,
-        bool LoginGateEnabled = false, bool IsLoginExemptIp = false);
+        bool LoginGateEnabled = false, bool IsLoginExemptIp = false, string? DeviceName = null);
 
     // Nextcloud-Test
     private bool _ncTesting;

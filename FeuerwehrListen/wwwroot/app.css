@@ -81,6 +81,8 @@ main { flex: 1; background: var(--tw-bg); }
 .tw-nav a .bi { font-size: 1rem; }
 
 .tw-right { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+/* Geraetekonto (ELW, KdoW ...): Name statt Avatar, daneben "Anmelden" fuer Mitglieder/Admins. */
+.tw-device { color: #fff; opacity: .9; font-size: 14px; display: inline-flex; align-items: center; gap: 6px; padding: 8px 10px; white-space: nowrap; }
 
 /* Dropdown (Verwaltung / Benutzer) */
 .tw-drop { position: relative; }

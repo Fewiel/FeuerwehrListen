@@ -33,7 +33,9 @@ public enum VehicleType
 public enum UserRole
 {
     User = 1,
-    Admin = 2
+    Admin = 2,
+    /// <summary>Geraetekonto (ELW, KdoW, Geraetehaus-Tablet): dauerhaft angemeldet, nur Kiosk-Ansicht.</summary>
+    Device = 3
 }
 
 public enum DefectStatus

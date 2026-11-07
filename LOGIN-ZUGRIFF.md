@@ -13,7 +13,8 @@ Einstellungen aktiviert wird.
 | Login-Pflicht aktivieren | `Security.LoginRequired` | `true` = ohne Anmeldung ist nichts erreichbar |
 | IP-Whitelist (ohne Login) | `Security.LoginWhitelist` | IPs/CIDR-Netze, kommagetrennt, die ohne Anmeldung zugreifen dürfen |
 
-Ist die Login-Pflicht an und kommt die Anfrage **nicht** von einer Whitelist-Adresse:
+Ist die Login-Pflicht an und kommt die Anfrage **nicht** von einer Whitelist-Adresse oder
+einem Gerätekonto (s. u.):
 
 * Seitenaufrufe werden nach `/login?returnUrl=…` umgeleitet,
 * `/client-api/*` antwortet mit `401 {"error":"login_required"}`,
@@ -42,6 +43,34 @@ Reverse-Proxy unter „Adressen des Reverse-Proxys“ eingetragen ist, wird
 die App sieht und ob sie auf der Whitelist steht. Im Server-Modus (Alt-Geräte) reicht
 der Server die Nutzer-IP intern als `X-Fw-Client-Ip` durch (nur zusammen mit dem
 prozess-geheimen `X-Fw-Internal` gültig).
+
+## Gerätekonten (ELW, KdoW, Tablets mit wechselnder IP)
+
+*Verwaltung → Benutzer → Rolle „Gerät“*
+
+Für Geräte, die ohne Login auf die Oberfläche sollen, deren IP aber wechselt (LTE-Router im
+ELW/KdoW, Tablet im WLAN). Ablauf:
+
+1. Gerätekonto anlegen (`elw1`, `tablet-gh` …), Bereiche wählen (Anwesenheit, Einsatz, Wachen,
+   Mängel, Kalender), optional „Passwort-Vergabe erlaubt“ (nur Gerätehaus-Tablet). Langes
+   generiertes Passwort, nur der Admin kennt es.
+2. Auf dem Gerät einmal über die normale Login-Seite mit dem Gerätekonto anmelden. Der Server
+   setzt ein eigenes Cookie `fw_device` (2 Jahre, HttpOnly) – **kein** Benutzer-Cookie.
+3. Das Gerät gilt ab dann als vertrauenswürdig wie im Feuerwehrnetz: Kiosk-Ansicht mit den
+   freigegebenen Bereichen, keine Login-Umleitung, Netz-Schranke greift nicht. Es ist aber
+   **nicht angemeldet**: keine verwaltenden Aktionen (Listen schließen …), keine Verwaltung,
+   kein Mitgliederbereich, kein Führungskreis, keine externe API.
+4. Mitglieder/Admins melden sich auf dem Gerät zusätzlich normal an; nach dem Abmelden fällt
+   das Gerät in den Kiosk-Zustand zurück (nicht auf den Login).
+
+Kontrolle: Die Benutzerliste zeigt je Gerätekonto „n Geräte angemeldet“, zuletzt gesehen und
+letzte IP. „Alle Geräte abmelden“, Passwortwechsel, Rollenwechsel oder Löschen sperren jede
+Sitzung sofort (Token-Hash in `DeviceSession`, `RevokedAt`; 60 s Cache wird geleert).
+
+Hinweise: Safari „Verlauf und Websitedaten löschen“ oder ein Zurücksetzen des Geräts entfernt
+das Cookie → einfach neu anmelden. Liegt die App als Web-App auf dem Home-Bildschirm, dort
+anmelden (iOS trennt die Daten von Safari). Alte iPads (Server-Modus): das Geräte-Cookie wird
+wie die Client-IP versiegelt in den Circuit gereicht (`X-Fw-Device`, nur mit `X-Fw-Internal`).
 
 ## Benutzerrechte
 

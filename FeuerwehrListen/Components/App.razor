@@ -258,7 +258,9 @@
         get
         {
             var ip = HttpContext is null ? null : Access.GetClientIp(HttpContext)?.ToString();
-            return ip is null ? null : FeuerwehrListen.Services.CircuitClientInfo.Seal(Protection, ip);
+            if (ip is null) return null;
+            HttpContext!.Request.Cookies.TryGetValue(FeuerwehrListen.Services.DeviceSessionService.CookieName, out var device);
+            return FeuerwehrListen.Services.CircuitClientInfo.Seal(Protection, ip, device);
         }
     }
 

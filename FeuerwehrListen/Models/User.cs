@@ -44,6 +44,10 @@ public class User
     [Column("ModuleAccess")]
     public string ModuleAccess { get; set; } = UserAccessService.FullAccess;
 
+    /// <summary>Nur Geraetekonten: darf die Passwort-Vergabe fuer Mitglieder hosten (Geraetehaus-Tablet).</summary>
+    [Column("AllowEnrollment")]
+    public bool AllowEnrollment { get; set; }
+
     [Column("CreatedAt")]
     public DateTime CreatedAt { get; set; }
 }

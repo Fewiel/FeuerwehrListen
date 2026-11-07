@@ -91,6 +91,15 @@ def main():
         "Card.IssuedBy": "Stadt Musterstadt – Der Bürgermeister\nFreiwillige Feuerwehr Musterstadt",
     }), "Einstellungen")
 
+    # --- Geraetekonten (ELW, Geraetehaus-Tablet) ---
+    existing_users = {u["username"] for u in ok(admin.get(f"{BASE}/client-api/admin/users"), "Benutzer").json()}
+    for name, first, mods, enroll in [("elw1", "ELW 1", ["attendance", "operations", "firesafety", "calendar"], False),
+                                      ("tablet-gh", "Tablet Gerätehaus", ["attendance", "operations", "firesafety", "defects", "calendar"], True)]:
+        if name not in existing_users:
+            ok(admin.post(f"{BASE}/client-api/admin/users", json={
+                "username": name, "firstName": first, "lastName": "", "role": "Device", "password": "Geraet2026!",
+                "modules": mods, "fullAccess": False, "allowEnrollment": enroll, "hasListAccess": False}), f"Geraet {name}")
+
     # --- Fahrzeuge + Funktion (fuer Wachen) ---
     for name, call in [("HLF 20", "Florian Musterstadt 1-46-1"), ("LF 10", "Florian Musterstadt 2-44-1")]:
         admin.post(f"{BASE}/client-api/admin/vehicles", json={"name": name, "callSign": call, "type": "Löschfahrzeug", "isActive": True})
@@ -213,6 +222,7 @@ def main():
 
     print("Beispieldaten angelegt.")
     print(f"  Admin:     admin / admin")
+    print(f"  Geraete:   elw1, tablet-gh / Geraet2026!")
     print(f"  Mitglieder: Nummer + {MEMBER_PASSWORD}  (1001 kleiner FK, 1003 grosser FK, 1234 ohne FK, 1235 ohne Lichtbild)")
 
 
