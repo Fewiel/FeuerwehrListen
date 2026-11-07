@@ -121,6 +121,65 @@ public sealed class SimpleRateLimiter
     }
 }
 
+/// <summary>
+/// Login-Bremse gegen Durchprobieren (UI und API). Zaehlt FEHLversuche je Konto und je
+/// Client-IP in einem 15-Minuten-Fenster:
+/// * jeder Fehlversuch wird kuenstlich verzoegert - laenger, je mehr Fehlversuche (bis 4 s),
+/// * ab 10 Fehlversuchen auf ein Konto ist es 15 Minuten gesperrt (auch fuer den Richtigen),
+/// * ab 50 Fehlversuchen von einer IP ist die IP 15 Minuten gesperrt.
+/// Erfolgreiche Anmeldung setzt den Konto-Zaehler zurueck. Im Speicher - ein Neustart loescht
+/// die Zaehler, was fuer eine Bremse ausreicht (Mitglieder haben zusaetzlich die DB-Sperre).
+/// </summary>
+public sealed class LoginThrottle
+{
+    public static readonly TimeSpan Window = TimeSpan.FromMinutes(15);
+    public const int AccountLimit = 10;
+    public const int IpLimit = 50;
+    private static readonly TimeSpan MaxDelay = TimeSpan.FromSeconds(4);
+
+    private readonly IMemoryCache _cache;
+    public LoginThrottle(IMemoryCache cache) => _cache = cache;
+
+    private sealed class Counter { public int Count; public DateTime LockedUntil; }
+
+    private Counter Get(string key) => _cache.GetOrCreate("lt:" + key, e => { e.SlidingExpiration = Window; return new Counter(); })!;
+
+    private static string AcctKey(string? account) => "acct:" + (account ?? "").Trim().ToLowerInvariant();
+    private static string IpKey(string? ip) => "ip:" + (ip ?? "?");
+
+    /// <summary>Gesperrt? Liefert das Ende der Sperre fuer Konto oder IP.</summary>
+    public DateTime? LockedUntil(string? account, string? ip)
+    {
+        var now = DateTime.Now;
+        DateTime? until = null;
+        foreach (var key in new[] { IpKey(ip), AcctKey(account) })
+        {
+            if (_cache.TryGetValue("lt:" + key, out Counter? c) && c != null && c.LockedUntil > now)
+                until = until == null || c.LockedUntil > until ? c.LockedUntil : until;
+        }
+        return until;
+    }
+
+    /// <summary>Fehlversuch zaehlen; danach kuenstlich warten (Bremse). Rueckgabe: Sperre, falls jetzt erreicht.</summary>
+    public async Task<DateTime?> FailAsync(string? account, string? ip)
+    {
+        var now = DateTime.Now;
+        var a = Get(AcctKey(account)); var i = Get(IpKey(ip));
+        a.Count++; i.Count++;
+        if (a.Count >= AccountLimit && a.LockedUntil <= now) a.LockedUntil = now.Add(Window);
+        if (i.Count >= IpLimit && i.LockedUntil <= now) i.LockedUntil = now.Add(Window);
+        // Jeder Fehlversuch kostet Zeit: 300 ms je Konto-Fehlversuch, dazu etwas je IP-Fehlversuch.
+        var delay = TimeSpan.FromMilliseconds(Math.Min(MaxDelay.TotalMilliseconds, 300 * a.Count + 50 * i.Count));
+        await Task.Delay(delay);
+        return LockedUntil(account, ip);
+    }
+
+    public void Success(string? account) => _cache.Remove("lt:" + AcctKey(account));
+
+    /// <summary>Konto-Sperre aufheben (Verwaltung).</summary>
+    public void Unlock(string? account) => Success(account);
+}
+
 public static class PasswordHasher
 {
     private const int Iterations = 210_000;
@@ -134,6 +193,10 @@ public static class PasswordHasher
     }
 
     public const int MinLength = 10;
+
+    /// <summary>Fuer unbekannte Konten wird gegen diesen Hash geprueft, damit die Antwortzeit nicht
+    /// verraet, ob ein Benutzername existiert.</summary>
+    public static readonly string DummyHash = Hash(Guid.NewGuid().ToString());
 }
 
 public static class CardIds

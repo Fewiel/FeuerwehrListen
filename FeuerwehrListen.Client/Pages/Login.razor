@@ -106,6 +106,7 @@
         try
         {
             var resp = await Http.PostAsJsonAsync("client-api/auth/login", new { Username = _username, Password = _password });
+            // 429 (gesperrt) liefert denselben JSON-Aufbau wie ok:false.
             var r = await resp.Content.ReadFromJsonAsync<OkDto>();
             if (r?.Ok == true) CompleteLogin(r.Ticket);
             else
@@ -137,6 +138,7 @@
                 case "pin": _pin = ""; _pinError = ""; _showPin = true; break;
                 case "badpin": _pinError = "Falsche PIN."; _pin = ""; break;
                 case "invalid": _error = "Ungültiger QR-Code."; break;
+                case "locked": _showPin = false; _error = $"Zu viele Fehlversuche – bitte ab {r.Until:HH:mm} Uhr erneut versuchen."; break;
                 default: _error = "Login-Fehler."; break;
             }
         }
@@ -171,5 +173,5 @@
     public string? ReturnUrl { get; set; }
 
     private record OkDto(bool Ok, string? Ticket, string? Error = null, DateTime? Until = null);
-    private record QrDto(string Status, string? Ticket);
+    private record QrDto(string Status, string? Ticket, DateTime? Until = null);
 }

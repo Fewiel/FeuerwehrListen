@@ -175,7 +175,7 @@ public static class MemberAreaEndpoints
             });
         });
 
-        admin.MapPut("/members/{id:int}/account", async (int id, MemberRepository members, UserAccessService ua, MemberAccountUpdate r) =>
+        admin.MapPut("/members/{id:int}/account", async (int id, MemberRepository members, UserAccessService ua, LoginThrottle throttle, MemberAccountUpdate r) =>
         {
             var m = await members.GetByIdAsync(id);
             if (m == null) return Results.NotFound();
@@ -184,7 +184,7 @@ public static class MemberAreaEndpoints
             m.Rank = string.IsNullOrWhiteSpace(r.Rank) ? null : r.Rank.Trim();
             m.Email = string.IsNullOrWhiteSpace(r.Email) ? null : r.Email.Trim();
             m.CardValidUntil = r.CardValidUntil?.Date;
-            if (r.Unlock) { m.LockedUntil = null; m.FailedLogins = 0; }
+            if (r.Unlock) { m.LockedUntil = null; m.FailedLogins = 0; throttle.Unlock(m.MemberNumber); }
             await members.UpdateAsync(m);
             ua.Invalidate(UserAccessService.MemberPrincipalName(m.MemberNumber));
             return Results.Ok();

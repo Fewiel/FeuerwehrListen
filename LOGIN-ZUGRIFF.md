@@ -44,6 +44,25 @@ die App sieht und ob sie auf der Whitelist steht. Im Server-Modus (Alt-Geräte) 
 der Server die Nutzer-IP intern als `X-Fw-Client-Ip` durch (nur zusammen mit dem
 prozess-geheimen `X-Fw-Internal` gültig).
 
+## Login-Bremse (Brute-Force-Schutz)
+
+Für alle Anmeldewege (Benutzer/Mitglieder/Geräte-Login, QR-Login inkl. Admin-PIN, API-Key,
+SSO-Client-Secret), `LoginThrottle`:
+
+* Jeder Fehlversuch wird künstlich verzögert – 300 ms je Fehlversuch auf das Konto plus
+  50 ms je Fehlversuch der IP, höchstens 4 s. Zehn Fehlversuche kosten so ~20 s statt
+  Millisekunden.
+* 10 Fehlversuche auf ein Konto → Konto 15 Minuten gesperrt (auch für den Richtigen, HTTP 429
+  mit `until`). 50 Fehlversuche von einer IP → IP 15 Minuten gesperrt. Erfolg setzt den
+  Konto-Zähler zurück; Admin kann über `POST /client-api/admin/users/{id}/unlock` bzw.
+  „entsperren“ beim Mitglied aufheben.
+* Unbekannte Konten prüfen gegen einen Dummy-Hash, damit die Antwortzeit nicht verrät, ob es
+  den Namen gibt.
+* Mitglieder haben zusätzlich die dauerhafte DB-Sperre (5 Fehlversuche → 15 Minuten).
+* Prüf-Links (`/client-api/card-check/*`) sind separat auf 30 Aufrufe/Minute je IP begrenzt.
+
+Zähler liegen im Speicher (Neustart löscht sie) – als Bremse ausreichend.
+
 ## Gerätekonten (ELW, KdoW, Tablets mit wechselnder IP)
 
 *Verwaltung → Benutzer → Rolle „Gerät“*

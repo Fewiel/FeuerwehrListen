@@ -13,7 +13,7 @@ public class ApiKeyAuthMiddleware
         _logger = logger;
     }
 
-    public async Task InvokeAsync(HttpContext context, ApiKeyRepository apiKeyRepository)
+    public async Task InvokeAsync(HttpContext context, ApiKeyRepository apiKeyRepository, Services.LoginThrottle throttle, Services.NetworkAccessService access)
     {
         if (context.Request.Path.StartsWithSegments("/api"))
         {
@@ -34,7 +34,16 @@ public class ApiKeyAuthMiddleware
             }
 
             var apiKey = context.Request.Headers["X-API-Key"].FirstOrDefault();
-            
+            var ip = access.GetClientIp(context)?.ToString();
+
+            // Bremse gegen Durchprobieren von API-Keys: IP nach zu vielen Fehlversuchen gesperrt.
+            if (throttle.LockedUntil("apikey", ip) != null)
+            {
+                context.Response.StatusCode = 429;
+                await context.Response.WriteAsync("Zu viele Fehlversuche - bitte spaeter erneut versuchen.");
+                return;
+            }
+
             if (string.IsNullOrEmpty(apiKey))
             {
                 context.Response.StatusCode = 401;
@@ -45,6 +54,7 @@ public class ApiKeyAuthMiddleware
             var isValidKey = await apiKeyRepository.IsValidApiKeyAsync(apiKey);
             if (!isValidKey)
             {
+                await throttle.FailAsync("apikey", ip);
                 context.Response.StatusCode = 401;
                 await context.Response.WriteAsync("Ungültiger API Key");
                 return;

@@ -206,6 +206,7 @@ builder.Services.AddSingleton<FeuerwehrListen.Services.UserAccessService>();
 builder.Services.AddSingleton<FeuerwehrListen.Services.DataPathService>();
 builder.Services.AddSingleton<FeuerwehrListen.Services.PasswordEnrollmentService>();
 builder.Services.AddSingleton<FeuerwehrListen.Services.SimpleRateLimiter>();
+builder.Services.AddSingleton<FeuerwehrListen.Services.LoginThrottle>();
 builder.Services.AddScoped<FeuerwehrListen.Services.CircuitClientInfo>();
 builder.Services.AddSingleton<FeuerwehrListen.Services.DeviceSessionService>();
 builder.Services.AddScoped<DeviceSessionRepository>();
@@ -731,19 +732,30 @@ app.MapGet("/client-api/app-context", (HttpContext http, SettingsService setting
 // (/client-api/auth/complete). Grund: Im Server-Modus (SignalR) laeuft dieser POST
 // server-intern (SelfHttpClient) -> das Set-Cookie erreicht den Browser sonst nie.
 app.MapPost("/client-api/auth/login", async (HttpContext http, UserRepository users, MemberRepository members, AuthTicketService tickets,
-    NetworkAccessService access, SimpleRateLimiter limiter, AuthLoginRequest req) =>
+    NetworkAccessService access, LoginThrottle throttle, AuthLoginRequest req) =>
 {
     var name = (req.Username ?? "").Trim();
-    // Gegen Durchprobieren: je Client-IP begrenzt (Benutzer- und Mitglieder-Login gemeinsam).
-    if (!limiter.Allow("login:" + access.GetClientIp(http), 20, TimeSpan.FromMinutes(5)))
-        return Results.Json(new { ok = false, error = "rate_limited" });
+    var ip = access.GetClientIp(http)?.ToString();
 
-    // 1. Benutzerkonto (Admin/Verwaltung) - hat Vorrang vor einer gleichlautenden Mitgliedsnummer.
+    // Bremse gegen Durchprobieren: Konto oder IP gesperrt -> gar nicht erst pruefen.
+    if (throttle.LockedUntil(name, ip) is DateTime locked)
+        return Results.Json(new { ok = false, error = "locked", until = locked }, statusCode: 429);
+
+    async Task<IResult> Fail()
+    {
+        // Zaehlt, verzoegert (laenger je Fehlversuch) und meldet eine neu erreichte Sperre.
+        var until = await throttle.FailAsync(name, ip);
+        return until is DateTime u
+            ? Results.Json(new { ok = false, error = "locked", until = u }, statusCode: 429)
+            : Results.Json(new { ok = false });
+    }
+
+    // 1. Benutzerkonto (Admin/Verwaltung/Geraet) - hat Vorrang vor einer gleichlautenden Mitgliedsnummer.
     var user = await users.GetByUsernameAsync(name);
     if (user != null)
     {
-        if (!FeuerwehrListen.Services.AuthenticationService.VerifyPassword(user.PasswordHash, req.Password))
-            return Results.Json(new { ok = false });
+        if (!FeuerwehrListen.Services.AuthenticationService.VerifyPassword(user.PasswordHash, req.Password)) return await Fail();
+        throttle.Success(name);
         // Geraetekonto: dauerhafte Geraete-Sitzung statt Benutzer-Anmeldung.
         if (user.Role == UserRole.Device)
             return Results.Json(new { ok = true, ticket = tickets.CreateDeviceTicket(user.Id), device = true });
@@ -753,33 +765,56 @@ app.MapPost("/client-api/auth/login", async (HttpContext http, UserRepository us
     // 2. Mitglieder-Konto: Mitgliedsnummer + selbst gesetztes Passwort.
     var member = name.Length == 0 ? null : await members.GetByMemberNumberAsync(name);
     if (member == null || !member.IsActive || string.IsNullOrEmpty(member.PasswordHash))
-        return Results.Json(new { ok = false });
+    {
+        // Unbekanntes Konto: trotzdem einen Hash pruefen, damit die Antwortzeit nicht verraet,
+        // ob es den Namen gibt.
+        FeuerwehrListen.Services.AuthenticationService.VerifyPassword(PasswordHasher.DummyHash, req.Password);
+        return await Fail();
+    }
     if (member.LockedUntil is DateTime lu && lu > DateTime.Now)
-        return Results.Json(new { ok = false, error = "locked", until = lu });
+        return Results.Json(new { ok = false, error = "locked", until = lu }, statusCode: 429);
     if (!FeuerwehrListen.Services.AuthenticationService.VerifyPassword(member.PasswordHash, req.Password))
     {
-        // 5 Fehlversuche -> 15 Minuten gesperrt.
+        // Zusaetzlich dauerhaft in der DB: 5 Fehlversuche -> 15 Minuten gesperrt.
         member.FailedLogins++;
         if (member.FailedLogins >= 5) { member.LockedUntil = DateTime.Now.AddMinutes(15); member.FailedLogins = 0; }
         await members.UpdateAsync(member);
-        return Results.Json(new { ok = false });
+        return await Fail();
     }
     if (member.FailedLogins != 0 || member.LockedUntil != null)
     {
         member.FailedLogins = 0; member.LockedUntil = null;
         await members.UpdateAsync(member);
     }
+    throttle.Success(name);
     return Results.Json(new { ok = true, ticket = tickets.CreateMemberTicket(member.Id), member = true });
 }).DisableAntiforgery();
 
-app.MapPost("/client-api/auth/qr", async (UserRepository users, AuthTicketService tickets, AuthQrRequest req) =>
+app.MapPost("/client-api/auth/qr", async (HttpContext http, UserRepository users, AuthTicketService tickets, NetworkAccessService access,
+    LoginThrottle throttle, AuthQrRequest req) =>
 {
-    var user = await users.GetByQrAuthCodeAsync((req.Code ?? "").Trim());
-    if (user == null || user.Role == UserRole.Device) return Results.Json(new { status = "invalid" });
+    var ip = access.GetClientIp(http)?.ToString();
+    var code = (req.Code ?? "").Trim();
+    // Gleiche Bremse wie beim Passwort-Login: Codes und PINs lassen sich sonst durchprobieren.
+    if (throttle.LockedUntil("qr", ip) is DateTime locked)
+        return Results.Json(new { status = "locked", until = locked }, statusCode: 429);
+    var user = await users.GetByQrAuthCodeAsync(code);
+    if (user == null || user.Role == UserRole.Device)
+    {
+        var until = await throttle.FailAsync("qr", ip);
+        return until is DateTime u ? Results.Json(new { status = "locked", until = u }, statusCode: 429) : Results.Json(new { status = "invalid" });
+    }
     if (user.Role == UserRole.Admin && !string.IsNullOrWhiteSpace(user.AdminPin))
     {
+        if (throttle.LockedUntil(user.Username, ip) is DateTime pinLocked)
+            return Results.Json(new { status = "locked", until = pinLocked }, statusCode: 429);
         if (string.IsNullOrWhiteSpace(req.Pin)) return Results.Json(new { status = "pin" });
-        if (user.AdminPin != req.Pin.Trim()) return Results.Json(new { status = "badpin" });
+        if (user.AdminPin != req.Pin.Trim())
+        {
+            var until = await throttle.FailAsync(user.Username, ip);
+            return until is DateTime u ? Results.Json(new { status = "locked", until = u }, statusCode: 429) : Results.Json(new { status = "badpin" });
+        }
+        throttle.Success(user.Username);
     }
     return Results.Json(new { status = "ok", ticket = tickets.CreateTicket(user.Id) });
 }).DisableAntiforgery();
@@ -950,8 +985,10 @@ app.MapGet("/sso/authorize", async (HttpContext ctx, SsoClientRepository clients
 
 // 2) Token: server-to-server POST (application/x-www-form-urlencoded). Tauscht Code + Secret gegen
 //    ein opakes Access-Token.
-app.MapPost("/sso/token", async (HttpContext ctx, SsoClientRepository clients, SsoTokenService sso) =>
+app.MapPost("/sso/token", async (HttpContext ctx, SsoClientRepository clients, SsoTokenService sso, LoginThrottle throttle, NetworkAccessService access) =>
 {
+    var ssoIp = access.GetClientIp(ctx)?.ToString();
+    if (throttle.LockedUntil("sso", ssoIp) != null) return Results.Json(new { error = "invalid_client" }, statusCode: 429);
     if (!ctx.Request.HasFormContentType) return Results.Json(new { error = "invalid_request" }, statusCode: 400);
     var form = await ctx.Request.ReadFormAsync();
     string? F(string k) => form[k].FirstOrDefault();
@@ -962,7 +999,10 @@ app.MapPost("/sso/token", async (HttpContext ctx, SsoClientRepository clients, S
     var client = await clients.GetByClientIdAsync(F("client_id") ?? "");
     if (client == null || !client.IsActive ||
         !FeuerwehrListen.Services.AuthenticationService.VerifyPassword(client.ClientSecretHash, F("client_secret") ?? ""))
+    {
+        await throttle.FailAsync("sso", ssoIp);
         return Results.Json(new { error = "invalid_client" }, statusCode: 401);
+    }
 
     if (!sso.TryConsumeAuthCode(F("code"), out var data)
         || data.ClientId != client.ClientId
@@ -1425,6 +1465,14 @@ admin.MapDelete("/users/{id:int}", async (int id, UserRepository repo, Permissio
     await sessions.DeleteForUserAsync(id);
     await keys.DeleteAssignmentsForUserAsync(id);
     await repo.DeleteAsync(id);
+    return Results.Ok();
+});
+
+// Login-Bremse: Sperre eines Kontos (Fehlversuche) aufheben.
+admin.MapPost("/users/{id:int}/unlock", async (int id, UserRepository repo, LoginThrottle throttle) =>
+{
+    var u = await repo.GetByIdAsync(id); if (u == null) return Results.NotFound();
+    throttle.Unlock(u.Username);
     return Results.Ok();
 });
 
