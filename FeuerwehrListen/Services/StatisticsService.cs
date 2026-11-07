@@ -33,7 +33,7 @@ public class StatisticsService
 
     private async Task<List<AttendanceList>> FilteredAttendanceListsAsync(StatsFilter f)
     {
-        var q = _db.AttendanceLists.AsQueryable();
+        var q = _db.AttendanceLists.Where(x => x.LeadershipProtocolId == null);
         if (f.From.HasValue) q = q.Where(a => a.CreatedAt >= f.From.Value);
         if (f.To.HasValue) q = q.Where(a => a.CreatedAt <= f.To.Value);
         return await q.ToListAsync();
@@ -406,7 +406,7 @@ public class StatisticsService
         var endDate = DateTime.Now;
         var startDate = endDate.AddMonths(-months);
 
-        var attendanceLists = await _db.AttendanceLists.Where(x => x.CreatedAt >= startDate).ToListAsync();
+        var attendanceLists = await _db.AttendanceLists.Where(x => x.LeadershipProtocolId == null && x.CreatedAt >= startDate).ToListAsync();
         var operationLists = await _db.OperationLists.Where(x => x.CreatedAt >= startDate).ToListAsync();
 
         var attendanceListIds = attendanceLists.Select(l => l.Id).ToHashSet();

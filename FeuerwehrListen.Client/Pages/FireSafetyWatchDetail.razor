@@ -1,8 +1,12 @@
 @page "/firesafetywatches/{Id:int}"
+@* Direktlink ueber die nicht erratbare PublicId. Eigenes Modulrecht (firesafety-link): damit
+   kommen Konten gezielt an EINE Wache, ohne Liste/Uebersicht der Wachen. *@
+@page "/wache/{PublicId}"
 @layout MainLayout
 @using System.Net.Http.Json
 @inject HttpClient Http
 @inject IJSRuntime JS
+@inject NavigationManager Nav
 
 <PageTitle>Brandsicherheitswache</PageTitle>
 
@@ -22,17 +26,26 @@
         <div class="mb-4">
             <h1>@_w.Name</h1>
             <p class="lead text-muted">@_w.Location | @_w.EventTime.ToString("dd.MM.yyyy HH:mm 'Uhr'")</p>
-            <div class="d-flex flex-wrap gap-2">
-                <AuthorizeView>
-                    @if (_w.IsOpen) { <button class="btn btn-warning" @onclick="Close" disabled="@_busy">Wache abschließen</button> }
-                </AuthorizeView>
-                <AuthorizeView Roles="Admin" Context="adm">
-                    <a class="btn btn-outline-primary" href="/firesafetywatches/@Id/edit">
-                        <i class="bi bi-pencil me-1"></i>Bearbeiten
-                    </a>
-                </AuthorizeView>
-                <a href="/firesafetywatches" class="btn btn-secondary">Zurück</a>
-            </div>
+            @if (!IsLink)
+            {
+                <div class="d-flex flex-wrap gap-2">
+                    <AuthorizeView Roles="Admin,User">
+                        @if (_w.IsOpen) { <button class="btn btn-warning" @onclick="Close" disabled="@_busy">Wache abschließen</button> }
+                        @if (!string.IsNullOrEmpty(_w.PublicId))
+                        {
+                            <button class="btn btn-outline-secondary" @onclick="CopyLink" title="@LinkUrl">
+                                <i class="bi bi-link-45deg me-1"></i>@(_linkCopied ? "Link kopiert" : "Direktlink kopieren")
+                            </button>
+                        }
+                    </AuthorizeView>
+                    <AuthorizeView Roles="Admin" Context="adm">
+                        <a class="btn btn-outline-primary" href="/firesafetywatches/@_w.Id/edit">
+                            <i class="bi bi-pencil me-1"></i>Bearbeiten
+                        </a>
+                    </AuthorizeView>
+                    <a href="/firesafetywatches" class="btn btn-secondary">Zurück</a>
+                </div>
+            }
         </div>
 
         @if (_w.IsOpen && _selectedReq is not null)
@@ -61,7 +74,7 @@
         }
 
         <QuickActionsModal @ref="_quickActions"
-                           ShowCloseList="@_w.IsOpen"
+                           ShowCloseList="@(_w.IsOpen && !IsLink)"
                            CloseLabel="Wache abschließen"
                            OnActionSelected="HandleQuickAction" />
 
@@ -84,7 +97,7 @@
                                     {
                                         <span>@e.MemberName</span>
                                         <AuthorizeView Roles="Admin">
-                                            @if (_w.IsOpen) { <button class="btn btn-sm btn-outline-danger ms-2" @onclick="() => Unregister(e.EntryId)" disabled="@_busy">Austragen</button> }
+                                            @if (_w.IsOpen && !IsLink) { <button class="btn btn-sm btn-outline-danger ms-2" @onclick="() => Unregister(e.EntryId)" disabled="@_busy">Austragen</button> }
                                         </AuthorizeView>
                                     }
                                     else if (_w.IsOpen)
@@ -103,6 +116,15 @@
 
 @code {
     [Parameter] public int Id { get; set; }
+    [Parameter] public string? PublicId { get; set; }
+
+    private bool IsLink => !string.IsNullOrEmpty(PublicId);
+    // Lesen/Eintragen laufen im Link-Modus ueber die PublicId-Endpoints.
+    private string ApiBase => IsLink
+        ? $"client-api/firesafetywatch-link/{Uri.EscapeDataString(PublicId!)}"
+        : $"client-api/firesafetywatch/{Id}";
+    private string LinkUrl => _w?.PublicId is { Length: > 0 } pid ? Nav.BaseUri.TrimEnd('/') + "/wache/" + pid : "";
+    private bool _linkCopied;
     private WatchDto? _w;
     private string? _loadError;
     private bool _busy;
@@ -120,7 +142,7 @@
         var hadData = _w is not null;
         try
         {
-            _w = await Http.GetFromJsonAsync<WatchDto>($"client-api/firesafetywatch/{Id}");
+            _w = await Http.GetFromJsonAsync<WatchDto>(ApiBase);
             _loadError = null;
         }
         catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
@@ -193,7 +215,7 @@
         _error = null;
         try
         {
-            var resp = await Http.PostAsJsonAsync($"client-api/firesafetywatch/{Id}/register", new { RequirementId = _selectedReq.Id, Code = code.Trim() });
+            var resp = await Http.PostAsJsonAsync($"{ApiBase}/register", new { RequirementId = _selectedReq.Id, Code = code.Trim() });
             if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized) { _error = "Sitzung abgelaufen – bitte neu anmelden."; return; }
             var r = await resp.Content.ReadFromJsonAsync<RegResult>();
             switch (r?.Status)
@@ -214,7 +236,7 @@
         _busy = true;
         try
         {
-            var resp = await Http.DeleteAsync($"client-api/firesafetywatch/{Id}/entry/{entryId}");
+            var resp = await Http.DeleteAsync($"client-api/firesafetywatch/{_w!.Id}/entry/{entryId}");
             if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized) { _error = "Sitzung abgelaufen – bitte neu anmelden."; return; }
             if (!resp.IsSuccessStatusCode) { _error = "Austragen fehlgeschlagen."; return; }
             await Load();
@@ -229,13 +251,19 @@
         _busy = true;
         try
         {
-            var resp = await Http.PostAsync($"client-api/firesafetywatch/{Id}/close", null);
+            var resp = await Http.PostAsync($"client-api/firesafetywatch/{_w!.Id}/close", null);
             if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized) { _error = "Sitzung abgelaufen – bitte neu anmelden."; return; }
             if (!resp.IsSuccessStatusCode) { _error = "Abschließen fehlgeschlagen."; return; }
             await Load();
         }
         catch { _error = "Abschließen fehlgeschlagen."; }
         finally { _busy = false; }
+    }
+
+    private async Task CopyLink()
+    {
+        try { await JS.InvokeVoidAsync("navigator.clipboard.writeText", LinkUrl); _linkCopied = true; }
+        catch { _error = "Kopieren nicht möglich: " + LinkUrl; }
     }
 
     private async Task Confirm(string? name)
@@ -248,7 +276,7 @@
     }
     private async Task Sound(string t) { try { await JS.InvokeVoidAsync("playSound", t); } catch { } }
 
-    private record WatchDto(int Id, string Name, string Location, DateTime EventTime, bool IsOpen, List<ReqDto> Requirements);
+    private record WatchDto(int Id, string? PublicId, string Name, string Location, DateTime EventTime, bool IsOpen, List<ReqDto> Requirements);
     private record ReqDto(int Id, string FunctionName, int? VehicleId, string VehicleName, int Amount, List<EntryDto> Entries);
     private record EntryDto(int EntryId, string MemberName);
     private record RegResult(string Status, string? Name);

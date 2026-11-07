@@ -36,13 +36,17 @@ public sealed class SelfCookieHandler : DelegatingHandler
     private readonly InternalAuthSecret _secret;
     private readonly AppBaseUrlProvider _baseUrl;
     private readonly string? _originHost;
+    private readonly string? _clientIp;
+    private readonly CircuitClientInfo? _circuit;
     private readonly Uri? _selfBase;
 
     /// <param name="originHost">Host, den der Nutzer tatsaechlich aufgerufen hat. Wird als
     /// X-Fw-Host mitgegeben, damit host-abhaengige Regeln (Host-Profile) auch dann greifen,
     /// wenn der Self-Call aus technischen Gruenden eine andere Zieladresse verwendet.</param>
-    public SelfCookieHandler(IHttpContextAccessor accessor, AuthenticationStateProvider auth, InternalAuthSecret secret, AppBaseUrlProvider baseUrl, string? originHost = null, string? selfBaseUrl = null)
+    public SelfCookieHandler(IHttpContextAccessor accessor, AuthenticationStateProvider auth, InternalAuthSecret secret, AppBaseUrlProvider baseUrl, string? originHost = null, string? selfBaseUrl = null, string? clientIp = null, CircuitClientInfo? circuit = null)
     {
+        _clientIp = clientIp;
+        _circuit = circuit;
         _accessor = accessor;
         _auth = auth;
         _secret = secret;
@@ -109,6 +113,12 @@ public sealed class SelfCookieHandler : DelegatingHandler
         request.Headers.TryAddWithoutValidation("X-Fw-Internal", _secret.Value);
         if (!string.IsNullOrEmpty(_originHost))
             request.Headers.TryAddWithoutValidation("X-Fw-Host", _originHost);
+        // Echte Nutzer-IP (Login-Whitelist, Netz-Schranke) - sonst saehe der Server nur sich selbst.
+        // Im Circuit (kein HttpContext) kommt die IP aus dem versiegelten Token - erst zur
+        // Sendezeit lesen, weil der HttpClient vor der Entsiegelung erzeugt sein kann.
+        var clientIp = _clientIp ?? _circuit?.ClientIp;
+        if (!string.IsNullOrEmpty(clientIp))
+            request.Headers.TryAddWithoutValidation("X-Fw-Client-Ip", clientIp);
 
         var ctx = _accessor.HttpContext;
         if (ctx != null)
@@ -118,6 +128,9 @@ public sealed class SelfCookieHandler : DelegatingHandler
         }
         else
         {
+            // Circuit: Geraete-Cookie (Geraetekonto) aus dem versiegelten Token weiterreichen.
+            if (!string.IsNullOrEmpty(_circuit?.DeviceToken))
+                request.Headers.TryAddWithoutValidation(DeviceSessionService.ForwardHeader, _circuit.DeviceToken);
             // Circuit: kein HttpContext - Identitaet per Header weiterreichen.
             try
             {

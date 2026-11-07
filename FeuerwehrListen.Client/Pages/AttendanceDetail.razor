@@ -42,7 +42,7 @@ else
         }
         else
         {
-            <AuthorizeView>
+            <AuthorizeView Roles="Admin,User">
                 <div class="alert alert-info mt-2"><i class="bi bi-pencil-square me-1"></i>Diese Liste ist abgeschlossen. Als angemeldeter Benutzer kannst du noch <strong>nachtragen</strong>.</div>
                 @EntryUi
             </AuthorizeView>
@@ -223,7 +223,7 @@ else
     </div>;
 
     private RenderFragment EntryTable(List<EntryDto> list) =>@<div class="table-responsive"><table class="table table-hover">
-        <thead><tr><th>#</th><th>Name/ID</th><th>Eingetragen um</th><AuthorizeView><th>Aktion</th></AuthorizeView></tr></thead>
+        <thead><tr><th>#</th><th>Name/ID</th><th>Eingetragen um</th><AuthorizeView Roles="Admin,User"><th>Aktion</th></AuthorizeView></tr></thead>
         <tbody>
             @{ var i = 1; }
             @foreach (var e in list)

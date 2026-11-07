@@ -95,10 +95,38 @@
             <div class="card mb-4"><div class="card-header"><i class="bi bi-shield-lock me-2"></i>Zugriffsschutz</div><div class="card-body">
                 <p class="text-muted">
                     Regelt, was von außerhalb des Feuerwehrnetzes erreichbar ist. <strong>Angemeldete Benutzer
-                    sind davon nie betroffen</strong> – du kannst also von unterwegs weiterhin alles nachtragen.
+                    sind von der Netz-Schranke nie betroffen</strong> – sie sehen genau die Bereiche, die ihnen in der
+                    Benutzerverwaltung freigegeben sind.
                     Die Freigabe-Seite <code>/approve/…</code> bleibt immer offen.
                 </p>
 
+                <h6>Login-Pflicht</h6>
+                <p class="text-muted mb-2" style="font-size:.92rem;">
+                    Eingeschaltet ist das Tool nur noch nach Anmeldung mit Benutzername und Passwort nutzbar
+                    – ersetzt den Passwortschutz im Reverse-Proxy. Von den Adressen der Whitelist
+                    (z. B. dem Feuerwehrhaus) geht es weiterhin ohne Anmeldung.
+                    Offen bleiben immer: Anmeldung, Freigabe-Links <code>/approve/…</code>, SSO und die externe API.
+                </p>
+                @Switch("Security.LoginRequired", "Login-Pflicht aktivieren")
+                <div class="mb-3">
+                    <label class="form-label">IP-Whitelist (ohne Login)</label>
+                    <div class="form-text mb-1">Für Geräte mit wechselnder IP (ELW, KdoW, Tablets) stattdessen ein <strong>Gerätekonto</strong> anlegen (Verwaltung › Benutzer › Rolle „Gerät“) und sich damit einmal auf dem Gerät anmelden.</div>
+                    <input class="form-control" placeholder="z. B. 203.0.113.10, 192.168.10.0/24"
+                           @bind:get='Get("Security.LoginWhitelist")' @bind:set='(string v) => Set("Security.LoginWhitelist", v)' />
+                    <small class="text-muted">
+                        Einzelne IPs oder Netze in CIDR-Schreibweise, kommagetrennt. Leer = jeder muss sich anmelden.
+                        Welche Adresse die App bei dir sieht, zeigt „Zugriff prüfen“ unten (gewertete Client-Adresse).
+                        Läuft die App hinter einem Reverse-Proxy, sieht sie nur dessen Adresse – dann muss der Proxy
+                        unten eingetragen sein.
+                    </small>
+                </div>
+                @if (GetBoolDef("Security.LoginRequired") && string.IsNullOrWhiteSpace(Get("Security.LoginWhitelist")))
+                {
+                    <div class="alert alert-warning py-2"><i class="bi bi-exclamation-triangle me-1"></i>Keine Whitelist: auch im Feuerwehrhaus ist dann eine Anmeldung nötig.</div>
+                }
+
+                <hr />
+                <h6>Netz-Schranke für Gäste</h6>
                 @Switch("Security.RestrictExternal", "Außerhalb der lokalen Netze nur freigegebene Module")
 
                 <div class="mb-3">
@@ -219,12 +247,34 @@
                                     </td>
                                 </tr>
                                 <tr><td>Angemeldet</td><td>@(_ac.Authenticated ? "ja" : "nein")</td></tr>
+                                <tr>
+                                    <td>Login-Pflicht</td>
+                                    <td>
+                                        @if (!_ac.LoginGateEnabled) { <span class="badge bg-secondary">aus</span> }
+                                        else if (_ac.DeviceName is not null) { <span class="badge bg-success">an – Gerätekonto „@_ac.DeviceName“</span> }
+                                        else if (_ac.IsLoginExemptIp) { <span class="badge bg-success">an – diese Adresse ist auf der Whitelist</span> }
+                                        else { <span class="badge bg-warning text-dark">an – von hier nur mit Anmeldung</span> }
+                                    </td>
+                                </tr>
                                 <tr><td>Als lokal geltende Netze</td><td><small><code>@_ac.ConfiguredTrustedNetworks</code></small></td></tr>
                             </tbody>
                         </table>
                     </div>
                 }
                 else if (_acError is not null) { <div class="alert alert-danger py-2 mb-0">@_acError</div> }
+            </div></div>
+
+            <div class="card mb-4"><div class="card-header"><i class="bi bi-person-vcard me-2"></i>Dienstausweis</div><div class="card-body">
+                <p class="text-muted">
+                    Der digitale Dienstausweis im Mitgliederbereich zeigt Lichtbild, Name, Geburtsdatum, Dienstgrad,
+                    Einheit, Mitgliedsnummer, Gültigkeit und den QR-Code zur Echtheitsprüfung.
+                </p>
+                <div class="mb-3">
+                    <label class="form-label">Ausgestellt von</label>
+                    <textarea class="form-control" rows="2" placeholder="Stadt Musterstadt – Der Bürgermeister&#10;Freiwillige Feuerwehr Musterstadt"
+                              @bind:get='Get("Card.IssuedBy")' @bind:set='(string v) => Set("Card.IssuedBy", v)'></textarea>
+                    <small class="text-muted">Steht auf jedem Ausweis. Mehrere Zeilen möglich. Leer = kein Aussteller-Feld.</small>
+                </div>
             </div></div>
 
             <div class="card mb-4"><div class="card-header"><i class="bi bi-envelope me-2"></i>E-Mail SMTP</div><div class="card-body">
@@ -354,7 +404,8 @@
         bool ProxyRecognised, string? ClientIp, bool IsTrustedNetwork, bool RestrictExternal,
         bool HostProfileFound, List<string> HostProfileModules, bool ApproveOnlyHost,
         List<string> AllowedModules, bool Authenticated,
-        string ConfiguredTrustedProxies, string ConfiguredTrustedNetworks);
+        string ConfiguredTrustedProxies, string ConfiguredTrustedNetworks,
+        bool LoginGateEnabled = false, bool IsLoginExemptIp = false, string? DeviceName = null);
 
     // Nextcloud-Test
     private bool _ncTesting;

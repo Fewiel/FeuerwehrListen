@@ -30,6 +30,11 @@ namespace FeuerwehrListen.Models
         [Column("ClosedAt")]
         public DateTime? ClosedAt { get; set; }
 
+        /// <summary>Nicht erratbare Kennung fuer den Direktlink /wache/{PublicId}. Wird bei
+        /// neuen Wachen automatisch vergeben; Altdaten fuellt Migration 32.</summary>
+        [Column("PublicId")]
+        public string? PublicId { get; set; } = Guid.NewGuid().ToString("N");
+
         [Column("IsArchived")]
         public bool IsArchived { get; set; } = false;
     }

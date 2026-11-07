@@ -42,6 +42,15 @@
         catch { return Initial; }
     }
 
+    /// <summary>Hat der Nutzer die Unterschrift bewusst geloescht (und nicht neu gezeichnet)?
+    /// Nur dann darf der Server eine gespeicherte Unterschrift entfernen - sonst behaelt er sie,
+    /// auch wenn ein anderes Geraet sie gerade nicht geladen hatte.</summary>
+    public async Task<bool> IsClearedAsync()
+    {
+        try { return await JS.InvokeAsync<string>("signaturePad.state", _id) == "cleared"; }
+        catch { return false; }
+    }
+
     private async Task Clear()
     {
         try { await JS.InvokeVoidAsync("signaturePad.clear", _id); } catch { }

@@ -172,6 +172,108 @@ public class NextcloudService
         return result;
     }
 
+    public sealed record NcFile(string Name, long Size, string? ContentType);
+
+    /// <summary>Dateien eines Ordners mit Groesse/Typ (PROPFIND Depth 1); leer bei Fehler.</summary>
+    public async Task<List<NcFile>> ListFilesAsync(string relativeFolder)
+    {
+        var result = new List<NcFile>();
+        var cfg = Config();
+        if (string.IsNullOrWhiteSpace(cfg.url) || string.IsNullOrWhiteSpace(cfg.user) || string.IsNullOrWhiteSpace(cfg.pass)) return result;
+        try
+        {
+            using var client = CreateClient(cfg.user, cfg.pass);
+            client.Timeout = TimeSpan.FromSeconds(20);
+            var davRoot = DavRoot(cfg.url, cfg.user);
+            var req = new HttpRequestMessage(new HttpMethod("PROPFIND"), $"{davRoot}/{EncodePath(relativeFolder)}");
+            req.Headers.Add("Depth", "1");
+            using var resp = await client.SendAsync(req);
+            if (!resp.IsSuccessStatusCode && (int)resp.StatusCode != 207) return result;
+            XNamespace d = "DAV:";
+            var doc = XDocument.Parse(await resp.Content.ReadAsStringAsync());
+            foreach (var r in doc.Descendants(d + "response"))
+            {
+                var href = r.Element(d + "href")?.Value ?? "";
+                if (string.IsNullOrWhiteSpace(href) || href.EndsWith("/")) continue;
+                var name = Uri.UnescapeDataString(href[(href.LastIndexOf('/') + 1)..]);
+                var prop = r.Descendants(d + "prop").FirstOrDefault();
+                long.TryParse(prop?.Element(d + "getcontentlength")?.Value, out var size);
+                result.Add(new NcFile(name, size, prop?.Element(d + "getcontenttype")?.Value));
+            }
+        }
+        catch { }
+        return result.OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    /// <summary>Datei herunterladen (WebDAV GET). null bei Fehler.</summary>
+    public async Task<(byte[] Data, string ContentType)?> DownloadAsync(string relativeFolder, string fileName)
+    {
+        var cfg = Config();
+        if (string.IsNullOrWhiteSpace(cfg.url)) return null;
+        try
+        {
+            using var client = CreateClient(cfg.user, cfg.pass);
+            using var resp = await client.GetAsync($"{DavRoot(cfg.url, cfg.user)}/{EncodePath(relativeFolder)}/{Uri.EscapeDataString(fileName)}");
+            if (!resp.IsSuccessStatusCode) return null;
+            return (await resp.Content.ReadAsByteArrayAsync(), resp.Content.Headers.ContentType?.MediaType ?? "application/octet-stream");
+        }
+        catch { return null; }
+    }
+
+    /// <summary>Vorschaubild ueber die Nextcloud-Preview-API (klein, schnell - auch fuer alte iPads).
+    /// Faellt auf die Originaldatei zurueck, wenn Nextcloud keine Vorschau liefert.</summary>
+    public async Task<(byte[] Data, string ContentType)?> PreviewAsync(string relativeFolder, string fileName, int size)
+    {
+        var cfg = Config();
+        if (string.IsNullOrWhiteSpace(cfg.url)) return null;
+        try
+        {
+            using var client = CreateClient(cfg.user, cfg.pass);
+            client.Timeout = TimeSpan.FromSeconds(30);
+            var file = "/" + relativeFolder.Trim('/') + "/" + fileName;
+            var url = $"{cfg.url.TrimEnd('/')}/index.php/core/preview.png?file={Uri.EscapeDataString(file)}&x={size}&y={size}&a=1&mode=cover";
+            using var resp = await client.GetAsync(url);
+            if (resp.IsSuccessStatusCode)
+                return (await resp.Content.ReadAsByteArrayAsync(), resp.Content.Headers.ContentType?.MediaType ?? "image/png");
+        }
+        catch { }
+        return await DownloadAsync(relativeFolder, fileName);
+    }
+
+    /// <summary>Datei loeschen (WebDAV DELETE). True bei Erfolg oder wenn sie schon weg ist.</summary>
+    public async Task<bool> DeleteAsync(string relativeFolder, string fileName)
+    {
+        var cfg = Config();
+        if (string.IsNullOrWhiteSpace(cfg.url)) return false;
+        try
+        {
+            using var client = CreateClient(cfg.user, cfg.pass);
+            using var resp = await client.DeleteAsync($"{DavRoot(cfg.url, cfg.user)}/{EncodePath(relativeFolder)}/{Uri.EscapeDataString(fileName)}");
+            return resp.IsSuccessStatusCode || resp.StatusCode == HttpStatusCode.NotFound;
+        }
+        catch { return false; }
+    }
+
+    /// <summary>Datei in einen anderen Ordner verschieben (WebDAV MOVE); Zielordner wird angelegt.
+    /// Existiert der Name im Ziel schon, wird nicht ueberschrieben (false).</summary>
+    public async Task<bool> MoveAsync(string fromFolder, string fileName, string toFolder)
+    {
+        var cfg = Config();
+        if (string.IsNullOrWhiteSpace(cfg.url)) return false;
+        try
+        {
+            using var client = CreateClient(cfg.user, cfg.pass);
+            var davRoot = DavRoot(cfg.url, cfg.user);
+            await EnsureFolderAsync(client, davRoot, toFolder);
+            var req = new HttpRequestMessage(new HttpMethod("MOVE"), $"{davRoot}/{EncodePath(fromFolder)}/{Uri.EscapeDataString(fileName)}");
+            req.Headers.Add("Destination", $"{davRoot}/{EncodePath(toFolder)}/{Uri.EscapeDataString(fileName)}");
+            req.Headers.Add("Overwrite", "F");
+            using var resp = await client.SendAsync(req);
+            return resp.IsSuccessStatusCode;
+        }
+        catch { return false; }
+    }
+
     /// <summary>
     /// Anzahl Dateien in einem Ordner (PROPFIND Depth 1). -1 wenn Ordner fehlt/Fehler.
     /// </summary>

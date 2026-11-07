@@ -34,6 +34,8 @@ public class CookieAuthStateProvider : AuthenticationStateProvider
                 claims.Add(new("FirstName", me.FirstName ?? ""));
                 claims.Add(new("LastName", me.LastName ?? ""));
                 claims.Add(new("ListAccess", me.HasListAccess ? "true" : "false"));
+                // Mitglieder-Konto (Mitgliederbereich) statt Benutzer-/Admin-Konto.
+                if (me.IsMember) claims.Add(new("IsMember", "true"));
                 var identity = new ClaimsIdentity(claims, "FwCookie", ClaimTypes.Name, ClaimTypes.Role);
                 state = new AuthenticationState(new ClaimsPrincipal(identity));
             }
@@ -60,5 +62,5 @@ public class CookieAuthStateProvider : AuthenticationStateProvider
         NotifyAuthenticationStateChanged(GetAuthenticationStateAsync());
     }
 
-    private record MeDto(bool Authenticated, string? Username, bool IsAdmin, string? FirstName, string? LastName, bool HasListAccess = true);
+    private record MeDto(bool Authenticated, string? Username, bool IsAdmin, string? FirstName, string? LastName, bool HasListAccess = true, bool IsMember = false);
 }

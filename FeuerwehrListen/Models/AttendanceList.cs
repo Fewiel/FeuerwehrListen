@@ -32,5 +32,9 @@ public class AttendanceList
 
     [Column("UnitNumber")]
     public int? UnitNumber { get; set; }
+
+    /// <summary>Anwesenheit einer Fuehrungskreis-Sitzung: erscheint nicht in den normalen Listen.</summary>
+    [Column("LeadershipProtocolId")]
+    public int? LeadershipProtocolId { get; set; }
 }
 

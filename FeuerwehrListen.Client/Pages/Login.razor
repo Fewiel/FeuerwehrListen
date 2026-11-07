@@ -10,25 +10,30 @@
     <div class="login-card">
         <div class="login-header">
             <h2>🚒 Feuerwehr Listen</h2>
-            <p class="text-muted">Admin-Bereich</p>
+            <p class="text-muted">Anmeldung für Mitglieder und Verwaltung</p>
         </div>
 
         @if (!string.IsNullOrEmpty(_error)) { <div class="alert alert-danger">@_error</div> }
 
         <div class="login-form">
             <div class="mb-3">
-                <label class="form-label">Benutzername</label>
-                <input type="text" class="form-control" @bind="_username" @bind:event="oninput"
+                <label class="form-label">Mitgliedsnummer oder Benutzername</label>
+                <input type="text" class="form-control" autocomplete="username" @bind="_username" @bind:event="oninput"
                        @onkeyup="@(async e => { if (e.Key == "Enter") await DoLogin(); })" />
             </div>
             <div class="mb-3">
                 <label class="form-label">Passwort</label>
-                <input type="password" class="form-control" @bind="_password" @bind:event="oninput"
+                <input type="password" class="form-control" autocomplete="current-password" @bind="_password" @bind:event="oninput"
                        @onkeyup="@(async e => { if (e.Key == "Enter") await DoLogin(); })" />
             </div>
             <div class="d-grid">
                 <button class="btn btn-primary btn-lg" @onclick="DoLogin" disabled="@_busy">@(_busy ? "Anmelden…" : "Anmelden")</button>
             </div>
+        </div>
+
+        <div class="alert alert-light border small mt-3 mb-0">
+            <i class="bi bi-info-circle me-1"></i><strong>Noch kein Passwort?</strong> Mitglieder legen ihr Passwort im
+            Gerätehaus am Tablet fest – im Beisein eines Admins.
         </div>
 
         <div class="login-divider"><span>oder</span></div>
@@ -101,9 +106,19 @@
         try
         {
             var resp = await Http.PostAsJsonAsync("client-api/auth/login", new { Username = _username, Password = _password });
+            // 429 (gesperrt) liefert denselben JSON-Aufbau wie ok:false.
             var r = await resp.Content.ReadFromJsonAsync<OkDto>();
             if (r?.Ok == true) CompleteLogin(r.Ticket);
-            else { _error = "Ungültige Anmeldedaten."; _password = ""; }
+            else
+            {
+                _error = r?.Error switch
+                {
+                    "locked" => $"Zu viele Fehlversuche – bitte ab {r.Until:HH:mm} Uhr erneut versuchen.",
+                    "rate_limited" => "Zu viele Anmeldeversuche – bitte einige Minuten warten.",
+                    _ => "Ungültige Anmeldedaten."
+                };
+                _password = "";
+            }
         }
         catch { _error = "Login-Fehler."; }
         finally { _busy = false; }
@@ -123,6 +138,7 @@
                 case "pin": _pin = ""; _pinError = ""; _showPin = true; break;
                 case "badpin": _pinError = "Falsche PIN."; _pin = ""; break;
                 case "invalid": _error = "Ungültiger QR-Code."; break;
+                case "locked": _showPin = false; _error = $"Zu viele Fehlversuche – bitte ab {r.Until:HH:mm} Uhr erneut versuchen."; break;
                 default: _error = "Login-Fehler."; break;
             }
         }
@@ -156,6 +172,6 @@
     [SupplyParameterFromQuery(Name = "returnUrl")]
     public string? ReturnUrl { get; set; }
 
-    private record OkDto(bool Ok, string? Ticket);
-    private record QrDto(string Status, string? Ticket);
+    private record OkDto(bool Ok, string? Ticket, string? Error = null, DateTime? Until = null);
+    private record QrDto(string Status, string? Ticket, DateTime? Until = null);
 }

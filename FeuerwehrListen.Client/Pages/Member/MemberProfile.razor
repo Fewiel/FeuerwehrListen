@@ -1,0 +1,112 @@
+@page "/mein/profil"
+@layout MemberLayout
+@using System.Net.Http.Json
+@inject HttpClient Http
+@inject IJSRuntime JS
+
+<PageTitle>Mein Profil</PageTitle>
+
+<AuthGuard>
+    @if (_me is null) { <p><em>Lade…</em></p> }
+    else if (!_me.IsMember) { <div class="alert alert-info">Das Profil gibt es nur für Mitglieder-Konten.</div> }
+    else
+    {
+        <h1 style="font-size:1.4rem;font-weight:700;margin:4px 0 14px;">Mein Profil</h1>
+
+        <section class="fwm-card">
+            <h2 style="font-size:1rem;">Lichtbild</h2>
+            <div style="display:flex;align-items:center;">
+                <img src="@PhotoUrl" alt="Lichtbild" style="width:96px;height:120px;object-fit:cover;border-radius:8px;background:#E3E0DB;margin-right:16px;" />
+                <div style="flex:1;">
+                    <p style="font-size:.9rem;color:#3D3A36;margin-bottom:10px;">Gut erkennbares Porträt, Kopf und Schultern, heller Hintergrund. Wird automatisch auf Ausweisformat zugeschnitten.</p>
+                    <label for="fw-photo-input" class="fwm-btn" style="cursor:pointer;">
+                        <i class="bi bi-camera"></i> @(_me.HasPhoto ? "Lichtbild ändern" : "Lichtbild hochladen")
+                    </label>
+                    <input id="fw-photo-input" type="file" accept="image/*" style="display:none;" @onchange="UploadPhoto" />
+                </div>
+            </div>
+            @if (_photoBusy) { <div class="text-muted small mt-2">Wird hochgeladen…</div> }
+            @if (_photoMsg is not null) { <div class="alert @(_photoOk ? "alert-success" : "alert-danger") py-2 mt-2 mb-0">@_photoMsg</div> }
+        </section>
+
+        <section class="fwm-card">
+            <h2 style="font-size:1rem;">Daten</h2>
+            <dl style="display:grid;grid-template-columns:auto 1fr;gap:6px 16px;margin:0 0 12px;font-size:.95rem;">
+                <dt class="fwm-label" style="align-self:center;">Name</dt><dd style="margin:0;">@_me.FirstName @_me.LastName</dd>
+                <dt class="fwm-label" style="align-self:center;">Mitglieds-Nr.</dt><dd style="margin:0;">@_me.Number</dd>
+                @if (_me.BirthDate is DateTime bd) { <dt class="fwm-label" style="align-self:center;">Geboren</dt><dd style="margin:0;">@bd.ToString("dd.MM.yyyy")</dd> }
+                @if (!string.IsNullOrWhiteSpace(_me.Rank)) { <dt class="fwm-label" style="align-self:center;">Dienstgrad</dt><dd style="margin:0;">@_me.Rank</dd> }
+                @if (_me.LeadershipCircle > 0) { <dt class="fwm-label" style="align-self:center;">Führungskreis</dt><dd style="margin:0;">@_me.LeadershipLabel</dd> }
+            </dl>
+            <label for="email" class="form-label" style="font-weight:600;font-size:.9rem;">E-Mail (für Protokolle)</label>
+            <div style="display:flex;">
+                <input id="email" type="email" class="form-control" style="min-height:46px;margin-right:8px;" @bind="_email" />
+                <button type="button" class="btn btn-outline-secondary" style="min-height:46px;" @onclick="SaveEmail" disabled="@_emailBusy">Speichern</button>
+            </div>
+            @if (_emailMsg is not null) { <div class="small mt-1 @(_emailOk ? "text-success" : "text-danger")">@_emailMsg</div> }
+        </section>
+
+        <a href="/change-password" class="fwm-btn fwm-btn-outline mb-2"><i class="bi bi-key"></i> Passwort ändern</a>
+        <a href="/logout" class="fwm-btn fwm-btn-outline"><i class="bi bi-box-arrow-right"></i> Abmelden</a>
+    }
+</AuthGuard>
+
+@code {
+    private MeDto? _me;
+    private string _email = "";
+    private bool _photoBusy, _photoOk, _emailBusy, _emailOk;
+    private string? _photoMsg, _emailMsg;
+
+    private string PhotoUrl => _me?.HasPhoto == true ? $"client-api/me/photo?v={_me.PhotoVersion}" : "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 100'><rect width='80' height='100' fill='%23E3E0DB'/><circle cx='40' cy='36' r='18' fill='%23B9B4AC'/><path d='M8 100c2-22 16-32 32-32s30 10 32 32z' fill='%23B9B4AC'/></svg>";
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load()
+    {
+        try
+        {
+            _me = await Http.GetFromJsonAsync<MeDto>("client-api/me");
+            _email = _me?.Email ?? "";
+        }
+        catch { }
+    }
+
+    private async Task UploadPhoto()
+    {
+        _photoMsg = null; _photoBusy = true;
+        try
+        {
+            var dataUrl = await JS.InvokeAsync<string?>("fwPhoto.fromInput", "fw-photo-input");
+            if (string.IsNullOrEmpty(dataUrl)) return;
+            var resp = await Http.PostAsJsonAsync("client-api/me/photo", new { DataUrl = dataUrl });
+            var r = await resp.Content.ReadFromJsonAsync<UploadResult>();
+            _photoOk = r?.Ok == true;
+            _photoMsg = _photoOk ? "Lichtbild gespeichert." : r?.Error switch
+            {
+                "size" => "Das Bild ist zu groß.",
+                _ => "Das Bild konnte nicht gespeichert werden."
+            };
+            if (_photoOk) await Load();
+        }
+        catch { _photoOk = false; _photoMsg = "Das Bild konnte nicht verarbeitet werden."; }
+        finally { _photoBusy = false; }
+    }
+
+    private async Task SaveEmail()
+    {
+        _emailBusy = true; _emailMsg = null;
+        try
+        {
+            var resp = await Http.PutAsJsonAsync("client-api/me/profile", new { Email = _email });
+            var r = await resp.Content.ReadFromJsonAsync<UploadResult>();
+            _emailOk = r?.Ok == true;
+            _emailMsg = _emailOk ? "Gespeichert." : "Bitte eine gültige E-Mail-Adresse eingeben.";
+        }
+        catch { _emailOk = false; _emailMsg = "Speichern fehlgeschlagen."; }
+        finally { _emailBusy = false; }
+    }
+
+    private record UploadResult(bool Ok, string? Error = null);
+    private record MeDto(bool IsMember, string Number = "", string FirstName = "", string LastName = "", string? Rank = null, DateTime? BirthDate = null,
+        string? Email = null, bool HasPhoto = false, long PhotoVersion = 0, int LeadershipCircle = 0, string? LeadershipLabel = null);
+}

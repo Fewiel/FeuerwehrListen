@@ -1,0 +1,15 @@
+@using Microsoft.AspNetCore.DataProtection
+@inject IDataProtectionProvider Protection
+@inject FeuerwehrListen.Services.CircuitClientInfo Info
+
+@*
+    Nur im Server-Modus, VOR den Routen gerendert: entsiegelt die vom ersten HTTP-Request
+    mitgegebene Client-IP in den Circuit-Scope, damit die Self-Calls der Komponenten sie
+    als X-Fw-Client-Ip weiterreichen (Login-Whitelist / Netz-Schranke). S. CircuitClientInfo.
+*@
+
+@code {
+    [Parameter] public string? Token { get; set; }
+
+    protected override void OnInitialized() => Info.Unseal(Protection, Token);
+}

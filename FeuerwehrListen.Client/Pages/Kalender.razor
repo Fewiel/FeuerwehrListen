@@ -88,6 +88,7 @@
         <span class="ms-2" style="color:#198754;">&#9679;</span> Fahrzeug
         <span class="ms-2" style="color:#6f42c1;">&#9679;</span> Raum
         <span class="ms-2" style="color:#6c757d;">&#9679;</span> Geplante Liste
+        @if (_leadership) { <span class="ms-2" style="color:#0F766E;">&#9679;</span> <text>Führungskreis</text> }
     </div>
 
     @if (_selected is DateTime sel)
@@ -147,9 +148,25 @@
                             <option value="Dienst">Dienst (mit Anwesenheitsliste)</option>
                             <option value="Fahrzeugbuchung">Fahrzeugbuchung</option>
                             <option value="Raumbuchung">Raumbuchung</option>
+                            @if (_leadership) { <option value="Fuehrungskreis">Sitzung Führungskreis</option> }
                         </select>
                     </div>
                     <div class="mb-2"><label class="form-label">Titel / Anlass</label><input class="form-control" @bind="_fTitle" /></div>
+                    @if (_fType == "Fuehrungskreis")
+                    {
+                        <div class="mb-2">
+                            <label class="form-label">Führungskreis</label>
+                            <select class="form-select" @bind="_fCircle">
+                                <option value="1">Großer Führungskreis</option>
+                                <option value="2">Kleiner Führungskreis</option>
+                            </select>
+                            <div class="form-text">Nur Mitglieder dieses Kreises sehen den Termin (der kleine Kreis sieht beide). Das Protokoll wird automatisch angelegt.</div>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label">Anwesenheit öffnen … Minuten vor Beginn</label>
+                            <input type="number" class="form-control" style="max-width:200px" min="0" max="1440" @bind="_fLeadMinutes" />
+                        </div>
+                    }
                     @if (_fType == "Dienst")
                     {
                         <div class="mb-2">
@@ -469,6 +486,8 @@
     private string _fType = "Veranstaltung", _fTitle = "", _fLocation = "", _fDescription = "", _fRequestedBy = "", _fEmail = "";
     private string _fUnitNumber = "";
     private string _fLeadMinutes = "";
+    private int _fCircle = 1;
+    private bool _leadership;
     private List<FeuerwehrListen.Client.Models.UnitLabel> _unitLabels = new();
     private DateTime _fStart = DateTime.Now.Date.AddHours(18);
     private DateTime _fEnd = DateTime.Now.Date.AddHours(20);
@@ -514,7 +533,7 @@
     // Wachen und geplante Listen sind keine Kalendertermine - sie lassen sich hier
     // nicht bearbeiten oder loeschen.
     private static bool IsCalendarEvent(string kind) =>
-        kind is "dienst" or "veranstaltung" or "fahrzeug" or "raum";
+        kind is "dienst" or "veranstaltung" or "fahrzeug" or "raum" or "fuehrungskreis";
 
     private async Task OpenDetail(CalItem it)
     {
@@ -598,7 +617,13 @@
     protected override async Task OnInitializedAsync()
     {
         // Einheiten-Bezeichnungen kommen aus dem App-Kontext (dort gecacht).
-        try { _unitLabels = (await AppCtx.GetAsync())?.UnitLabels ?? new(); } catch { }
+        try
+        {
+            var ctx = await AppCtx.GetAsync();
+            _unitLabels = ctx?.UnitLabels ?? new();
+            _leadership = ctx?.Modules.Leadership == true;
+        }
+        catch { }
         await Load();
     }
 
@@ -658,6 +683,7 @@
         "fahrzeug" => "#198754",
         "raum" => "#6f42c1",
         "geplant" => "#6c757d",
+        "fuehrungskreis" => "#0F766E",
         _ => "#0d6efd"
     };
 
@@ -668,6 +694,7 @@
         "fahrzeug" => "Fahrzeugbuchung",
         "raum" => "Raumbuchung",
         "geplant" => "Geplante Liste",
+        "fuehrungskreis" => "Sitzung Führungskreis",
         _ => "Veranstaltung"
     };
 
@@ -738,7 +765,8 @@
     {
         _formError = null; _conflicts = null;
         if (string.IsNullOrWhiteSpace(_fTitle)) { _formError = "Bitte einen Titel angeben."; return; }
-        if (string.IsNullOrWhiteSpace(_fRequestedBy)) { _formError = "Bitte Name oder Mitgliedsnummer angeben."; return; }
+        // Sitzungen legen angemeldete Kreis-Mitglieder an - der Server traegt sie selbst ein.
+        if (string.IsNullOrWhiteSpace(_fRequestedBy) && _fType != "Fuehrungskreis") { _formError = "Bitte Name oder Mitgliedsnummer angeben."; return; }
         if (_fEnd <= _fStart) { _formError = "Das Ende muss nach dem Beginn liegen."; return; }
 
         _saving = true;
@@ -758,7 +786,8 @@
                 RequestedByEmail = _fEmail,
                 VehicleIds = _fVehicles.ToList(),
                 RoomIds = _fRooms.ToList(),
-                MinutesBeforeEvent = string.IsNullOrWhiteSpace(_fLeadMinutes) ? (int?)null : int.Parse(_fLeadMinutes)
+                MinutesBeforeEvent = string.IsNullOrWhiteSpace(_fLeadMinutes) ? (int?)null : int.Parse(_fLeadMinutes),
+                LeadershipCircle = _fType == "Fuehrungskreis" ? _fCircle : (int?)null
             };
             var resp = await Http.PostAsJsonAsync("client-api/calendar/events", body);
             var result = await resp.Content.ReadFromJsonAsync<CreateResult>();

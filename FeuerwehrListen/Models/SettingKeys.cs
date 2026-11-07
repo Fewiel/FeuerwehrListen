@@ -75,6 +75,17 @@ public static class SettingKeys
     /// damit man sich nicht selbst aussperrt).</summary>
     public const string SecurityHostProfilesApplyToLoggedIn = "Security.HostProfilesApplyToLoggedIn";
 
+    /// <summary>Login-Pflicht: ohne Anmeldung ist nichts erreichbar - ausser von Adressen
+    /// der Login-Whitelist. Standard: aus.</summary>
+    public const string SecurityLoginRequired = "Security.LoginRequired";
+
+    /// <summary>IPs/Netze (CIDR, kommagetrennt), die trotz Login-Pflicht ohne Anmeldung
+    /// zugreifen duerfen (z. B. die feste IP des Feuerwehrhauses).</summary>
+    public const string SecurityLoginWhitelist = "Security.LoginWhitelist";
+
+    /// <summary>Aussteller des Dienstausweises (steht auf der Karte), z. B. "Stadt Musterstadt – Der Bürgermeister".</summary>
+    public const string CardIssuedBy = "Card.IssuedBy";
+
     /// <summary>Empfänger für Einsatz-Feedback (eine oder mehrere Adressen).</summary>
     public const string NotificationFeedbackRecipients = "Notifications.FeedbackRecipients";
 

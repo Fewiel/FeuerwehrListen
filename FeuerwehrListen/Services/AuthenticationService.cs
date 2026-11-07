@@ -58,15 +58,22 @@ public class AuthenticationService : AuthenticationStateProvider, IHostEnvironme
         return BuildAuthState();
     }
 
+    private bool _isMemberPrincipal;
+
     private void SeedFromPrincipal(ClaimsPrincipal principal)
     {
         var roleStr = principal.FindFirst(ClaimTypes.Role)?.Value;
+        // Mitglieder-Konto (Rolle "Member" ist keine UserRole): Rolle fuer die Self-Calls erhalten,
+        // sonst kaeme im Server-Modus "User" an und die Mitglieder-Schranken griffen nicht.
+        _isMemberPrincipal = roleStr == "Member";
         _currentUser = new User
         {
             Username = principal.Identity?.Name ?? string.Empty,
             Role = Enum.TryParse<UserRole>(roleStr, out var role) ? role : UserRole.User,
             FirstName = principal.FindFirst("FirstName")?.Value ?? string.Empty,
-            LastName = principal.FindFirst("LastName")?.Value ?? string.Empty
+            LastName = principal.FindFirst("LastName")?.Value ?? string.Empty,
+            // Listen-Recht uebernehmen - sonst fehlen im Server-Modus die Listen-Links im Menue.
+            HasListAccess = principal.FindFirst("ListAccess")?.Value == "true"
         };
     }
 
@@ -80,11 +87,12 @@ public class AuthenticationService : AuthenticationStateProvider, IHostEnvironme
         var claims = new[]
         {
             new Claim(ClaimTypes.Name, _currentUser.Username),
-            new Claim(ClaimTypes.Role, _currentUser.Role.ToString()),
+            new Claim(ClaimTypes.Role, _isMemberPrincipal ? "Member" : _currentUser.Role.ToString()),
             // Vor-/Nachname mitgeben, damit das NavMenu im Server-Modus die richtigen
             // Initialen zeigt (konsistent zu /client-api/auth/me und SeedFromPrincipal).
             new Claim("FirstName", _currentUser.FirstName ?? string.Empty),
-            new Claim("LastName", _currentUser.LastName ?? string.Empty)
+            new Claim("LastName", _currentUser.LastName ?? string.Empty),
+            new Claim("ListAccess", _currentUser.HasListAccess ? "true" : "false")
         };
         var identity = new ClaimsIdentity(claims, "apiauth");
         return new AuthenticationState(new ClaimsPrincipal(identity));

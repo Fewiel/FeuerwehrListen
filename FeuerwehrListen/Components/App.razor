@@ -78,6 +78,12 @@
        data-enhance-nav="false": Blazors Enhanced Navigation global aus - sie ist auf alten
        iPads (iOS 12-15/Safari) fehlerhaft und macht Links/Navigation kaputt. Alle Links
        machen so eine normale Vollnavigation, zuverlaessig auf allen Geraeten. *@
+    @* Server-Modus: Client-IP versiegelt in den Circuit reichen - VOR den Routen, damit sie
+       beim ersten Datenabruf schon bekannt ist (s. CircuitClientInfo). *@
+    @if (IsServerMode)
+    {
+        <CircuitClientContext Token="@SealedClientIp" @rendermode="@ServerMode" />
+    }
     <FeuerwehrListen.Client.Routes @rendermode="Mode" />
     @* Lebenszeichen nur im Server-Modus: ohne Circuit gibt es nichts zu ueberwachen.
        Die Komponente liegt im Server-Projekt und kann nicht per WASM gerendert werden. *@
@@ -105,6 +111,7 @@
     </script>
     <script src="qr-scanner.js?v=3"></script>
     <script src="signature.js?v=3"></script>
+    <script src="member-area.js?v=1"></script>
     <script src="_framework/blazor.web.js" autostart="false"></script>
     <script>
         // Sound-Feedback
@@ -243,6 +250,19 @@
 
 @code {
     [CascadingParameter] private HttpContext? HttpContext { get; set; }
+    [Inject] private Microsoft.AspNetCore.DataProtection.IDataProtectionProvider Protection { get; set; } = default!;
+    [Inject] private FeuerwehrListen.Services.NetworkAccessService Access { get; set; } = default!;
+
+    private string? SealedClientIp
+    {
+        get
+        {
+            var ip = HttpContext is null ? null : Access.GetClientIp(HttpContext)?.ToString();
+            if (ip is null) return null;
+            HttpContext!.Request.Cookies.TryGetValue(FeuerwehrListen.Services.DeviceSessionService.CookieName, out var device);
+            return FeuerwehrListen.Services.CircuitClientInfo.Seal(Protection, ip, device);
+        }
+    }
 
     // Render-Modus je Request: ?rmode=server/wasm (Test-Override) > Cookie fw_srv=1
     // (Client-BigInt-Check) > server-seitige UA-Erkennung (iOS 10-13) > sonst WASM.

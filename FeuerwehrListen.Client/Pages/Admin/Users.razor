@@ -38,7 +38,7 @@
                 <div class="row">
                     <div class="col-md-6 mb-3"><label class="form-label">Benutzername</label><input class="form-control" @bind="_username" /></div>
                     <div class="col-md-6 mb-3"><label class="form-label">Rolle</label>
-                        <select class="form-select" @bind="_role"><option value="User">Benutzer</option><option value="Admin">Admin</option></select>
+                        <select class="form-select" @bind="_role"><option value="User">Benutzer</option><option value="Admin">Admin</option><option value="Device">Gerät (ELW, KdoW, Tablet – dauerhaft angemeldet)</option></select>
                     </div>
                     <div class="col-md-6 mb-3"><label class="form-label">Vorname</label><input class="form-control" @bind="_firstName" /></div>
                     <div class="col-md-6 mb-3"><label class="form-label">Nachname</label><input class="form-control" @bind="_lastName" /></div>
@@ -54,6 +54,8 @@
                             }
                         </div>
                     </div>
+                    @if (_role != "Device")
+                    {
                     <div class="col-md-6 mb-3">
                         <label class="form-label">QR-Code (optional)</label>
                         <div class="input-group">
@@ -65,6 +67,7 @@
                             }
                         </div>
                     </div>
+                    }
                     @if (_role == "Admin")
                     {
                         <div class="col-md-6 mb-3"><label class="form-label">Admin-PIN (optional)</label><input class="form-control" @bind="_pin" maxlength="10" placeholder="z.B. 1234" /></div>
@@ -79,6 +82,33 @@
                             <small class="text-muted">Sendet Benutzername und Passwort an die angegebene E-Mail-Adresse.</small>
                         </div>
                     }
+                    @if (_role == "Device")
+                    {
+                        <div class="col-12 mb-3">
+                            <div class="alert alert-light border py-2 mb-2 small">
+                                <i class="bi bi-tablet me-1"></i><strong>Gerätekonto:</strong> Auf dem Gerät einmal mit diesem Konto anmelden – die Anmeldung
+                                hält dauerhaft (2 Jahre). Das Gerät zeigt dann ohne Login die Oberfläche mit den gewählten Bereichen, wie ein Gerät im
+                                Feuerwehrnetz. Keine Verwaltung, keine abgeschlossenen Listen. Mitglieder und Admins können sich darauf zusätzlich anmelden.
+                            </div>
+                            <label class="form-label d-block">Bereiche auf dem Gerät</label>
+                            <div class="d-flex flex-wrap gap-3">
+                                @foreach (var (key, label) in ModuleOptions.Where(m => m.Key != "firesafety-link"))
+                                {
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="@($"dmod-{key}")" checked="@_modules.Contains(key)" @onchange="e => ToggleModule(key, (bool)e.Value!)" />
+                                        <label class="form-check-label" for="@($"dmod-{key}")">@label</label>
+                                    </div>
+                                }
+                            </div>
+                            <div class="form-check form-switch mt-3">
+                                <input class="form-check-input" type="checkbox" id="allowEnroll" @bind="_allowEnrollment" />
+                                <label class="form-check-label" for="allowEnroll">Passwort-Vergabe für Mitglieder erlaubt (Gerätehaus-Tablet)</label>
+                            </div>
+                            <small class="text-muted">Nur auf solchen Geräten kann ein Admin den Vergabe-Modus starten.</small>
+                        </div>
+                    }
+                    else
+                    {
                     <div class="col-md-6 mb-3">
                         <label class="form-label d-block">Listen-Zugriff</label>
                         <div class="form-check form-switch">
@@ -87,6 +117,47 @@
                         </div>
                         <small class="text-muted">Deaktivieren für reine SSO-Konten.</small>
                     </div>
+                    @if (_hasListAccess)
+                    {
+                        <div class="col-12 mb-3">
+                            <label class="form-label d-block">Zugriff im Listen-Tool</label>
+                            @if (_role == "Admin")
+                            {
+                                <div class="text-muted small">Admins haben immer Vollzugang.</div>
+                            }
+                            else
+                            {
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="accessMode" id="accessFull" checked="@_fullAccess" @onchange="() => _fullAccess = true" />
+                                    <label class="form-check-label" for="accessFull">Vollzugang (ganzes Tool inkl. abgeschlossene Listen &amp; Archiv)</label>
+                                </div>
+                                <div class="form-check mb-2">
+                                    <input class="form-check-input" type="radio" name="accessMode" id="accessLimited" checked="@(!_fullAccess)" @onchange="() => _fullAccess = false" />
+                                    <label class="form-check-label" for="accessLimited">Nur ausgewählte Bereiche</label>
+                                </div>
+                                @if (!_fullAccess)
+                                {
+                                    <div class="d-flex flex-wrap gap-3 ms-4">
+                                        @foreach (var (key, label) in ModuleOptions)
+                                        {
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="checkbox" id="@($"mod-{key}")" checked="@_modules.Contains(key)" @onchange="e => ToggleModule(key, (bool)e.Value!)" />
+                                                <label class="form-check-label" for="@($"mod-{key}")">@label</label>
+                                            </div>
+                                        }
+                                    </div>
+                                    <small class="text-muted d-block ms-4 mt-1">
+                                        Nicht ausgewählte Bereiche sind im Menü ausgeblendet und gesperrt.
+                                        „Wachen über Direktlink" erlaubt nur das Öffnen einer Wache per Link (<code>/wache/…</code>), ohne Wachen-Liste.
+                                    </small>
+                                    @if (_modules.Count == 0) { <div class="text-warning small ms-4 mt-1"><i class="bi bi-exclamation-triangle me-1"></i>Kein Bereich ausgewählt – der Benutzer sieht nur die leere Übersicht.</div> }
+                                }
+                            }
+                        </div>
+                    }
+                    }
+                    @if (_role != "Device")
+                    {
                     <div class="col-12 mb-3">
                         <label class="form-label">Berechtigungskeys (SSO)</label>
                         @if (_availableKeys.Count == 0)
@@ -106,6 +177,7 @@
                             </div>
                         }
                     </div>
+                    }
                 </div>
                 @if (_error is not null) { <div class="alert alert-danger py-2">@_error</div> }
                 <button class="btn btn-primary me-2" @onclick="Save" disabled="@_saving">Speichern</button>
@@ -147,14 +219,26 @@
                                 <td><strong>@u.Username</strong></td>
                                 <td>@u.FirstName @u.LastName</td>
                                 <td>@u.Email</td>
-                                <td>@if (u.Role == "Admin") { <span class="badge bg-danger">Admin</span> } else { <span class="badge bg-secondary">Benutzer</span> }</td>
+                                <td>@if (u.Role == "Admin") { <span class="badge bg-danger">Admin</span> } else if (u.Role == "Device") { <span class="badge" style="background:#374151;color:#fff;"><i class="bi bi-tablet"></i> Gerät</span> } else { <span class="badge bg-secondary">Benutzer</span> }</td>
                                 <td>
+                                    @if (u.Role == "Device")
+                                    {
+                                        <span class="badge @(u.DeviceCount > 0 ? "bg-success" : "bg-secondary") me-1">@u.DeviceCount Gerät@(u.DeviceCount == 1 ? "" : "e") angemeldet</span>
+                                        @if (u.DeviceLastSeen is DateTime seen) { <small class="text-muted d-block">zuletzt @seen.ToString("dd.MM. HH:mm")@(string.IsNullOrEmpty(u.DeviceLastIp) ? "" : $" · {u.DeviceLastIp}")</small> }
+                                        @if (u.AllowEnrollment) { <span class="badge bg-primary me-1">Passwort-Vergabe</span> }
+                                        <small class="text-muted d-block">@string.Join(", ", (u.Modules ?? new()).Select(ModuleLabel))</small>
+                                    }
                                     @if (u.HasQr) { <span class="badge bg-info me-1">QR</span> }@if (u.HasPin) { <span class="badge bg-warning me-1">PIN</span> }
-                                    @if (u.HasListAccess) { <span class="badge bg-success me-1">Listen</span> }
+                                    @if (u.HasListAccess && u.Role != "Device")
+                                    {
+                                        @if (u.Role == "Admin" || u.FullAccess) { <span class="badge bg-success me-1">Vollzugang</span> }
+                                        else { <span class="badge bg-success me-1" title="@string.Join(", ", (u.Modules ?? new()).Select(ModuleLabel))">@((u.Modules ?? new()).Count) Bereiche</span> }
+                                    }
                                     @if (u.KeyIds is { Count: > 0 }) { <span class="badge bg-primary" title="Berechtigungskeys">@u.KeyIds.Count SSO</span> }
                                 </td>
                                 @if (_hasCreatedAt) { <td>@(u.CreatedAt?.ToString("dd.MM.yyyy"))</td> }
                                 <td>
+                                    @if (u.Role == "Device" && u.DeviceCount > 0) { <button class="btn btn-sm btn-outline-warning me-2" @onclick="() => LogoutDevices(u)">Alle Geräte abmelden</button> }
                                     <button class="btn btn-sm btn-primary me-2" @onclick="() => Edit(u)">Bearbeiten</button>
                                     <button class="btn btn-sm btn-danger" @onclick="() => Delete(u.Id)">Löschen</button>
                                 </td>
@@ -178,6 +262,27 @@
     private int? _editId;
     private string _username = "", _firstName = "", _lastName = "", _email = "", _role = "User", _password = "", _qr = "", _pin = "";
     private bool _hasListAccess = true;
+    private bool _fullAccess = true;
+    private bool _allowEnrollment;
+    private HashSet<string> _modules = new();
+
+    // Muss zu UserAccessService.SelectableModules auf dem Server passen.
+    private static readonly (string Key, string Label)[] ModuleOptions =
+    {
+        ("attendance", "Anwesenheitslisten"),
+        ("operations", "Einsatzlisten"),
+        ("firesafety", "Brandsicherheitswachen"),
+        ("firesafety-link", "Wachen über Direktlink"),
+        ("calendar", "Kalender"),
+        ("defects", "Mängel")
+    };
+
+    private static string ModuleLabel(string key) => ModuleOptions.FirstOrDefault(m => m.Key == key).Label ?? key;
+
+    private void ToggleModule(string key, bool selected)
+    {
+        if (selected) _modules.Add(key); else _modules.Remove(key);
+    }
     private HashSet<int> _keyIds = new();
     private string _generatedPassword = "";
     private string? _error;
@@ -208,6 +313,8 @@
     {
         _editId = null; _username = ""; _firstName = ""; _lastName = ""; _email = ""; _role = "User"; _password = ""; _qr = ""; _pin = "";
         _hasListAccess = true; _keyIds = new();
+        // Neue Benutzer: Bereiche bewusst auswaehlen (Bestandsnutzer haben per Migration Vollzugang).
+        _fullAccess = false; _modules = new(); _allowEnrollment = false;
         _sendWelcomeMail = false; _showGeneratedPassword = false; _error = null; _showForm = true;
     }
 
@@ -215,7 +322,10 @@
     {
         _editId = u.Id; _username = u.Username; _firstName = u.FirstName; _lastName = u.LastName; _email = u.Email ?? "";
         _role = u.Role; _password = ""; _qr = ""; _pin = ""; _sendWelcomeMail = false; _error = null; _showForm = true;
-        _hasListAccess = u.HasListAccess; _keyIds = u.KeyIds is null ? new() : new HashSet<int>(u.KeyIds);
+        _hasListAccess = u.HasListAccess;
+        // Bei Vollzugang liefert der Server alle Bereiche -> beim Umschalten auf "ausgewaehlt" vorbelegt.
+        _fullAccess = u.FullAccess; _modules = new HashSet<string>(u.Modules ?? new()); _allowEnrollment = u.AllowEnrollment;
+        _keyIds = u.KeyIds is null ? new() : new HashSet<int>(u.KeyIds);
     }
 
     private void ToggleKey(int keyId, bool selected)
@@ -269,6 +379,9 @@
                 AdminPin = _role == "Admin" ? _pin : "",
                 SendWelcomeMail = welcome,
                 HasListAccess = _hasListAccess,
+                FullAccess = _role == "Admin" || (_role != "Device" && _fullAccess),
+                Modules = _modules.ToList(),
+                AllowEnrollment = _role == "Device" && _allowEnrollment,
                 KeyIds = _keyIds.ToList()
             };
             var resp = _editId is int id ? await Http.PutAsJsonAsync($"client-api/admin/users/{id}", body) : await Http.PostAsJsonAsync("client-api/admin/users", body);
@@ -287,6 +400,13 @@
         finally { _saving = false; }
     }
 
+    private async Task LogoutDevices(UserDto u)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", $"Alle Geräte von „{u.Username}“ abmelden? Sie müssen sich danach neu anmelden.")) return;
+        try { await Http.PostAsync($"client-api/admin/users/{u.Id}/devices/logout-all", null); await Load(); }
+        catch { _error = "Abmelden fehlgeschlagen."; }
+    }
+
     private async Task Delete(int id)
     {
         if (!await JS.InvokeAsync<bool>("confirm", "Diesen Benutzer wirklich löschen?")) return;
@@ -295,6 +415,8 @@
         catch { _error = "Löschen fehlgeschlagen."; }
     }
 
-    private record UserDto(int Id, string Username, string FirstName, string LastName, string? Email, string Role, bool HasQr, bool HasPin, bool HasListAccess, List<int>? KeyIds, DateTime? CreatedAt);
+    private record UserDto(int Id, string Username, string FirstName, string LastName, string? Email, string Role, bool HasQr, bool HasPin, bool HasListAccess, List<int>? KeyIds, DateTime? CreatedAt,
+        bool FullAccess = true, List<string>? Modules = null, bool AllowEnrollment = false,
+        int DeviceCount = 0, DateTime? DeviceLastSeen = null, string? DeviceLastIp = null);
     private record KeyDto(int Id, string Name, string Description);
 }

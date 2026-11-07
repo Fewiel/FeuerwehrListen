@@ -68,6 +68,7 @@
                     <div class="col-md-4 mb-3"><label class="form-label">Mitgliedsnummer</label><input class="form-control" @bind="_number" /></div>
                     <div class="col-md-4 mb-3"><label class="form-label">Vorname</label><input class="form-control" @bind="_firstName" /></div>
                     <div class="col-md-4 mb-3"><label class="form-label">Nachname</label><input class="form-control" @bind="_lastName" /></div>
+                    <div class="col-md-4 mb-3"><label class="form-label">Geburtsdatum</label><input type="date" class="form-control" @bind="_birthDate" /><small class="text-muted">steht auf dem Dienstausweis</small></div>
                 </div>
                 <div class="mb-3"><label class="form-label">Einheiten</label><div class="d-flex flex-wrap gap-3">
                     @for (var i = 1; i <= 9; i++) { var u = i;
@@ -82,6 +83,11 @@
                 <button class="btn btn-primary me-2" @onclick="Save" disabled="@_saving">Speichern</button>
                 <button class="btn btn-secondary" @onclick="() => _showForm = false">Abbrechen</button>
             </div></div>
+        }
+
+        @if (_accountId is int accId)
+        {
+            <MemberAccountModal MemberId="accId" OnClose="() => _accountId = null" />
         }
 
         @if (!_showForm && _error is not null) { <div class="alert alert-danger">@_error</div> }
@@ -103,6 +109,7 @@
                                 <td>@if (m.IsActive) { <span class="badge bg-success">Aktiv</span> } else { <span class="badge bg-secondary">Inaktiv</span> }</td>
                                 <td>
                                     <button class="btn btn-sm btn-outline-danger me-2" @onclick="() => OpenTag(m)" title="Tag erstellen & herunterladen"><i class="bi bi-tag"></i> Tag</button>
+                                    <button class="btn btn-sm btn-outline-primary me-2" @onclick="() => _accountId = m.Id" title="Mitgliederbereich, Führungskreis, Dienstausweis"><i class="bi bi-person-vcard"></i> Zugang</button>
                                     <button class="btn btn-sm btn-primary me-2" @onclick="() => Edit(m)">Bearbeiten</button>
                                     <button class="btn btn-sm btn-danger" @onclick="() => Delete(m.Id)">Löschen</button>
                                 </td>
@@ -200,9 +207,11 @@
 @code {
     private List<MemberDto>? _items;
     private bool _showForm, _saving, _showCsv, _importing;
+    private int? _accountId;
     private int? _editId;
     private string _number = "", _firstName = "", _lastName = "", _csv = "";
     private bool _isActive = true;
+    private DateTime? _birthDate;
     private readonly HashSet<int> _units = new();
     private string? _error, _csvResult;
     private List<string> _csvErrors = new();
@@ -359,8 +368,8 @@
     private record TagInfo(string Number, string Name);
     private record HelperPing(bool Ok, string? Openscad, bool OpenscadFound, string? Scad);
 
-    private void ShowAdd() { _editId = null; _number = ""; _firstName = ""; _lastName = ""; _isActive = true; _units.Clear(); _error = null; _showForm = true; }
-    private void Edit(MemberDto m) { _editId = m.Id; _number = m.MemberNumber; _firstName = m.FirstName; _lastName = m.LastName; _isActive = m.IsActive; _units.Clear(); foreach (var u in m.Units) _units.Add(u); _error = null; _showForm = true; }
+    private void ShowAdd() { _editId = null; _number = ""; _firstName = ""; _lastName = ""; _isActive = true; _birthDate = null; _units.Clear(); _error = null; _showForm = true; }
+    private void Edit(MemberDto m) { _editId = m.Id; _number = m.MemberNumber; _firstName = m.FirstName; _lastName = m.LastName; _isActive = m.IsActive; _birthDate = m.BirthDate; _units.Clear(); foreach (var u in m.Units) _units.Add(u); _error = null; _showForm = true; }
     private void ToggleUnit(int u, bool on) { if (on) _units.Add(u); else _units.Remove(u); }
 
     private async Task Save()
@@ -370,7 +379,7 @@
         _saving = true;
         try
         {
-            var body = new { MemberNumber = _number, FirstName = _firstName, LastName = _lastName, IsActive = _isActive, Units = _units.ToList() };
+            var body = new { MemberNumber = _number, FirstName = _firstName, LastName = _lastName, IsActive = _isActive, Units = _units.ToList(), BirthDate = _birthDate };
             var resp = _editId is int id
                 ? await Http.PutAsJsonAsync($"client-api/admin/members/{id}", body)
                 : await Http.PostAsJsonAsync("client-api/admin/members", body);
@@ -404,6 +413,6 @@
         finally { _importing = false; }
     }
 
-    private record MemberDto(int Id, string MemberNumber, string FirstName, string LastName, bool IsActive, List<int> Units);
+    private record MemberDto(int Id, string MemberNumber, string FirstName, string LastName, bool IsActive, List<int> Units, DateTime? BirthDate = null);
     private record CsvResult(int Imported, int Skipped, List<string> Errors);
 }

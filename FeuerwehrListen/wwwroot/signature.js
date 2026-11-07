@@ -112,12 +112,15 @@ window.signaturePad = {
         } catch (e) { }
         delete window.__sigPads[id];
     },
+    // Loeschen = ausdrueckliche Entscheidung des Nutzers: beim Speichern wird die Unterschrift
+    // entfernt (state "cleared"). Zeichnet er danach neu, gilt wieder "dirty".
     clear: function (id) {
         var c = document.getElementById(id);
         if (!c) return;
         c.getContext("2d").clearRect(0, 0, c.width, c.height);
         c.dataset.dirty = "";
         c.dataset.loaded = "";
+        c.dataset.cleared = "1";
     },
     load: function (id, dataUrl) {
         var c = document.getElementById(id);
@@ -127,6 +130,12 @@ window.signaturePad = {
         // c.height wären die Geräte-Pixel und würden das Bild um dpr vergrößern/verschieben.
         var w = parseFloat(c.dataset.cssw) || c.width;
         var h = parseFloat(c.dataset.cssh) || c.height;
+        // Original merken: solange der Nutzer nichts zeichnet, wird beim Speichern EXAKT dieses
+        // Bild zurueckgegeben - nicht der Canvas-Inhalt. Frueher lieferte toDataUrl den Canvas,
+        // und wenn das Bild noch nicht fertig geladen war (img.onload ist asynchron) oder das
+        // Laden fehlschlug, wurde eine LEERE Unterschrift gespeichert und die alte ueberschrieben.
+        c.dataset.initial = dataUrl;
+        c.dataset.cleared = "";
         var img = new Image();
         img.onload = function () {
             var ctx = c.getContext("2d");
@@ -136,11 +145,23 @@ window.signaturePad = {
         img.src = dataUrl;
         c.dataset.loaded = "1";
     },
-    // Liefert PNG-Data-URL oder "" wenn leer/unverändert-leer
+    // Zustand des Felds: "dirty" (neu gezeichnet), "cleared" (bewusst geloescht),
+    // "unchanged" (geladene Unterschrift unveraendert) oder "empty" (nie etwas da).
+    state: function (id) {
+        var c = document.getElementById(id);
+        if (!c) return "empty";
+        if (c.dataset.dirty) return "dirty";
+        if (c.dataset.cleared) return "cleared";
+        if (c.dataset.initial) return "unchanged";
+        return "empty";
+    },
+    // Liefert die zu speichernde Unterschrift: neu gezeichnet -> Canvas als PNG; unveraendert ->
+    // das urspruenglich geladene Bild; geloescht/leer -> "".
     toDataUrl: function (id) {
         var c = document.getElementById(id);
         if (!c) return "";
-        if (!c.dataset.dirty && !c.dataset.loaded) return "";
-        return c.toDataURL("image/png");
+        if (c.dataset.dirty) return c.toDataURL("image/png");
+        if (c.dataset.cleared) return "";
+        return c.dataset.initial || "";
     }
 };

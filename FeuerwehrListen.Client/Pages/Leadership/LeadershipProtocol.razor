@@ -1,0 +1,448 @@
+@page "/fuehrungskreis/protokoll/{Id:int}"
+@layout MainLayout
+@using System.Net.Http.Json
+@inject HttpClient Http
+@inject IJSRuntime JS
+@implements IDisposable
+
+<PageTitle>Führungskreis – Protokoll</PageTitle>
+
+<AuthGuard>
+    <div class="container-fluid mt-3" style="max-width:1280px;">
+        @if (_error is not null) { <div class="alert alert-danger">@_error</div> }
+        @if (_p is null) { @if (_error is null) { <p><em>Lade…</em></p> } }
+        else
+        {
+            @* ---------- Kopf ---------- *@
+            <div class="card mb-3"><div class="card-body d-flex flex-wrap align-items-center" style="gap:16px;">
+                <div style="width:64px;text-align:center;border-radius:10px;background:#C8102E;color:#fff;padding:6px 0;">
+                    <div style="font-size:.75rem;font-weight:600;">@_p.Start?.ToString("MMM", De).ToUpperInvariant()</div>
+                    <div style="font-size:1.6rem;font-weight:700;line-height:1.1;">@_p.Start?.Day</div>
+                </div>
+                <div class="flex-grow-1">
+                    <div class="d-flex flex-wrap align-items-center" style="gap:8px;">
+                        <h1 class="h4 mb-0">@_p.Title</h1>
+                        <span class="badge" style="background:#F1EAFA;color:#6B3FA0;">@_p.CircleLabel</span>
+                        <span class="badge @StatusClass">@LeadershipProtocols.StatusLabel(_p.Status)</span>
+                    </div>
+                    <div class="small text-muted mt-1">
+                        @_p.Start?.ToString("dddd, dd.MM.yyyy · HH:mm", De) Uhr@(string.IsNullOrWhiteSpace(_p.Location) ? "" : " · " + _p.Location)
+                        @if (Preparing) { <text> · Anwesenheit öffnet automatisch @(_p.MinutesBefore ?? 30) Min. vorher</text> }
+                        @if (Closed) { <text> · abgeschlossen @_p.ClosedAt?.ToString("dd.MM.yyyy HH:mm") von @_p.ClosedBy</text> }
+                    </div>
+                </div>
+                <a href="/fuehrungskreis" class="btn btn-outline-secondary">Übersicht</a>
+                @if (Preparing) { <button class="btn btn-success" @onclick="Start" disabled="@_busy"><i class="bi bi-play-fill me-1"></i>Sitzung starten</button> }
+                @if (Running) { <button class="btn btn-danger" @onclick="Close" disabled="@_busy"><i class="bi bi-flag me-1"></i>Sitzung abschließen</button> }
+                @if (Closed) { <a class="btn btn-outline-primary" href="client-api/leadership/protocols/@Id/pdf" target="_blank" rel="noopener"><i class="bi bi-file-earmark-pdf me-1"></i>PDF</a> }
+            </div></div>
+            @if (_info is not null) { <div class="alert alert-info py-2">@_info</div> }
+
+            @if (Preparing)
+            {
+                @* ---------- Vorbereitung (F2) ---------- *@
+                <div class="row g-3">
+                    <div class="col-lg-8">
+                        <div class="card"><div class="card-body">
+                            <h2 class="h5">Tagesordnung</h2>
+                            <ul class="list-group list-group-flush">
+                                @for (var i = 0; i < _p.Items.Count; i++)
+                                {
+                                    var it = _p.Items[i];
+                                    var idx = i;
+                                    <li class="list-group-item d-flex align-items-center px-0" style="gap:10px;">
+                                        <span style="width:58px;font-weight:700;color:#C8102E;">TOP @(i + 1)</span>
+                                        <div class="flex-grow-1">
+                                            @if (_editItemId == it.Id)
+                                            {
+                                                <div class="d-flex flex-wrap" style="gap:6px;">
+                                                    <input class="form-control" style="flex:2 1 220px;" @bind="_editTitle" />
+                                                    <select class="form-select" style="flex:1 1 160px;" @bind="_editOwner">
+                                                        <option value="0">– niemand –</option>
+                                                        @foreach (var m in _members) { <option value="@m.Id">@m.Name</option> }
+                                                    </select>
+                                                    <button class="btn btn-primary" @onclick="() => SaveItemHead(it)">OK</button>
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <div class="fw-semibold">@it.Title</div>
+                                                @if (it.FromTask) { <span class="badge" style="background:#E5EEF9;color:#1D4E89;">aus Aufgabe</span> }
+                                                @if (!string.IsNullOrWhiteSpace(it.Notes)) { <div class="small text-muted">@it.Notes</div> }
+                                            }
+                                        </div>
+                                        <span class="small text-muted">@it.Owner</span>
+                                        @if (!it.FixedItem && _editItemId != it.Id)
+                                        {
+                                            <div class="btn-group">
+                                                <button class="btn btn-sm btn-outline-secondary" aria-label="Nach oben" disabled="@(!CanMove(idx, -1))" @onclick="() => Move(idx, -1)"><i class="bi bi-arrow-up"></i></button>
+                                                <button class="btn btn-sm btn-outline-secondary" aria-label="Nach unten" disabled="@(!CanMove(idx, 1))" @onclick="() => Move(idx, 1)"><i class="bi bi-arrow-down"></i></button>
+                                                <button class="btn btn-sm btn-outline-secondary" aria-label="Bearbeiten" @onclick="() => BeginEdit(it)"><i class="bi bi-pencil"></i></button>
+                                                <button class="btn btn-sm btn-outline-danger" aria-label="Entfernen" @onclick="() => DeleteItem(it)"><i class="bi bi-trash"></i></button>
+                                            </div>
+                                        }
+                                    </li>
+                                }
+                            </ul>
+                            <div class="d-flex flex-wrap mt-3" style="gap:6px;">
+                                <input class="form-control" style="flex:2 1 240px;" placeholder="Neuer Punkt…" @bind="_newTitle" @bind:event="oninput"
+                                       @onkeyup="@(async e => { if (e.Key == "Enter") await AddItem(); })" />
+                                <select class="form-select" style="flex:1 1 160px;" @bind="_newOwner">
+                                    <option value="0">Verantwortlich…</option>
+                                    @foreach (var m in _members) { <option value="@m.Id">@m.Name</option> }
+                                </select>
+                                <button class="btn btn-outline-primary" @onclick="AddItem" disabled="@string.IsNullOrWhiteSpace(_newTitle)">+ Punkt</button>
+                            </div>
+                        </div></div>
+                    </div>
+                    <div class="col-lg-4">
+                        <div class="card"><div class="card-body">
+                            <h2 class="h6">Aus Aufgaben übernehmen</h2>
+                            <p class="small text-muted">Offene Aufgaben als Punkt auf die Tagesordnung setzen.</p>
+                            @if (_p.OpenTasks.Count == 0) { <p class="small text-muted mb-0">Keine offenen Aufgaben.</p> }
+                            @foreach (var t in _p.OpenTasks)
+                            {
+                                <div class="d-flex align-items-center border-top py-2" style="gap:8px;">
+                                    <div class="flex-grow-1">
+                                        <div class="fw-semibold small">@t.Title</div>
+                                        <div class="small @(t.Overdue ? "text-danger fw-semibold" : "text-muted")">@(t.Assignee ?? "offen")@(t.Due is DateTime d ? $" · fällig {d:dd.MM.}" : "")</div>
+                                    </div>
+                                    <button class="btn btn-outline-danger" style="width:40px;height:40px;" aria-label="Als Punkt übernehmen" @onclick="() => FromTask(t.Id)">+</button>
+                                </div>
+                            }
+                        </div></div>
+                    </div>
+                </div>
+            }
+            else
+            {
+                @* ---------- Sitzung (F3) bzw. abgeschlossen (Leseansicht) ---------- *@
+                <div class="row g-3">
+                    <div class="col-lg-4">
+                        <div class="card mb-3"><div class="card-body">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <h2 class="h6 mb-0">Anwesenheit</h2>
+                                <span class="fw-bold" style="color:#1E7A3C;">@(_p.Attendance?.Count(a => a.State == 1) ?? 0) / @(_p.Attendance?.Count ?? 0)</span>
+                            </div>
+                            @if (Running) { <div class="small text-muted mb-1">Antippen: anwesend → entschuldigt → fehlt</div> }
+                            @foreach (var a in _p.Attendance ?? new())
+                            {
+                                <button class="btn w-100 d-flex align-items-center px-0" style="min-height:40px;gap:10px;text-align:left;" disabled="@(!Running)" @onclick="() => CycleAttendance(a)">
+                                    <span style="width:24px;height:24px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:.75rem;font-weight:700;@DotStyle(a.State)">@DotMark(a.State)</span>
+                                    <span class="flex-grow-1">@a.Name</span>
+                                    <span class="small text-muted">@StateLabel(a.State)</span>
+                                </button>
+                            }
+                        </div></div>
+                        <div class="card"><div class="card-body p-2">
+                            @for (var i = 0; i < _p.Items.Count; i++)
+                            {
+                                var it = _p.Items[i];
+                                var no = i + 1;
+                                <button class="btn w-100 d-flex align-items-center text-start" style="min-height:44px;gap:8px;@(it.Id == _currentId ? "background:#FCEBEE;color:#8A0017;font-weight:600;" : "")" @onclick="() => Select(it.Id)">
+                                    <span style="width:24px;font-weight:700;">@no</span>
+                                    <span class="flex-grow-1">@it.Title</span>
+                                    <span class="small">@(it.Status == "Besprochen" ? "✓" : it.Status == "Vertagt" ? "↷" : "")</span>
+                                </button>
+                            }
+                        </div></div>
+                    </div>
+
+                    <div class="col-lg-8">
+                        @if (Current is ItemDto cur)
+                        {
+                            <div class="card"><div class="card-body">
+                                <div class="d-flex flex-wrap align-items-center mb-3" style="gap:10px;">
+                                    <span style="font-weight:800;font-size:1.3rem;color:#C8102E;">TOP @(_p.Items.IndexOf(cur) + 1)</span>
+                                    <h2 class="h4 mb-0 flex-grow-1">@cur.Title</h2>
+                                    @if (cur.FromTask) { <span class="badge" style="background:#E5EEF9;color:#1D4E89;">aus Aufgabe</span> }
+                                    @if (cur.Owner is not null) { <span class="small text-muted">@cur.Owner</span> }
+                                </div>
+
+                                <label class="form-label fw-semibold small" for="notes">Notizen</label>
+                                <textarea id="notes" class="form-control mb-1" rows="6" readonly="@(!_p.CanEdit)" value="@_notes" @oninput="OnNotes"></textarea>
+                                <div class="small text-muted mb-3" style="min-height:1.2em;">@_saveState</div>
+
+                                <label class="form-label fw-semibold small" for="decision">Beschluss (optional)</label>
+                                <input id="decision" class="form-control mb-3" readonly="@(!_p.CanEdit)" value="@_decision" @oninput="OnDecision" />
+
+                                <div class="border-top pt-3">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <h3 class="h6 mb-0">Aufgaben aus diesem Punkt</h3>
+                                        <a href="/fuehrungskreis/aufgaben" class="small">alle Aufgaben</a>
+                                    </div>
+                                    @foreach (var t in cur.Tasks)
+                                    {
+                                        <div class="d-flex align-items-center rounded px-2 py-2 mb-1" style="background:#F8F7F5;gap:10px;">
+                                            <i class="bi @(t.Done ? "bi-check-square text-success" : "bi-square")"></i>
+                                            <span class="flex-grow-1 fw-semibold small">@t.Title</span>
+                                            <span class="small text-muted">@(t.Assignee ?? "offen")@(t.Due is DateTime d ? $" · {d:dd.MM.}" : "")</span>
+                                        </div>
+                                    }
+                                    @if (_p.CanEdit)
+                                    {
+                                        <div class="d-flex flex-wrap mt-2" style="gap:6px;">
+                                            <input class="form-control" style="flex:3 1 220px;" placeholder="Neue Aufgabe aus diesem Punkt…" @bind="_taskTitle" @bind:event="oninput" />
+                                            <select class="form-select" style="flex:2 1 150px;" @bind="_taskAssignee">
+                                                <option value="0">Verantwortlich…</option>
+                                                @foreach (var m in _members) { <option value="@m.Id">@m.Name</option> }
+                                            </select>
+                                            <input type="date" class="form-control" style="flex:1 1 140px;" aria-label="Fällig am" @bind="_taskDue" />
+                                            <button class="btn btn-danger" @onclick="AddTask" disabled="@string.IsNullOrWhiteSpace(_taskTitle)">Anlegen</button>
+                                        </div>
+                                    }
+                                </div>
+
+                                @if (Running)
+                                {
+                                    <div class="d-flex flex-wrap justify-content-between mt-4" style="gap:8px;">
+                                        <button class="btn btn-outline-secondary" @onclick="() => Step(-1)" disabled="@(_p.Items.IndexOf(cur) == 0)">← Vorheriger Punkt</button>
+                                        <div class="d-flex" style="gap:8px;">
+                                            <button class="btn btn-outline-warning" @onclick='() => MarkAndNext("Vertagt")'>Vertagen</button>
+                                            <button class="btn btn-dark" @onclick='() => MarkAndNext("Besprochen")'>Punkt erledigt · weiter →</button>
+                                        </div>
+                                    </div>
+                                }
+                            </div></div>
+                        }
+                    </div>
+                </div>
+            }
+        }
+    </div>
+</AuthGuard>
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private static readonly System.Globalization.CultureInfo De = new("de-DE");
+    private ProtocolDto? _p;
+    private List<MemberDto> _members = new();
+    private string? _error, _info;
+    private bool _busy;
+
+    // Vorbereitung
+    private int? _editItemId;
+    private string _editTitle = "", _newTitle = "";
+    private int _editOwner, _newOwner;
+
+    // Sitzung
+    private int? _currentId;
+    private string _notes = "", _decision = "", _saveState = "";
+    private string _taskTitle = "";
+    private int _taskAssignee;
+    private DateTime? _taskDue;
+    private System.Threading.Timer? _saveTimer;
+
+    private bool Preparing => _p?.Status == "Vorbereitung";
+    private bool Running => _p?.Status == "Laeuft";
+    private bool Closed => _p?.Status == "Abgeschlossen";
+    private string StatusClass => Running ? "bg-success" : Closed ? "bg-secondary" : "bg-warning text-dark";
+    private ItemDto? Current => _p?.Items.FirstOrDefault(i => i.Id == _currentId) ?? _p?.Items.FirstOrDefault();
+
+    protected override async Task OnParametersSetAsync() => await Load();
+
+    private async Task Load()
+    {
+        try
+        {
+            _p = await Http.GetFromJsonAsync<ProtocolDto>($"client-api/leadership/protocols/{Id}");
+            if (_p is null) return;
+            _members = await Http.GetFromJsonAsync<List<MemberDto>>($"client-api/leadership/members?circle={_p.Circle}") ?? new();
+            if (_currentId is null || _p.Items.All(i => i.Id != _currentId))
+                _currentId = _p.Items.FirstOrDefault(i => i.Status == "Offen")?.Id ?? _p.Items.FirstOrDefault()?.Id;
+            SyncEditor();
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound) { _error = "Protokoll nicht gefunden oder nicht sichtbar."; }
+        catch { _error = "Protokoll konnte nicht geladen werden."; }
+    }
+
+    private void SyncEditor()
+    {
+        var cur = Current;
+        _notes = cur?.Notes ?? "";
+        _decision = cur?.Decision ?? "";
+        _saveState = "";
+    }
+
+    // ---------------- Vorbereitung
+    private bool CanMove(int idx, int dir)
+    {
+        var target = idx + dir;
+        return _p is not null && target >= 0 && target < _p.Items.Count && !_p.Items[target].FixedItem;
+    }
+
+    private async Task Move(int idx, int dir)
+    {
+        if (_p is null || !CanMove(idx, dir)) return;
+        var list = _p.Items.ToList();
+        (list[idx], list[idx + dir]) = (list[idx + dir], list[idx]);
+        try { await Http.PostAsJsonAsync($"client-api/leadership/protocols/{Id}/reorder", new { Ids = list.Select(i => i.Id).ToList() }); } catch { }
+        await Load();
+    }
+
+    private void BeginEdit(ItemDto it) { _editItemId = it.Id; _editTitle = it.Title; _editOwner = it.OwnerId ?? 0; }
+
+    private async Task SaveItemHead(ItemDto it)
+    {
+        await PutItem(it with { Title = _editTitle, OwnerId = _editOwner == 0 ? null : _editOwner });
+        _editItemId = null;
+        await Load();
+    }
+
+    private async Task AddItem()
+    {
+        if (string.IsNullOrWhiteSpace(_newTitle)) return;
+        try { await Http.PostAsJsonAsync($"client-api/leadership/protocols/{Id}/items", new { Title = _newTitle, OwnerMemberId = _newOwner == 0 ? (int?)null : _newOwner }); } catch { }
+        _newTitle = ""; _newOwner = 0;
+        await Load();
+    }
+
+    private async Task DeleteItem(ItemDto it)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", $"Punkt „{it.Title}“ entfernen?")) return;
+        try { await Http.DeleteAsync($"client-api/leadership/items/{it.Id}"); } catch { }
+        await Load();
+    }
+
+    private async Task FromTask(int taskId)
+    {
+        try { await Http.PostAsync($"client-api/leadership/protocols/{Id}/items/from-task/{taskId}", null); } catch { }
+        await Load();
+    }
+
+    private async Task Start()
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", "Sitzung jetzt starten? Die Anwesenheitsliste wird geöffnet.")) return;
+        _busy = true;
+        try { await Http.PostAsync($"client-api/leadership/protocols/{Id}/start", null); } catch { }
+        _busy = false;
+        await Load();
+    }
+
+    // ---------------- Sitzung
+    private async Task Select(int itemId)
+    {
+        await FlushSave();
+        _currentId = itemId;
+        SyncEditor();
+    }
+
+    private void OnNotes(ChangeEventArgs e) { _notes = e.Value?.ToString() ?? ""; ScheduleSave(); }
+    private void OnDecision(ChangeEventArgs e) { _decision = e.Value?.ToString() ?? ""; ScheduleSave(); }
+
+    // Automatisch speichern (1 s nach der letzten Eingabe) - ein Verbindungsabbruch am iPad kostet so nichts.
+    private void ScheduleSave()
+    {
+        _saveState = "…";
+        _saveTimer?.Dispose();
+        _saveTimer = new System.Threading.Timer(_ => InvokeAsync(async () => { await FlushSave(); StateHasChanged(); }), null, 1000, Timeout.Infinite);
+    }
+
+    private async Task FlushSave()
+    {
+        _saveTimer?.Dispose(); _saveTimer = null;
+        if (Current is not ItemDto cur || (_notes == cur.Notes && _decision == cur.Decision)) return;
+        var ok = await PutItem(cur with { Notes = _notes, Decision = _decision });
+        if (ok)
+        {
+            var i = _p!.Items.IndexOf(cur);
+            _p.Items[i] = cur with { Notes = _notes, Decision = _decision };
+            _saveState = $"gespeichert {DateTime.Now:HH:mm:ss}";
+        }
+        else _saveState = "Speichern fehlgeschlagen – wird beim nächsten Tippen erneut versucht.";
+    }
+
+    private async Task<bool> PutItem(ItemDto it)
+    {
+        try
+        {
+            var resp = await Http.PutAsJsonAsync($"client-api/leadership/items/{it.Id}", new
+            {
+                it.Title, OwnerMemberId = it.OwnerId, it.Notes, it.Decision, it.Status
+            });
+            return resp.IsSuccessStatusCode;
+        }
+        catch { return false; }
+    }
+
+    private async Task Step(int dir)
+    {
+        if (_p is null || Current is not ItemDto cur) return;
+        var i = _p.Items.IndexOf(cur) + dir;
+        if (i >= 0 && i < _p.Items.Count) await Select(_p.Items[i].Id);
+    }
+
+    private async Task MarkAndNext(string status)
+    {
+        if (_p is null || Current is not ItemDto cur) return;
+        await FlushSave();
+        cur = Current!;
+        await PutItem(cur with { Status = status, Notes = _notes, Decision = _decision });
+        var idx = _p.Items.IndexOf(cur);
+        await Load();
+        if (idx + 1 < _p!.Items.Count) { _currentId = _p.Items[idx + 1].Id; SyncEditor(); }
+    }
+
+    private async Task AddTask()
+    {
+        if (Current is not ItemDto cur || string.IsNullOrWhiteSpace(_taskTitle)) return;
+        try
+        {
+            await Http.PostAsJsonAsync("client-api/leadership/tasks", new
+            {
+                Title = _taskTitle, AssigneeMemberId = _taskAssignee == 0 ? (int?)null : _taskAssignee, DueDate = _taskDue, SourceItemId = cur.Id
+            });
+        }
+        catch { }
+        _taskTitle = ""; _taskAssignee = 0; _taskDue = null;
+        await FlushSave();
+        await Load();
+    }
+
+    private async Task CycleAttendance(AttendanceDto a)
+    {
+        // anwesend -> entschuldigt -> fehlt -> anwesend
+        var next = a.State switch { 0 => 1, 1 => 2, _ => 0 };
+        try { await Http.PostAsJsonAsync($"client-api/leadership/protocols/{Id}/attendance", new { MemberId = a.MemberId, State = next }); } catch { }
+        var list = _p!.Attendance!;
+        list[list.IndexOf(a)] = a with { State = next };
+    }
+
+    private async Task Close()
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", "Sitzung abschließen? Offene und vertagte Punkte gehen in die nächste Sitzung, das Protokoll wird per Mail an den Kreis verschickt.")) return;
+        await FlushSave();
+        _busy = true;
+        try
+        {
+            var resp = await Http.PostAsync($"client-api/leadership/protocols/{Id}/close", null);
+            var r = await resp.Content.ReadFromJsonAsync<CloseDto>();
+            _info = r?.Mailed == true ? $"Protokoll abgeschlossen und an {r.Recipients} Empfänger verschickt."
+                : "Protokoll abgeschlossen. Kein Mailversand (keine E-Mail-Adressen oder SMTP nicht eingerichtet) – PDF über den Button oben.";
+        }
+        catch { _error = "Abschließen fehlgeschlagen."; }
+        _busy = false;
+        await Load();
+    }
+
+    private static string DotMark(int s) => s switch { 1 => "✓", 2 => "E", _ => "" };
+    private static string DotStyle(int s) => s switch
+    {
+        1 => "background:#1E7A3C;color:#fff;",
+        2 => "background:#D9A400;color:#1A1A1A;",
+        _ => "border:2px solid #A8A29A;background:#fff;"
+    };
+    private static string StateLabel(int s) => s switch { 1 => "anwesend", 2 => "entschuldigt", _ => "fehlt" };
+
+    public void Dispose() => _saveTimer?.Dispose();
+
+    private record MemberDto(int Id, string Name, int Circle);
+    private record TaskMini(int Id, string Title, string? Assignee, DateTime? Due, bool Done);
+    private record ItemDto(int Id, string Title, int? OwnerId, string? Owner, string Notes, string Decision, string Status, bool FromTask, bool FixedItem, List<TaskMini> Tasks);
+    private record OpenTaskDto(int Id, string Title, string? Assignee, DateTime? Due, bool Overdue);
+    private record AttendanceDto(int MemberId, string Name, int State);
+    private record ProtocolDto(int Id, int EventId, string? Title, DateTime? Start, string? Location, int? MinutesBefore, int Circle, string CircleLabel,
+        string Status, DateTime? StartedAt, DateTime? ClosedAt, string? ClosedBy, bool CanEdit, List<ItemDto> Items, List<OpenTaskDto> OpenTasks, List<AttendanceDto>? Attendance);
+    private record CloseDto(bool Ok, bool Mailed, int Recipients);
+}

@@ -118,6 +118,18 @@ public class ScheduledListBackgroundService : BackgroundService
         var calendarService = scope.ServiceProvider.GetRequiredService<CalendarService>();
 
         var now = DateTime.Now;
+
+        // Fuehrungskreis: Protokolle anlegen und faellige Sitzungen starten (oeffnet die
+        // Anwesenheit im Protokoll, Vorlauf wie bei Diensten).
+        try
+        {
+            await scope.ServiceProvider.GetRequiredService<LeadershipService>().StartDueMeetingsAsync(now);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Fuehrungskreis-Sitzungen konnten nicht gestartet werden.");
+        }
+
         var due = await calendarRepo.GetDueDienstEventsAsync(now, now.AddDays(1));
 
         foreach (var ev in due)
@@ -166,8 +178,9 @@ public class ScheduledListBackgroundService : BackgroundService
         if (attendanceMinutes > 0)
         {
             var cutoff = now.AddMinutes(-attendanceMinutes);
+            // Sitzungs-Anwesenheiten (Fuehrungskreis) schliesst das Protokoll, nicht der Timer.
             var openAttendance = await db.AttendanceLists
-                .Where(l => l.Status == ListStatus.Open && l.CreatedAt <= cutoff)
+                .Where(l => l.LeadershipProtocolId == null && l.Status == ListStatus.Open && l.CreatedAt <= cutoff)
                 .ToListAsync();
 
             foreach (var list in openAttendance)
