@@ -52,6 +52,10 @@ public class Member
     [Column("Rank")]
     public string? Rank { get; set; }
 
+    /// <summary>Geburtsdatum (Dienstausweis, Identitaetspruefung bei der Passwort-Vergabe).</summary>
+    [Column("BirthDate")]
+    public DateTime? BirthDate { get; set; }
+
     [Column("Email")]
     public string? Email { get; set; }
 

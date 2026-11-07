@@ -19,18 +19,18 @@ from PIL import Image, ImageDraw, ImageFont
 BASE = (sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:5180").rstrip("/")
 MEMBER_PASSWORD = "Feuerwehr2026!"
 
-# Nummer, Vorname, Nachname, Dienstgrad, Einheit, Fuehrungskreis (0/1/2), Bereiche, Passwort?, Lichtbild?
+# Nummer, Vorname, Nachname, Dienstgrad, Einheit, Fuehrungskreis (0/1/2), Bereiche, Passwort?, Lichtbild?, Geburtsdatum
 MEMBERS = [
-    ("1001", "Thomas", "Becker", "Hauptbrandmeister", 1, 2, ["firesafety", "calendar", "attendance", "operations"], True, True),
-    ("1002", "Sabine", "Kroll", "Brandmeisterin", 1, 2, ["firesafety", "calendar"], True, True),
-    ("1003", "Jan", "Wessels", "Oberbrandmeister", 2, 1, ["firesafety", "calendar"], True, True),
-    ("1004", "Anna", "Hölscher", "Unterbrandmeisterin", 2, 1, ["firesafety", "calendar"], True, True),
-    ("1005", "Markus", "Brüning", "Löschmeister", 1, 1, ["calendar"], True, True),
-    ("1234", "Max", "Mustermann", "Oberfeuerwehrmann", 1, 0, ["firesafety", "calendar"], True, True),
-    ("1235", "Erika", "Musterfrau", "Feuerwehrfrau", 2, 0, ["firesafety-link"], True, False),
-    ("1236", "Lukas", "Schulte", "Feuerwehrmann", 1, 0, [], False, False),
-    ("1237", "Julia", "Terhaar", "Hauptfeuerwehrfrau", 2, 0, ["calendar"], False, False),
-    ("1238", "Kevin", "Overbeck", "Feuerwehrmann-Anwärter", 1, 0, [], False, False),
+    ("1001", "Thomas", "Becker", "Hauptbrandmeister", 1, 2, ["firesafety", "calendar", "attendance", "operations"], True, True, "1978-03-14"),
+    ("1002", "Sabine", "Kroll", "Brandmeisterin", 1, 2, ["firesafety", "calendar"], True, True, "1985-09-02"),
+    ("1003", "Jan", "Wessels", "Oberbrandmeister", 2, 1, ["firesafety", "calendar"], True, True, "1990-06-21"),
+    ("1004", "Anna", "Hölscher", "Unterbrandmeisterin", 2, 1, ["firesafety", "calendar"], True, True, "1993-11-30"),
+    ("1005", "Markus", "Brüning", "Löschmeister", 1, 1, ["calendar"], True, True, "1982-01-09"),
+    ("1234", "Max", "Mustermann", "Oberfeuerwehrmann", 1, 0, ["firesafety", "calendar"], True, True, "1995-05-17"),
+    ("1235", "Erika", "Musterfrau", "Feuerwehrfrau", 2, 0, ["firesafety-link"], True, False, "1999-08-23"),
+    ("1236", "Lukas", "Schulte", "Feuerwehrmann", 1, 0, [], False, False, "2004-02-11"),
+    ("1237", "Julia", "Terhaar", "Hauptfeuerwehrfrau", 2, 0, ["calendar"], False, False, "1988-12-05"),
+    ("1238", "Kevin", "Overbeck", "Feuerwehrmann-Anwärter", 1, 0, [], False, False, "2007-07-07"),
 ]
 
 COLORS = ["#5B7DB1", "#7A9E7E", "#B5838D", "#6D597A", "#E5989B", "#457B9D", "#9C6644"]
@@ -88,6 +88,7 @@ def main():
         "Security.LoginRequired": "true",
         "Security.LoginWhitelist": "127.0.0.1, ::1",
         "App.BaseUrl": BASE.replace("127.0.0.1", "192.168.2.81"),
+        "Card.IssuedBy": "Stadt Musterstadt – Der Bürgermeister\nFreiwillige Feuerwehr Musterstadt",
     }), "Einstellungen")
 
     # --- Fahrzeuge + Funktion (fuer Wachen) ---
@@ -99,13 +100,14 @@ def main():
 
     # --- Mitglieder ---
     existing = {m["memberNumber"]: m for m in ok(admin.get(f"{BASE}/client-api/admin/members"), "Mitglieder").json()}
-    for num, first, last, rank, unit, circle, mods, pw, photo in MEMBERS:
+    for num, first, last, rank, unit, circle, mods, pw, photo, born in MEMBERS:
         if num not in existing:
             ok(admin.post(f"{BASE}/client-api/admin/members", json={
-                "memberNumber": num, "firstName": first, "lastName": last, "isActive": True, "units": [unit]}), f"Mitglied {num}")
+                "memberNumber": num, "firstName": first, "lastName": last, "isActive": True, "units": [unit],
+                "birthDate": born + "T00:00:00"}), f"Mitglied {num}")
     members = {m["memberNumber"]: m for m in ok(admin.get(f"{BASE}/client-api/admin/members"), "Mitglieder").json()}
 
-    for num, first, last, rank, unit, circle, mods, pw, photo in MEMBERS:
+    for num, first, last, rank, unit, circle, mods, pw, photo, born in MEMBERS:
         mid = members[num]["id"]
         ok(admin.put(f"{BASE}/client-api/admin/members/{mid}/account", json={
             "modules": mods, "leadershipCircle": circle, "rank": rank,
@@ -114,7 +116,7 @@ def main():
 
     # --- Passwort-Vergabe wie am Gerätehaus-Tablet (Admin + Whitelist-Geraet) ---
     ok(admin.post(f"{BASE}/client-api/admin/enrollment/start"), "Vergabe starten")
-    for num, first, last, rank, unit, circle, mods, pw, photo in MEMBERS:
+    for num, first, last, rank, unit, circle, mods, pw, photo, born in MEMBERS:
         if not pw:
             continue
         r = ok(admin.post(f"{BASE}/client-api/admin/enrollment/lookup", json={"code": num}), "lookup").json()
@@ -125,7 +127,7 @@ def main():
 
     # --- Lichtbilder durch die Mitglieder selbst ---
     sessions = {}
-    for i, (num, first, last, rank, unit, circle, mods, pw, photo) in enumerate(MEMBERS):
+    for i, (num, first, last, rank, unit, circle, mods, pw, photo, born) in enumerate(MEMBERS):
         if not pw:
             continue
         sessions[num] = login(num, MEMBER_PASSWORD)

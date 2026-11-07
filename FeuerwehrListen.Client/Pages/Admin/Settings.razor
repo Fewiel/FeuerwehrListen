@@ -262,6 +262,19 @@
                 else if (_acError is not null) { <div class="alert alert-danger py-2 mb-0">@_acError</div> }
             </div></div>
 
+            <div class="card mb-4"><div class="card-header"><i class="bi bi-person-vcard me-2"></i>Dienstausweis</div><div class="card-body">
+                <p class="text-muted">
+                    Der digitale Dienstausweis im Mitgliederbereich zeigt Lichtbild, Name, Geburtsdatum, Dienstgrad,
+                    Einheit, Mitgliedsnummer, Gültigkeit und den QR-Code zur Echtheitsprüfung.
+                </p>
+                <div class="mb-3">
+                    <label class="form-label">Ausgestellt von</label>
+                    <textarea class="form-control" rows="2" placeholder="Stadt Musterstadt – Der Bürgermeister&#10;Freiwillige Feuerwehr Musterstadt"
+                              @bind:get='Get("Card.IssuedBy")' @bind:set='(string v) => Set("Card.IssuedBy", v)'></textarea>
+                    <small class="text-muted">Steht auf jedem Ausweis. Mehrere Zeilen möglich. Leer = kein Aussteller-Feld.</small>
+                </div>
+            </div></div>
+
             <div class="card mb-4"><div class="card-header"><i class="bi bi-envelope me-2"></i>E-Mail SMTP</div><div class="card-body">
                 @Text("Smtp.Host", "SMTP Host")
                 @Num("Smtp.Port", "SMTP Port", min: 1, max: 65535)

@@ -19,12 +19,22 @@ Ist die Login-Pflicht an und kommt die Anfrage **nicht** von einer Whitelist-Adr
 * `/client-api/*` antwortet mit `401 {"error":"login_required"}`,
 * das Menü zeigt nur noch den Login.
 
-Immer offen bleiben: `/login`, `/client-api/auth/*`, `/client-api/app-context`,
-Freigabe-Links (`/approve/…`), der SSO-Provider (`/sso/*`, leitet selbst zum Login),
-die externe API (`/api/*`, eigener API-Key) sowie das Blazor-Framework.
+Immer offen bleiben: `/login`, die Anmelde-Endpunkte (`/client-api/auth/login|qr|complete|logout|me`),
+`/client-api/app-context` (ohne Einheiten-Namen), Freigabe-Links (`/approve/…`), die öffentliche
+Ausweisprüfung (`/ausweis/{id}`, `/client-api/card-check/*` – nur Lichtbild + gültig/ungültig),
+der SSO-Provider (`/sso/*`, leitet selbst zum Login), die externe API (`/api/*`, eigener API-Key)
+sowie das Blazor-Framework und statische Dateien (enthalten keine Daten).
+
+Jede andere Seiten-Route leitet zum Login um – unabhängig vom `Accept`-Header.
 
 Von einer Whitelist-Adresse verhält sich das Tool wie bisher (Gäste ohne Login,
 Netz-Schranke und Host-Profile wirken weiter).
+
+**Server-Modus (alte Geräte, SignalR):** Im laufenden Circuit gibt es keinen HttpContext.
+Die Client-IP wird deshalb beim ersten Seitenaufruf mit Data Protection versiegelt als
+Komponenten-Parameter mitgegeben (`CircuitClientContext`) und im Circuit wieder entsiegelt –
+der Browser kann den Wert nicht fälschen. Fehlt sie, gilt der Self-Call als „nicht von der
+Whitelist“ (fail-closed).
 
 **Client-Adresse:** Gewertet wird die direkte Verbindungsadresse. Nur wenn ein
 Reverse-Proxy unter „Adressen des Reverse-Proxys“ eingetragen ist, wird
@@ -67,3 +77,21 @@ Auf der Wachen-Detailseite kopiert „Direktlink kopieren“ die Adresse `/wache
 Über den Link kann man sich eintragen; Abschließen, Bearbeiten und Austragen gehen nur über
 die normale Wachen-Seite. Endpunkte: `GET /client-api/firesafetywatch-link/{publicId}`,
 `POST /client-api/firesafetywatch-link/{publicId}/register`.
+
+## Mitglieder-Konten (Mitgliederbereich)
+
+Mitglieder melden sich mit Mitgliedsnummer + Passwort an (Rolle `Member`). Sie erhalten nur ihre
+freigegebenen Bereiche und niemals:
+
+* die externe API ohne Key (`/api/*`), Export-Token (`/token`),
+* verwaltende Aktionen: Listen/Wachen schließen, Entschuldigungen, Einträge löschen, Adresse
+  ändern, Serien, Anwesenheitslisten aus Terminen anlegen (`NetworkAccessService.IsMemberForbiddenPath`),
+* „Listen & Daten“, Verwaltung, SSO-Login in Fremdsysteme.
+
+## Sicherheitsprüfung (QA, 07.11.2026)
+
+`qa.py`/`qa2.py` (siehe Testumgebung) prüfen 88 Fälle: anonym von außen (Seiten → Login,
+alle `/client-api` → 401, Header-Spoofing wirkungslos, Prüflinks offen ohne Personendaten),
+Mitglieder-Grenzen, Führungskreis-Sichtbarkeit (groß sieht klein nicht), Passwort-Vergabe nur
+von Whitelist-Gerät und nur in derselben Sitzung, Server-Modus (Kiosk über Whitelist offen,
+von außen Login). Alle bestanden. Hinweis: `/swagger` ist nur im Development-Modus erreichbar.

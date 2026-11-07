@@ -83,6 +83,9 @@ public static class SettingKeys
     /// zugreifen duerfen (z. B. die feste IP des Feuerwehrhauses).</summary>
     public const string SecurityLoginWhitelist = "Security.LoginWhitelist";
 
+    /// <summary>Aussteller des Dienstausweises (steht auf der Karte), z. B. "Stadt Musterstadt – Der Bürgermeister".</summary>
+    public const string CardIssuedBy = "Card.IssuedBy";
+
     /// <summary>Empfänger für Einsatz-Feedback (eine oder mehrere Adressen).</summary>
     public const string NotificationFeedbackRecipients = "Notifications.FeedbackRecipients";
 

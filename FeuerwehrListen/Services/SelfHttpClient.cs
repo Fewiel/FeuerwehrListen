@@ -37,14 +37,16 @@ public sealed class SelfCookieHandler : DelegatingHandler
     private readonly AppBaseUrlProvider _baseUrl;
     private readonly string? _originHost;
     private readonly string? _clientIp;
+    private readonly CircuitClientInfo? _circuit;
     private readonly Uri? _selfBase;
 
     /// <param name="originHost">Host, den der Nutzer tatsaechlich aufgerufen hat. Wird als
     /// X-Fw-Host mitgegeben, damit host-abhaengige Regeln (Host-Profile) auch dann greifen,
     /// wenn der Self-Call aus technischen Gruenden eine andere Zieladresse verwendet.</param>
-    public SelfCookieHandler(IHttpContextAccessor accessor, AuthenticationStateProvider auth, InternalAuthSecret secret, AppBaseUrlProvider baseUrl, string? originHost = null, string? selfBaseUrl = null, string? clientIp = null)
+    public SelfCookieHandler(IHttpContextAccessor accessor, AuthenticationStateProvider auth, InternalAuthSecret secret, AppBaseUrlProvider baseUrl, string? originHost = null, string? selfBaseUrl = null, string? clientIp = null, CircuitClientInfo? circuit = null)
     {
         _clientIp = clientIp;
+        _circuit = circuit;
         _accessor = accessor;
         _auth = auth;
         _secret = secret;
@@ -112,8 +114,11 @@ public sealed class SelfCookieHandler : DelegatingHandler
         if (!string.IsNullOrEmpty(_originHost))
             request.Headers.TryAddWithoutValidation("X-Fw-Host", _originHost);
         // Echte Nutzer-IP (Login-Whitelist, Netz-Schranke) - sonst saehe der Server nur sich selbst.
-        if (!string.IsNullOrEmpty(_clientIp))
-            request.Headers.TryAddWithoutValidation("X-Fw-Client-Ip", _clientIp);
+        // Im Circuit (kein HttpContext) kommt die IP aus dem versiegelten Token - erst zur
+        // Sendezeit lesen, weil der HttpClient vor der Entsiegelung erzeugt sein kann.
+        var clientIp = _clientIp ?? _circuit?.ClientIp;
+        if (!string.IsNullOrEmpty(clientIp))
+            request.Headers.TryAddWithoutValidation("X-Fw-Client-Ip", clientIp);
 
         var ctx = _accessor.HttpContext;
         if (ctx != null)

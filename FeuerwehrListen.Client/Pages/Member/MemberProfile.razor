@@ -34,6 +34,7 @@
             <dl style="display:grid;grid-template-columns:auto 1fr;gap:6px 16px;margin:0 0 12px;font-size:.95rem;">
                 <dt class="fwm-label" style="align-self:center;">Name</dt><dd style="margin:0;">@_me.FirstName @_me.LastName</dd>
                 <dt class="fwm-label" style="align-self:center;">Mitglieds-Nr.</dt><dd style="margin:0;">@_me.Number</dd>
+                @if (_me.BirthDate is DateTime bd) { <dt class="fwm-label" style="align-self:center;">Geboren</dt><dd style="margin:0;">@bd.ToString("dd.MM.yyyy")</dd> }
                 @if (!string.IsNullOrWhiteSpace(_me.Rank)) { <dt class="fwm-label" style="align-self:center;">Dienstgrad</dt><dd style="margin:0;">@_me.Rank</dd> }
                 @if (_me.LeadershipCircle > 0) { <dt class="fwm-label" style="align-self:center;">Führungskreis</dt><dd style="margin:0;">@_me.LeadershipLabel</dd> }
             </dl>
@@ -56,7 +57,7 @@
     private bool _photoBusy, _photoOk, _emailBusy, _emailOk;
     private string? _photoMsg, _emailMsg;
 
-    private string PhotoUrl => _me?.HasPhoto == true ? $"client-api/me/photo?v={_me.PhotoVersion}" : "data:image/gif;base64,R0lGODlhAQABAAAAACw=";
+    private string PhotoUrl => _me?.HasPhoto == true ? $"client-api/me/photo?v={_me.PhotoVersion}" : "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 100'><rect width='80' height='100' fill='%23E3E0DB'/><circle cx='40' cy='36' r='18' fill='%23B9B4AC'/><path d='M8 100c2-22 16-32 32-32s30 10 32 32z' fill='%23B9B4AC'/></svg>";
 
     protected override async Task OnInitializedAsync() => await Load();
 
@@ -106,6 +107,6 @@
     }
 
     private record UploadResult(bool Ok, string? Error = null);
-    private record MeDto(bool IsMember, string Number = "", string FirstName = "", string LastName = "", string? Rank = null,
+    private record MeDto(bool IsMember, string Number = "", string FirstName = "", string LastName = "", string? Rank = null, DateTime? BirthDate = null,
         string? Email = null, bool HasPhoto = false, long PhotoVersion = 0, int LeadershipCircle = 0, string? LeadershipLabel = null);
 }

@@ -204,6 +204,7 @@ builder.Services.AddSingleton<FeuerwehrListen.Services.UserAccessService>();
 builder.Services.AddSingleton<FeuerwehrListen.Services.DataPathService>();
 builder.Services.AddSingleton<FeuerwehrListen.Services.PasswordEnrollmentService>();
 builder.Services.AddSingleton<FeuerwehrListen.Services.SimpleRateLimiter>();
+builder.Services.AddScoped<FeuerwehrListen.Services.CircuitClientInfo>();
 builder.Services.AddSingleton<FeuerwehrListen.Services.NetworkAccessService>();
 builder.Services.AddSingleton<FeuerwehrListen.Services.InternalAuthSecret>();
 builder.Services.AddScoped<HttpClient>(sp =>
@@ -259,7 +260,8 @@ builder.Services.AddScoped<HttpClient>(sp =>
     // Echte Nutzer-IP fuer Login-Whitelist und Netz-Schranke: Self-Calls kommen technisch vom
     // Server selbst, die IP des Nutzers geht daher als X-Fw-Client-Ip mit.
     string? clientIp = ctx != null ? sp.GetRequiredService<FeuerwehrListen.Services.NetworkAccessService>().GetClientIp(ctx)?.ToString() : null;
-    var handler = new FeuerwehrListen.Services.SelfCookieHandler(accessor, authState, secret, baseProvider, originHost, baseUrl, clientIp)
+    var handler = new FeuerwehrListen.Services.SelfCookieHandler(accessor, authState, secret, baseProvider, originHost, baseUrl, clientIp,
+        sp.GetService<FeuerwehrListen.Services.CircuitClientInfo>())
     {
         InnerHandler = new HttpClientHandler
         {
@@ -398,12 +400,28 @@ app.Use(async (ctx, next) =>
             await ctx.Response.WriteAsJsonAsync(new { error = "login_required", message = "Bitte anmelden." });
             return;
         }
-        if (isPageNavigation)
+        // Alles andere, was bis hierher kommt, ist eine Seiten-Route (statische Dateien und
+        // das Framework sind schon bedient bzw. ausgenommen) -> zum Login, egal welcher
+        // Accept-Header. Nicht-GET auf Seiten gibt es nicht -> 401.
+        if (HttpMethods.IsGet(ctx.Request.Method) || HttpMethods.IsHead(ctx.Request.Method))
         {
             var self = path + ctx.Request.QueryString;
             ctx.Response.Redirect(path == "/" ? "/login" : "/login?returnUrl=" + Uri.EscapeDataString(self.ToString()));
             return;
         }
+        ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+        return;
+    }
+
+    // Mitglieder-Konten: keine verwaltenden Aktionen (Listen schliessen, Entschuldigungen,
+    // Export-Token ...), auch wenn das Modul fuer sie sichtbar ist.
+    if ((path.StartsWithSegments("/client-api") || path.StartsWithSegments("/token"))
+        && FeuerwehrListen.Services.NetworkAccessService.IsMemberForbiddenPath(path, ctx.Request.Method)
+        && ctx.User.IsInRole("Member"))
+    {
+        ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
+        await ctx.Response.WriteAsJsonAsync(new { error = "member_forbidden", message = "Diese Aktion ist Verwaltungskonten vorbehalten." });
+        return;
     }
 
     // Seiten, fuer die ein ANGEMELDETER Benutzer kein Recht hat, auch bei direkter URL-Eingabe
@@ -490,15 +508,6 @@ app.Use(async (ctx, next) =>
                 error = "no_full_access",
                 message = "Dieses Konto hat keinen Zugriff auf diesen Bereich."
             });
-            return;
-        }
-
-        // Mitglieder-Konten: keine Serien anlegen/aendern (Planung bleibt bei der Verwaltung).
-        if (!HttpMethods.IsGet(ctx.Request.Method) && path.StartsWithSegments("/client-api/calendar/series")
-            && ctx.RequestServices.GetRequiredService<FeuerwehrListen.Services.UserAccessService>().Get(ctx)?.IsMember == true)
-        {
-            ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
-            await ctx.Response.WriteAsJsonAsync(new { error = "member_forbidden" });
             return;
         }
 
@@ -702,7 +711,9 @@ app.MapGet("/client-api/app-context", (HttpContext http, SettingsService setting
         },
         // Login-Pflicht greift fuer diesen Besucher (nicht angemeldet, nicht auf der Whitelist).
         loginRequired = access.IsLoginRequired(http),
-        unitLabels = Enumerable.Range(1, 9).Select(i => new { number = i, label = settings.GetUnitLabel(i) })
+        // Einheiten-Namen erst nach Anmeldung bzw. von der Whitelist - sonst nichts Internes verraten.
+        unitLabels = access.IsLoginRequired(http) ? Array.Empty<object>()
+            : Enumerable.Range(1, 9).Select(i => (object)new { number = i, label = settings.GetUnitLabel(i) })
     });
 });
 
@@ -1230,7 +1241,7 @@ admin.MapGet("/members", async (MemberRepository repo) =>
     var units = await repo.GetUnitsForMembersAsync(members.Select(m => m.Id));
     return Results.Json(members.OrderBy(m => m.LastName).ThenBy(m => m.FirstName).Select(m => new
     {
-        id = m.Id, memberNumber = m.MemberNumber, firstName = m.FirstName, lastName = m.LastName, isActive = m.IsActive,
+        id = m.Id, memberNumber = m.MemberNumber, firstName = m.FirstName, lastName = m.LastName, isActive = m.IsActive, birthDate = m.BirthDate,
         units = units.TryGetValue(m.Id, out var u) && u.Count > 0 ? u : (m.UnitNumber.HasValue ? new List<int> { m.UnitNumber.Value } : new List<int>())
     }));
 });
@@ -1254,7 +1265,7 @@ admin.MapPost("/members", async (MemberRepository repo, MemberReq r) =>
 {
     var units = (r.Units ?? new()).Where(u => u >= 1 && u <= 9).OrderBy(u => u).ToList();
     int? primary = units.Count > 0 ? units.First() : null;
-    var id = await repo.CreateAsync(new Member { MemberNumber = r.MemberNumber.Trim(), FirstName = r.FirstName.Trim(), LastName = r.LastName.Trim(), IsActive = r.IsActive, UnitNumber = primary, CreatedAt = DateTime.Now });
+    var id = await repo.CreateAsync(new Member { MemberNumber = r.MemberNumber.Trim(), FirstName = r.FirstName.Trim(), LastName = r.LastName.Trim(), IsActive = r.IsActive, UnitNumber = primary, BirthDate = r.BirthDate?.Date, CreatedAt = DateTime.Now });
     await repo.SetUnitsForMemberAsync(id, units, primary);
     return Results.Json(new { id });
 });
@@ -1264,6 +1275,7 @@ admin.MapPut("/members/{id:int}", async (int id, MemberRepository repo, MemberRe
     var units = (r.Units ?? new()).Where(u => u >= 1 && u <= 9).OrderBy(u => u).ToList();
     int? primary = units.Count > 0 ? units.First() : null;
     m.MemberNumber = r.MemberNumber.Trim(); m.FirstName = r.FirstName.Trim(); m.LastName = r.LastName.Trim(); m.IsActive = r.IsActive; m.UnitNumber = primary;
+    m.BirthDate = r.BirthDate?.Date;
     await repo.UpdateAsync(m);
     await repo.SetUnitsForMemberAsync(id, units, primary);
     return Results.Ok();
@@ -3030,7 +3042,7 @@ public record ApprovalDecisionRequest(bool Approve, string? DecidedBy, string? C
 // B1: StrengthPosition als int (1=Zugfuehrer, 2=Gruppenfuehrer, 3=Mannschaft). Default 3.
 public record FunctionReq(string Name, bool IsDefault, int StrengthPosition = 3);
 public record ReqItem(int FunctionDefId, int MinimumCount, bool IsRequired);
-public record MemberReq(string MemberNumber, string FirstName, string LastName, bool IsActive, List<int>? Units);
+public record MemberReq(string MemberNumber, string FirstName, string LastName, bool IsActive, List<int>? Units, DateTime? BirthDate = null);
 public record CsvReq(string? Csv);
 public record ApiKeyReq(string? Description);
 // B15/B17: Email + optionaler Willkommens-Mail-Versand. Der Client generiert das Klartext-Passwort

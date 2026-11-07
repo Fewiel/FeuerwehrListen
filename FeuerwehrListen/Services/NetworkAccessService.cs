@@ -165,7 +165,10 @@ public sealed class NetworkAccessService
         if (!path.HasValue) return false;
         var p = path.Value!.ToLowerInvariant();
         if (p == "/login" || p.StartsWith("/login/") || p == "/logout") return true;
-        if (p.StartsWith("/client-api/auth/") || p.StartsWith("/client-api/app-context")) return true;
+        // Nur die Anmeldung selbst - NICHT qr-identify (verraet Benutzernamen) o. ae.
+        if (p is "/client-api/auth/login" or "/client-api/auth/qr" or "/client-api/auth/complete"
+            or "/client-api/auth/logout" or "/client-api/auth/logout-redirect" or "/client-api/auth/me") return true;
+        if (p.StartsWith("/client-api/app-context")) return true;
         if (p.StartsWith("/approve/") || p.StartsWith("/client-api/approve/") || p == "/nur-freigabe") return true;
         // Oeffentliche Dienstausweis-Pruefung (QR-Code) - zeigt nur Lichtbild + Gueltigkeit.
         if (p.StartsWith("/ausweis/") || p.StartsWith("/client-api/card-check/")) return true;
@@ -300,6 +303,21 @@ public sealed class NetworkAccessService
     {
         if (!(ctx.User.Identity?.IsAuthenticated ?? false)) return true;
         return _userAccess.Get(ctx)?.IsFull ?? false;
+    }
+
+    /// <summary>
+    /// Verwaltende Aktionen, die Mitglieder-Konten nicht ausfuehren duerfen, auch wenn sie das
+    /// Modul sehen: Listen/Wachen schliessen, Entschuldigungen, Adresse aendern, Export-Token.
+    /// Bisher "jeder Angemeldete" - das waren bis jetzt nur Verwaltungskonten.
+    /// </summary>
+    public static bool IsMemberForbiddenPath(PathString path, string method)
+    {
+        if (!path.HasValue) return false;
+        var p = path.Value!.ToLowerInvariant();
+        if (p == "/token") return true;
+        if (HttpMethods.IsGet(method)) return p.Contains("/excuse-candidates");
+        return p.EndsWith("/close") || p.Contains("/excuse") || p.EndsWith("/address") || p.Contains("/entry/")
+            || p.Contains("/calendar/series") || p.EndsWith("/create-attendance");
     }
 
     /// <summary>Endpunkte, die nur mit Vollzugang nutzbar sind (Listen &amp; Daten:

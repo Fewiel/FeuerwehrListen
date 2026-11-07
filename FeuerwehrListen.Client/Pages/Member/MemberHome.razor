@@ -106,7 +106,7 @@
 
     [Inject] private FeuerwehrListen.Client.Services.AppContextService AppCtx { get; set; } = default!;
 
-    private string PhotoUrl => _me?.HasPhoto == true ? $"client-api/me/photo?v={_me.PhotoVersion}" : "data:image/gif;base64,R0lGODlhAQABAAAAACw=";
+    private string PhotoUrl => _me?.HasPhoto == true ? $"client-api/me/photo?v={_me.PhotoVersion}" : "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 100'><rect width='80' height='100' fill='%23E3E0DB'/><circle cx='40' cy='36' r='18' fill='%23B9B4AC'/><path d='M8 100c2-22 16-32 32-32s30 10 32 32z' fill='%23B9B4AC'/></svg>";
 
     private string CardHint => _me!.Card.Revoked ? "gesperrt – bitte Verwaltung ansprechen"
         : !_me.HasPhoto ? "Lichtbild fehlt – im Profil hochladen"

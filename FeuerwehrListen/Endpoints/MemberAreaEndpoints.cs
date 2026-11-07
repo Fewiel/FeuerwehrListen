@@ -32,7 +32,10 @@ public static class MemberAreaEndpoints
                 firstName = m.FirstName,
                 lastName = m.LastName,
                 rank = m.Rank,
+                birthDate = m.BirthDate,
                 unit = m.UnitNumber is int u ? settings.GetUnitLabel(u) : null,
+                // Aussteller des Ausweises (Einstellung Card.IssuedBy).
+                issuedBy = settings.GetSetting(SettingKeys.CardIssuedBy),
                 email = m.Email,
                 hasPhoto = !string.IsNullOrEmpty(m.PhotoFile),
                 photoVersion = m.PhotoUpdatedAt?.Ticks ?? 0,
@@ -284,7 +287,7 @@ public static class MemberAreaEndpoints
                 ok = true,
                 member = new
                 {
-                    id = m.Id, name = $"{m.FirstName} {m.LastName}", number = m.MemberNumber,
+                    id = m.Id, name = $"{m.FirstName} {m.LastName}", number = m.MemberNumber, birthDate = m.BirthDate,
                     hasPhoto = !string.IsNullOrEmpty(m.PhotoFile), photoVersion = m.PhotoUpdatedAt?.Ticks ?? 0,
                     hasPassword = !string.IsNullOrEmpty(m.PasswordHash)
                 }
