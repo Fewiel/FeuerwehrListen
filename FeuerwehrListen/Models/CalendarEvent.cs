@@ -77,6 +77,10 @@ public class CalendarEvent
     [Column("MinutesBeforeEvent")]
     public int MinutesBeforeEvent { get; set; } = 30;
 
+    /// <summary>Nur Typ Fuehrungskreis: 1 = grosser, 2 = kleiner Kreis.</summary>
+    [Column("LeadershipCircle")]
+    public int? LeadershipCircle { get; set; }
+
     [Column("CreatedAt")]
     public DateTime CreatedAt { get; set; }
 }

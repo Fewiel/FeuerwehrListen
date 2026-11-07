@@ -60,6 +60,8 @@ public sealed class NetworkAccessService
     public const string ModuleFireSafety = "firesafety";
     public const string ModuleDefects = "defects";
     public const string ModuleCalendar = "calendar";
+    /// <summary>Fuehrungskreis (Protokoll, Aufgaben) - nie global/fuer Gaeste, nur per Kreis-Stufe.</summary>
+    public const string ModuleLeadership = "leadership";
 
     private static readonly string[] AllModules =
         { ModuleAttendance, ModuleOperations, ModuleFireSafety, ModuleDefects, ModuleCalendar };
@@ -165,6 +167,8 @@ public sealed class NetworkAccessService
         if (p == "/login" || p.StartsWith("/login/") || p == "/logout") return true;
         if (p.StartsWith("/client-api/auth/") || p.StartsWith("/client-api/app-context")) return true;
         if (p.StartsWith("/approve/") || p.StartsWith("/client-api/approve/") || p == "/nur-freigabe") return true;
+        // Oeffentliche Dienstausweis-Pruefung (QR-Code) - zeigt nur Lichtbild + Gueltigkeit.
+        if (p.StartsWith("/ausweis/") || p.StartsWith("/client-api/card-check/")) return true;
         if (p.StartsWith("/_framework/") || p.StartsWith("/_blazor") || p.StartsWith("/_content/")) return true;
         if (p.StartsWith("/sso/") || p == "/api" || p.StartsWith("/api/")) return true;
         if (p == "/error" || p.StartsWith("/favicon") || p == "/manifest.json" || p == "/manifest.webmanifest") return true;
@@ -279,7 +283,12 @@ public sealed class NetworkAccessService
         {
             var info = _userAccess.Get(ctx);
             if (info == null) allowed.Clear();
-            else if (!info.IsFull) allowed.IntersectWith(info.Modules!);
+            else
+            {
+                if (!info.IsFull) allowed.IntersectWith(info.Modules!);
+                // Fuehrungskreis haengt nicht an Host/Netz, sondern nur an der Kreis-Stufe.
+                if (info.CanSeeCircle(Models.LeadershipCircles.Large)) allowed.Add(ModuleLeadership);
+            }
         }
 
         return allowed;
@@ -317,6 +326,7 @@ public sealed class NetworkAccessService
         if (p == "/firesafetywatches" || p.StartsWith("/firesafetywatches/")) return ModuleFireSafety;
         if (p == "/defects") return ModuleDefects;
         if (p == "/kalender") return ModuleCalendar;
+        if (p == "/fuehrungskreis" || p.StartsWith("/fuehrungskreis/")) return ModuleLeadership;
         if (p == "/admin/closed-lists" || p == "/admin/archive") return UserAccessService.FullAccess;
         return null;
     }
@@ -348,6 +358,7 @@ public sealed class NetworkAccessService
             || p.StartsWith("/client-api/keywords") || p.StartsWith("/client-api/feedback")) return ModuleOperations;
         if (p.StartsWith("/client-api/firesafetywatch")) return ModuleFireSafety;
         if (p.StartsWith("/client-api/calendar")) return ModuleCalendar;
+        if (p.StartsWith("/client-api/leadership")) return ModuleLeadership;
         if (p.StartsWith("/client-api/defects") || p.StartsWith("/client-api/vehicles-active")) return ModuleDefects;
 
         return null;

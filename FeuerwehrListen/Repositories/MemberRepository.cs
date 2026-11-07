@@ -33,6 +33,22 @@ public class MemberRepository
         return await _db.Members.FirstOrDefaultAsync(x => x.MemberNumber == memberNumber);
     }
 
+    /// <summary>Mitglied zur Ausweis-Kennung (oeffentlicher Pruef-Link).</summary>
+    public async Task<Member?> GetByCardPublicIdAsync(string publicId)
+    {
+        if (string.IsNullOrWhiteSpace(publicId) || publicId.Length > 64) return null;
+        return await _db.Members.FirstOrDefaultAsync(x => x.CardPublicId == publicId);
+    }
+
+    /// <summary>Aktive Mitglieder mit mindestens dieser Fuehrungskreis-Stufe.</summary>
+    public async Task<List<Member>> GetLeadershipMembersAsync(int minCircle)
+    {
+        return await _db.Members
+            .Where(x => x.IsActive && x.LeadershipCircle >= minCircle && x.LeadershipCircle > 0)
+            .OrderBy(x => x.LastName).ThenBy(x => x.FirstName)
+            .ToListAsync();
+    }
+
     public async Task<Member?> FindByNameOrNumberAsync(string searchTerm)
     {
         var term = searchTerm.Trim();

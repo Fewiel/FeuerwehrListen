@@ -4,6 +4,7 @@ using FeuerwehrListen.Data;
 using FeuerwehrListen.Services;
 using FeuerwehrListen.Repositories;
 using FeuerwehrListen.Middleware;
+using FeuerwehrListen.Endpoints;
 using LinqToDB;
 using LinqToDB.AspNet;
 using LinqToDB.AspNet.Logging;
@@ -173,6 +174,8 @@ builder.Services.AddScoped<OperationReportRepository>();
 builder.Services.AddScoped<RoomRepository>();
 builder.Services.AddScoped<CalendarRepository>();
 builder.Services.AddScoped<CalendarService>();
+builder.Services.AddScoped<LeadershipRepository>();
+builder.Services.AddScoped<LeadershipService>();
 builder.Services.AddScoped<StatisticsService>();
 builder.Services.AddScoped<PdfExportService>();
 // GeocodingService ueber IHttpClientFactory (typed client) - kein new HttpClient() je Scope.
@@ -198,6 +201,9 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddSingleton<FeuerwehrListen.Services.AppBaseUrlProvider>();
 builder.Services.AddSingleton<FeuerwehrListen.Services.AppUrlService>();
 builder.Services.AddSingleton<FeuerwehrListen.Services.UserAccessService>();
+builder.Services.AddSingleton<FeuerwehrListen.Services.DataPathService>();
+builder.Services.AddSingleton<FeuerwehrListen.Services.PasswordEnrollmentService>();
+builder.Services.AddSingleton<FeuerwehrListen.Services.SimpleRateLimiter>();
 builder.Services.AddSingleton<FeuerwehrListen.Services.NetworkAccessService>();
 builder.Services.AddSingleton<FeuerwehrListen.Services.InternalAuthSecret>();
 builder.Services.AddScoped<HttpClient>(sp =>
@@ -487,6 +493,15 @@ app.Use(async (ctx, next) =>
             return;
         }
 
+        // Mitglieder-Konten: keine Serien anlegen/aendern (Planung bleibt bei der Verwaltung).
+        if (!HttpMethods.IsGet(ctx.Request.Method) && path.StartsWithSegments("/client-api/calendar/series")
+            && ctx.RequestServices.GetRequiredService<FeuerwehrListen.Services.UserAccessService>().Get(ctx)?.IsMember == true)
+        {
+            ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
+            await ctx.Response.WriteAsJsonAsync(new { error = "member_forbidden" });
+            return;
+        }
+
         // Listen-Zugriff: reine SSO-Konten (HasListAccess=false, kein Admin) duerfen das
         // Listen-Tool nicht nutzen. Bewusst NUR fuer echte Cookie-Sessions (FwCookie) - die
         // interne Server-Render-Identity (FwInternal) traegt kein ListAccess-Claim und bliebe
@@ -601,8 +616,10 @@ app.MapGet("/client-api/open-lists", async (
         // jedem Tag, an dem sie laufen.
         var today = DateTime.Now.Date;
         var tomorrow = today.AddDays(1);
+        var viewer = http.RequestServices.GetRequiredService<UserAccessService>().Get(http);
         var events = (await calRepo.GetEventsInRangeAsync(today, tomorrow))
             .Where(e => e.Status != CalendarEventStatus.Abgelehnt)
+            .Where(e => e.Type != CalendarEventType.Fuehrungskreis || (viewer?.CanSeeCircle(LeadershipService.CircleOf(e)) ?? false))
             .OrderBy(e => e.StartTime)
             .Take(20)
             .ToList();
@@ -626,7 +643,7 @@ app.MapGet("/client-api/open-lists", async (
                     e.Title,
                     string.IsNullOrWhiteSpace(e.Location) ? TypeLabel(e.Type) : $"{TypeLabel(e.Type)} · {e.Location}",
                     e.StartTime,
-                    "/kalender",
+                    e.Type == CalendarEventType.Fuehrungskreis ? $"/fuehrungskreis/termin/{e.Id}" : "/kalender",
                     names));
             }
         }
@@ -637,6 +654,7 @@ app.MapGet("/client-api/open-lists", async (
         CalendarEventType.Dienst => "Dienst",
         CalendarEventType.Fahrzeugbuchung => "Fahrzeugbuchung",
         CalendarEventType.Raumbuchung => "Raumbuchung",
+        CalendarEventType.Fuehrungskreis => "Führungskreis",
         _ => "Veranstaltung"
     };
 
@@ -678,6 +696,7 @@ app.MapGet("/client-api/app-context", (HttpContext http, SettingsService setting
             defects = allowed.Contains(NetworkAccessService.ModuleDefects),
             calendar = allowed.Contains(NetworkAccessService.ModuleCalendar),
             fireSafetyLink = allowed.Contains(UserAccessService.ModuleFireSafetyLink),
+            leadership = allowed.Contains(NetworkAccessService.ModuleLeadership),
             // Listen & Daten (abgeschlossene Listen, Archiv) - nur mit Vollzugang.
             fullAccess = access.HasFullUserAccess(http)
         },
@@ -692,12 +711,43 @@ app.MapGet("/client-api/app-context", (HttpContext http, SettingsService setting
 // zurueck. Der eigentliche Cookie-SignIn passiert in einer echten Browser-GET-Navigation
 // (/client-api/auth/complete). Grund: Im Server-Modus (SignalR) laeuft dieser POST
 // server-intern (SelfHttpClient) -> das Set-Cookie erreicht den Browser sonst nie.
-app.MapPost("/client-api/auth/login", async (UserRepository users, AuthTicketService tickets, AuthLoginRequest req) =>
+app.MapPost("/client-api/auth/login", async (HttpContext http, UserRepository users, MemberRepository members, AuthTicketService tickets,
+    NetworkAccessService access, SimpleRateLimiter limiter, AuthLoginRequest req) =>
 {
-    var user = await users.GetByUsernameAsync(req.Username ?? "");
-    if (user == null || !FeuerwehrListen.Services.AuthenticationService.VerifyPassword(user.PasswordHash, req.Password))
+    var name = (req.Username ?? "").Trim();
+    // Gegen Durchprobieren: je Client-IP begrenzt (Benutzer- und Mitglieder-Login gemeinsam).
+    if (!limiter.Allow("login:" + access.GetClientIp(http), 20, TimeSpan.FromMinutes(5)))
+        return Results.Json(new { ok = false, error = "rate_limited" });
+
+    // 1. Benutzerkonto (Admin/Verwaltung) - hat Vorrang vor einer gleichlautenden Mitgliedsnummer.
+    var user = await users.GetByUsernameAsync(name);
+    if (user != null)
+    {
+        if (!FeuerwehrListen.Services.AuthenticationService.VerifyPassword(user.PasswordHash, req.Password))
+            return Results.Json(new { ok = false });
+        return Results.Json(new { ok = true, ticket = tickets.CreateTicket(user.Id) });
+    }
+
+    // 2. Mitglieder-Konto: Mitgliedsnummer + selbst gesetztes Passwort.
+    var member = name.Length == 0 ? null : await members.GetByMemberNumberAsync(name);
+    if (member == null || !member.IsActive || string.IsNullOrEmpty(member.PasswordHash))
         return Results.Json(new { ok = false });
-    return Results.Json(new { ok = true, ticket = tickets.CreateTicket(user.Id) });
+    if (member.LockedUntil is DateTime lu && lu > DateTime.Now)
+        return Results.Json(new { ok = false, error = "locked", until = lu });
+    if (!FeuerwehrListen.Services.AuthenticationService.VerifyPassword(member.PasswordHash, req.Password))
+    {
+        // 5 Fehlversuche -> 15 Minuten gesperrt.
+        member.FailedLogins++;
+        if (member.FailedLogins >= 5) { member.LockedUntil = DateTime.Now.AddMinutes(15); member.FailedLogins = 0; }
+        await members.UpdateAsync(member);
+        return Results.Json(new { ok = false });
+    }
+    if (member.FailedLogins != 0 || member.LockedUntil != null)
+    {
+        member.FailedLogins = 0; member.LockedUntil = null;
+        await members.UpdateAsync(member);
+    }
+    return Results.Json(new { ok = true, ticket = tickets.CreateMemberTicket(member.Id), member = true });
 }).DisableAntiforgery();
 
 app.MapPost("/client-api/auth/qr", async (UserRepository users, AuthTicketService tickets, AuthQrRequest req) =>
@@ -715,12 +765,21 @@ app.MapPost("/client-api/auth/qr", async (UserRepository users, AuthTicketServic
 // Login-ABSCHLUSS: echte Top-Level-Browser-GET -> hier wird der Cookie gesetzt, sodass
 // das Set-Cookie im Server-Modus tatsaechlich im Browser ankommt. Kein RequireAuthorization
 // (das ist ja der Anmeldevorgang selbst). Ticket ist einmalig und 60s gueltig.
-app.MapGet("/client-api/auth/complete", async (HttpContext ctx, UserRepository users, AuthTicketService tickets, string? ticket, string? returnUrl) =>
+app.MapGet("/client-api/auth/complete", async (HttpContext ctx, UserRepository users, MemberRepository members, AuthTicketService tickets, string? ticket, string? returnUrl) =>
 {
     // Nach dem Cookie-SignIn zurueck zur Ausgangsseite (returnUrl) - so bleibt der QR-Direktlogin
     // auf einer Detailseite dort, statt auf / zu springen. Nur lokale Pfade (Open-Redirect-Schutz).
-    var back = (!string.IsNullOrEmpty(returnUrl) && returnUrl.StartsWith("/") && !returnUrl.StartsWith("//")) ? returnUrl : "/";
-    if (!tickets.TryConsume(ticket, out var userId)) return Results.Redirect("/login");
+    var hasBack = !string.IsNullOrEmpty(returnUrl) && returnUrl.StartsWith("/") && !returnUrl.StartsWith("//");
+    var back = hasBack ? returnUrl! : "/";
+    if (!tickets.TryConsume(ticket, out var userId, out var isMember)) return Results.Redirect("/login");
+    if (isMember)
+    {
+        var member = await members.GetByIdAsync(userId);
+        if (member == null || !member.IsActive || string.IsNullOrEmpty(member.PasswordHash)) return Results.Redirect("/login");
+        await SignInMember(ctx, member);
+        // Mitglieder starten im Mitgliederbereich, ausser sie kamen von einer bestimmten Seite.
+        return Results.Redirect(hasBack && back != "/" ? back : "/mein");
+    }
     var user = await users.GetByIdAsync(userId);
     if (user == null) return Results.Redirect("/login");
     await SignInUser(ctx, user);
@@ -741,9 +800,24 @@ app.MapGet("/client-api/auth/logout-redirect", async (HttpContext ctx) =>
     return Results.Redirect("/");
 }).DisableAntiforgery();
 
-app.MapPost("/client-api/auth/change-password", async (HttpContext ctx, UserRepository users, ChangePwRequest req) =>
+app.MapPost("/client-api/auth/change-password", async (HttpContext ctx, UserRepository users, MemberRepository members, UserAccessService userAccess, ChangePwRequest req) =>
 {
     if (ctx.User?.Identity?.IsAuthenticated != true) return Results.Unauthorized();
+    var principalName = ctx.User.Identity!.Name ?? "";
+    if (principalName.StartsWith(UserAccessService.MemberPrefix, StringComparison.Ordinal))
+    {
+        var member = await members.GetByMemberNumberAsync(principalName[UserAccessService.MemberPrefix.Length..]);
+        if (member == null) return Results.Unauthorized();
+        if (!FeuerwehrListen.Services.AuthenticationService.VerifyPassword(member.PasswordHash, req.OldPassword))
+            return Results.Json(new { ok = false });
+        if ((req.NewPassword ?? "").Length < PasswordHasher.MinLength)
+            return Results.Json(new { ok = false, error = "too_short" });
+        member.PasswordHash = PasswordHasher.Hash(req.NewPassword!);
+        member.PasswordSetAt = DateTime.Now;
+        await members.UpdateAsync(member);
+        userAccess.Invalidate(principalName);
+        return Results.Json(new { ok = true });
+    }
     var user = await users.GetByUsernameAsync(ctx.User.Identity!.Name ?? "");
     if (user == null) return Results.Unauthorized();
     if (!FeuerwehrListen.Services.AuthenticationService.VerifyPassword(user.PasswordHash, req.OldPassword))
@@ -779,9 +853,15 @@ app.MapGet("/client-api/auth/me", (HttpContext ctx) =>
         firstName = ctx.User.FindFirst("FirstName")?.Value,
         lastName = ctx.User.FindFirst("LastName")?.Value,
         // Admins haben implizit Listen-Zugriff; sonst entscheidet das ListAccess-Claim.
-        hasListAccess = ctx.User.IsInRole("Admin") || ctx.User.FindFirst("ListAccess")?.Value == "true"
+        hasListAccess = ctx.User.IsInRole("Admin") || ctx.User.FindFirst("ListAccess")?.Value == "true",
+        isMember = (ctx.User.Identity!.Name ?? "").StartsWith(UserAccessService.MemberPrefix, StringComparison.Ordinal)
     });
 });
+
+// Mitgliederbereich (Profil, Lichtbild, Dienstausweis, Pruefung, Passwort-Vergabe) und
+// Fuehrungskreis - eigene Dateien unter Endpoints/.
+app.MapMemberArea();
+app.MapLeadership();
 
 // ================== SSO-Provider (OAuth2 Authorization Code Flow) ========================
 // FeuerwehrListen als Identity-Provider fuer interne Systeme (z.B. alarmmonitor). Bewusst unter
@@ -2088,14 +2168,18 @@ admin.MapPost("/firesafetywatches", async (FireSafetyWatchRepository repo, Vehic
 // aber mit Pflicht-Identifikation (Name oder Mitgliedsnummer) - analog "Mangel melden".
 // Aendern/Stornieren/Loeschen verlangt Login, genau wie beim Loeschen von Listeneintraegen.
 
-app.MapGet("/client-api/calendar", async (DateTime? from, DateTime? to,
+app.MapGet("/client-api/calendar", async (DateTime? from, DateTime? to, HttpContext http, UserAccessService ua,
     CalendarRepository repo, FireSafetyWatchRepository fswRepo, ScheduledListRepository schedRepo, CalendarService svc) =>
 {
+    var viewer = ua.Get(http);
     var start = (from ?? DateTime.Now.Date.AddDays(-31));
     var end = (to ?? start.AddMonths(2));
     if (end <= start) end = start.AddMonths(1);
 
-    var events = await repo.GetEventsInRangeAsync(start, end);
+    // Fuehrungskreis-Sitzungen sieht nur, wer den Kreis sehen darf (klein sieht klein + gross).
+    var events = (await repo.GetEventsInRangeAsync(start, end))
+        .Where(e => e.Type != CalendarEventType.Fuehrungskreis || (viewer?.CanSeeCircle(LeadershipService.CircleOf(e)) ?? false))
+        .ToList();
     var resources = await repo.GetResourcesForEventsAsync(events.Select(e => e.Id).ToList());
 
     var items = new List<object>();
@@ -2111,6 +2195,7 @@ app.MapGet("/client-api/calendar", async (DateTime? from, DateTime? to,
                 CalendarEventType.Dienst => "dienst",
                 CalendarEventType.Fahrzeugbuchung => "fahrzeug",
                 CalendarEventType.Raumbuchung => "raum",
+                CalendarEventType.Fuehrungskreis => "fuehrungskreis",
                 _ => "veranstaltung"
             },
             title = e.Title,
@@ -2124,7 +2209,9 @@ app.MapGet("/client-api/calendar", async (DateTime? from, DateTime? to,
             seriesId = e.SeriesId,
             attendanceListId = e.AttendanceListId,
             pendingApprovals = res.Count(r => r.Status == CalendarResourceStatus.Angefragt),
-            href = e.AttendanceListId is int alid ? $"/attendance/{alid}" : null
+            leadershipCircle = e.LeadershipCircle,
+            href = e.Type == CalendarEventType.Fuehrungskreis ? $"/fuehrungskreis/termin/{e.Id}"
+                : e.AttendanceListId is int alid ? $"/attendance/{alid}" : null
         });
     }
 
@@ -2186,11 +2273,13 @@ static int DienstLeadMinutes(SettingsService settings)
 }
 
 // Einzelner Termin mit allen Angaben - fuer das Detail-Fenster im Kalender.
-app.MapGet("/client-api/calendar/events/{id:int}", async (int id, CalendarRepository repo,
+app.MapGet("/client-api/calendar/events/{id:int}", async (int id, HttpContext http, UserAccessService ua, CalendarRepository repo,
     VehicleRepository vRepo, RoomRepository rRepo, SettingsService settings) =>
 {
     var e = await repo.GetEventAsync(id);
     if (e == null) return Results.NotFound();
+    if (e.Type == CalendarEventType.Fuehrungskreis && !(ua.Get(http)?.CanSeeCircle(LeadershipService.CircleOf(e)) ?? false))
+        return Results.NotFound();
     var res = await repo.GetResourcesForEventAsync(id);
 
     var resources = new List<object>();
@@ -2265,10 +2354,28 @@ app.MapGet("/client-api/calendar/availability", async (DateTime from, DateTime t
     return Results.Json(result);
 });
 
-app.MapPost("/client-api/calendar/events", async (CalendarEventRequest r, CalendarService svc, MemberRepository memberRepo, SettingsService settings) =>
+app.MapPost("/client-api/calendar/events", async (HttpContext http, CalendarEventRequest r, CalendarService svc, MemberRepository memberRepo,
+    SettingsService settings, UserAccessService ua, LeadershipService leadership, CalendarRepository calRepo) =>
 {
+    var viewer = ua.Get(http);
+    var type = Enum.TryParse<CalendarEventType>(r.Type, true, out var parsedType) ? parsedType : CalendarEventType.Veranstaltung;
+    int? circle = null;
+    if (type == CalendarEventType.Fuehrungskreis)
+    {
+        // Sitzungen legt nur an, wer den Kreis selbst sieht.
+        circle = LeadershipCircles.IsValid(r.LeadershipCircle ?? 0) ? r.LeadershipCircle : LeadershipCircles.Large;
+        if (viewer == null || !viewer.CanSeeCircle(circle!.Value))
+            return Results.Json(new { status = "invalid", message = "Keine Berechtigung für Sitzungen dieses Führungskreises." });
+    }
+
     // Identifikation ist Pflicht - entweder ein aufloesbares Mitglied oder ein Freitext-Name.
+    // Angemeldete Mitglieder werden automatisch eingetragen.
     var who = (r.RequestedBy ?? "").Trim();
+    if (string.IsNullOrWhiteSpace(who) && viewer is { IsMember: true, MemberId: int selfId }
+        && await memberRepo.GetByIdAsync(selfId) is Member self)
+        who = self.MemberNumber;
+    if (string.IsNullOrWhiteSpace(who) && viewer != null)
+        who = http.User.Identity?.Name ?? "";
     if (string.IsNullOrWhiteSpace(who))
         return Results.Json(new { status = "invalid", message = "Bitte Name oder Mitgliedsnummer angeben." });
 
@@ -2281,7 +2388,8 @@ app.MapPost("/client-api/calendar/events", async (CalendarEventRequest r, Calend
 
     var ev = new CalendarEvent
     {
-        Type = Enum.TryParse<CalendarEventType>(r.Type, true, out var t) ? t : CalendarEventType.Veranstaltung,
+        Type = type,
+        LeadershipCircle = circle,
         Title = (r.Title ?? "").Trim(),
         Description = string.IsNullOrWhiteSpace(r.Description) ? null : r.Description.Trim(),
         Location = string.IsNullOrWhiteSpace(r.Location) ? null : r.Location.Trim(),
@@ -2301,6 +2409,10 @@ app.MapPost("/client-api/calendar/events", async (CalendarEventRequest r, Calend
     foreach (var id in r.RoomIds ?? new()) resources.Add((CalendarResourceKind.Room, id));
 
     var result = await svc.CreateEventAsync(ev, resources);
+    // Sitzung -> Protokoll gleich anlegen, damit es vorbereitet werden kann.
+    if (result.Outcome == CalendarBookingOutcome.Created && type == CalendarEventType.Fuehrungskreis
+        && result.EventId is int newId && await calRepo.GetEventAsync(newId) is CalendarEvent created)
+        await leadership.EnsureProtocolAsync(created);
     return result.Outcome switch
     {
         CalendarBookingOutcome.Created => Results.Json(new
@@ -2322,9 +2434,10 @@ app.MapPost("/client-api/calendar/events", async (CalendarEventRequest r, Calend
 }).DisableAntiforgery();
 
 // Stornieren/Loeschen: angemeldet (anonym anlegen ja, fremde Termine entfernen nein).
-listMgmt.MapPost("/calendar/events/{id:int}/cancel", async (int id, CalendarRepository repo) =>
+listMgmt.MapPost("/calendar/events/{id:int}/cancel", async (int id, HttpContext http, UserAccessService ua, CalendarRepository repo) =>
 {
     var e = await repo.GetEventAsync(id); if (e == null) return Results.NotFound();
+    if (!CanEditCalendarEvent(ua.Get(http), e)) return Results.Forbid();
     e.Status = CalendarEventStatus.Storniert;
     // Als Ausnahme markieren, damit die Serien-Materialisierung den Termin nicht neu erzeugt.
     if (e.SeriesId != null) e.IsSeriesException = true;
@@ -2332,9 +2445,14 @@ listMgmt.MapPost("/calendar/events/{id:int}/cancel", async (int id, CalendarRepo
     return Results.Ok();
 });
 
-listMgmt.MapPut("/calendar/events/{id:int}", async (int id, CalendarEventRequest r, CalendarRepository repo) =>
+listMgmt.MapPut("/calendar/events/{id:int}", async (int id, HttpContext http, UserAccessService ua, LeadershipService leadership,
+    CalendarEventRequest r, CalendarRepository repo) =>
 {
     var e = await repo.GetEventAsync(id); if (e == null) return Results.NotFound();
+    if (!CanEditCalendarEvent(ua.Get(http), e)) return Results.Forbid();
+    if (e.Type == CalendarEventType.Fuehrungskreis && LeadershipCircles.IsValid(r.LeadershipCircle ?? 0)
+        && ua.Get(http)!.CanSeeCircle(r.LeadershipCircle!.Value))
+        e.LeadershipCircle = r.LeadershipCircle;
     if (!string.IsNullOrWhiteSpace(r.Title)) e.Title = r.Title.Trim();
     e.Description = string.IsNullOrWhiteSpace(r.Description) ? null : r.Description.Trim();
     e.Location = string.IsNullOrWhiteSpace(r.Location) ? null : r.Location.Trim();
@@ -2345,6 +2463,7 @@ listMgmt.MapPut("/calendar/events/{id:int}", async (int id, CalendarEventRequest
     // Einzeln geaendert -> Serien-Materialisierung fasst diesen Termin nicht mehr an.
     if (e.SeriesId != null) e.IsSeriesException = true;
     await repo.UpdateEventAsync(e);
+    if (e.Type == CalendarEventType.Fuehrungskreis) await leadership.EnsureProtocolAsync(e);
     return Results.Ok();
 });
 
@@ -2354,9 +2473,11 @@ admin.MapDelete("/calendar/events/{id:int}", async (int id, CalendarRepository r
 });
 
 // Dienst -> Anwesenheitsliste sofort anlegen (sonst macht es der Hintergrunddienst kurz vorher).
-listMgmt.MapPost("/calendar/events/{id:int}/create-attendance", async (int id, CalendarRepository repo, AttendanceListRepository listRepo, SettingsService settings) =>
+listMgmt.MapPost("/calendar/events/{id:int}/create-attendance", async (int id, HttpContext http, UserAccessService ua, CalendarRepository repo, AttendanceListRepository listRepo, SettingsService settings) =>
 {
     var e = await repo.GetEventAsync(id); if (e == null) return Results.NotFound();
+    // Sitzungen bekommen ihre Anwesenheit im Protokoll; Mitglieder legen keine Listen an.
+    if (e.Type == CalendarEventType.Fuehrungskreis || ua.Get(http)?.IsMember == true) return Results.Forbid();
     if (e.AttendanceListId is int existing) return Results.Json(new { status = "exists", id = existing });
 
     var listId = await listRepo.CreateAsync(new AttendanceList
@@ -2387,6 +2508,8 @@ listMgmt.MapGet("/calendar/series", async (CalendarRepository repo) =>
 listMgmt.MapPost("/calendar/series", async (CalendarSeriesRequest r, CalendarRepository repo, CalendarService svc, SettingsService settings) =>
 {
     if (string.IsNullOrWhiteSpace(r.Title)) return Results.BadRequest();
+    // Sitzungen des Fuehrungskreises werden einzeln angelegt (eigenes Protokoll je Termin).
+    if (string.Equals(r.Type, nameof(CalendarEventType.Fuehrungskreis), StringComparison.OrdinalIgnoreCase)) return Results.BadRequest();
     var s = new CalendarEventSeries
     {
         Type = Enum.TryParse<CalendarEventType>(r.Type, true, out var t) ? t : CalendarEventType.Dienst,
@@ -2843,6 +2966,33 @@ static async Task<IResult> FswRegisterAsync(FireSafetyWatch? watch, HttpContext 
     return Results.Json(new { status = "added", name = $"{member.FirstName} {member.LastName}" });
 }
 
+// Termine aendern/stornieren: Mitglieder nur eigene Termine und Sitzungen ihres Kreises;
+// Fuehrungskreis-Sitzungen generell nur, wer den Kreis sieht. Sonst wie bisher jeder Angemeldete.
+static bool CanEditCalendarEvent(UserAccessService.AccessInfo? viewer, CalendarEvent e)
+{
+    if (viewer == null) return false;
+    if (e.Type == CalendarEventType.Fuehrungskreis) return viewer.CanSeeCircle(LeadershipService.CircleOf(e));
+    if (viewer.IsMember) return e.MemberId != null && e.MemberId == viewer.MemberId;
+    return true;
+}
+
+// Mitglieder-Konto: Name "member:{Nummer}" - darueber loest UserAccessService die Rechte auf.
+static async Task SignInMember(HttpContext ctx, Member member)
+{
+    var claims = new List<Claim>
+    {
+        new(ClaimTypes.Name, UserAccessService.MemberPrincipalName(member.MemberNumber)),
+        new(ClaimTypes.Role, "Member"),
+        new("FirstName", member.FirstName ?? ""),
+        new("LastName", member.LastName ?? ""),
+        new("ListAccess", "true"),
+        new("MemberId", member.Id.ToString())
+    };
+    var identity = new ClaimsIdentity(claims, "FwCookie", ClaimTypes.Name, ClaimTypes.Role);
+    await ctx.SignInAsync("FwCookie", new ClaimsPrincipal(identity),
+        new AuthenticationProperties { IsPersistent = true });
+}
+
 static async Task SignInUser(HttpContext ctx, User user)
 {
     var claims = new List<Claim>
@@ -2871,7 +3021,7 @@ public record CalendarEventRequest(
     string? Type, string? Title, string? Description, string? Location,
     DateTime Start, DateTime End, bool AllDay, int? UnitNumber,
     string? RequestedBy, string? RequestedByEmail,
-    List<int>? VehicleIds, List<int>? RoomIds, int? MinutesBeforeEvent);
+    List<int>? VehicleIds, List<int>? RoomIds, int? MinutesBeforeEvent, int? LeadershipCircle = null);
 public record CalendarSeriesRequest(
     string? Type, string? Title, string? Description, string? Location, int? UnitNumber,
     string? Frequency, int WeekdayMask, int? DayOfMonth, int StartMinuteOfDay, int DurationMinutes,

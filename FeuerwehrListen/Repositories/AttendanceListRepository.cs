@@ -15,27 +15,28 @@ public class AttendanceListRepository
 
     public async Task<List<AttendanceList>> GetAllAsync()
     {
-        return await _db.AttendanceLists.ToListAsync();
+        // Sitzungs-Anwesenheiten des Fuehrungskreises gehoeren nicht in Listen/Statistik.
+        return await _db.AttendanceLists.Where(x => x.LeadershipProtocolId == null).ToListAsync();
     }
 
     public async Task<List<AttendanceList>> GetOpenAsync()
     {
         return await _db.AttendanceLists
-            .Where(x => x.Status == ListStatus.Open && !x.IsArchived)
+            .Where(x => x.LeadershipProtocolId == null && x.Status == ListStatus.Open && !x.IsArchived)
             .ToListAsync();
     }
 
     public async Task<List<AttendanceList>> GetClosedAsync()
     {
         return await _db.AttendanceLists
-            .Where(x => x.Status == ListStatus.Closed && !x.IsArchived)
+            .Where(x => x.LeadershipProtocolId == null && x.Status == ListStatus.Closed && !x.IsArchived)
             .ToListAsync();
     }
 
     public async Task<List<AttendanceList>> GetArchivedAsync()
     {
         return await _db.AttendanceLists
-            .Where(x => x.IsArchived)
+            .Where(x => x.LeadershipProtocolId == null && x.IsArchived)
             .ToListAsync();
     }
 
@@ -48,7 +49,7 @@ public class AttendanceListRepository
     public async Task<AttendanceList?> GetOpenByUnitNumberAsync(int unitNumber)
     {
         return await _db.AttendanceLists
-            .Where(x => x.Status == ListStatus.Open && !x.IsArchived && x.UnitNumber == unitNumber)
+            .Where(x => x.LeadershipProtocolId == null && x.Status == ListStatus.Open && !x.IsArchived && x.UnitNumber == unitNumber)
             .OrderByDescending(x => x.CreatedAt)
             .FirstOrDefaultAsync();
     }
@@ -56,7 +57,7 @@ public class AttendanceListRepository
     public async Task<List<AttendanceList>> GetAllOpenByUnitNumberAsync(int unitNumber)
     {
         return await _db.AttendanceLists
-            .Where(x => x.Status == ListStatus.Open && !x.IsArchived && x.UnitNumber == unitNumber)
+            .Where(x => x.LeadershipProtocolId == null && x.Status == ListStatus.Open && !x.IsArchived && x.UnitNumber == unitNumber)
             .OrderByDescending(x => x.CreatedAt)
             .ToListAsync();
     }
@@ -64,7 +65,7 @@ public class AttendanceListRepository
     public async Task<List<AttendanceList>> GetOpenWithoutUnitAsync()
     {
         return await _db.AttendanceLists
-            .Where(x => x.Status == ListStatus.Open && !x.IsArchived && x.UnitNumber == null)
+            .Where(x => x.LeadershipProtocolId == null && x.Status == ListStatus.Open && !x.IsArchived && x.UnitNumber == null)
             .OrderByDescending(x => x.CreatedAt)
             .ToListAsync();
     }

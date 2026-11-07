@@ -43,11 +43,21 @@ public sealed class UserAccessService
         _cache = cache;
     }
 
-    /// <summary>Kurzinfo zum Benutzer; null = existiert nicht (mehr).</summary>
-    public sealed record AccessInfo(bool IsAdmin, bool HasListAccess, HashSet<string>? Modules)
+    /// <summary>Praefix des Anmeldenamens von Mitglieder-Konten ("member:1234").</summary>
+    public const string MemberPrefix = "member:";
+
+    public static string MemberPrincipalName(string memberNumber) => MemberPrefix + memberNumber;
+
+    /// <summary>Kurzinfo zum Konto; null = existiert nicht (mehr) bzw. kein Zugang.</summary>
+    /// <param name="LeadershipCircle">0 kein, 1 grosser, 2 kleiner Fuehrungskreis. Admins: 2 (sehen alles).</param>
+    public sealed record AccessInfo(bool IsAdmin, bool HasListAccess, HashSet<string>? Modules,
+        bool IsMember = false, int? MemberId = null, int LeadershipCircle = 0)
     {
-        /// <summary>Vollzugang: Admin oder Modulrecht "*".</summary>
-        public bool IsFull => IsAdmin || Modules == null;
+        /// <summary>Vollzugang: Admin oder Modulrecht "*" (Mitglieder nie).</summary>
+        public bool IsFull => IsAdmin || (!IsMember && Modules == null);
+
+        /// <summary>Darf Inhalte des Fuehrungskreises dieser Stufe sehen?</summary>
+        public bool CanSeeCircle(int circle) => IsAdmin || (LeadershipCircle > 0 && LeadershipCircle >= circle);
     }
 
     public async Task<AccessInfo?> GetAsync(string? username)
@@ -57,9 +67,24 @@ public sealed class UserAccessService
         if (_cache.TryGetValue(key, out AccessInfo? cached)) return cached;
 
         using var scope = _scopes.CreateScope();
-        var users = scope.ServiceProvider.GetRequiredService<UserRepository>();
-        var user = await users.GetByUsernameAsync(username);
-        var info = user == null ? null : new AccessInfo(user.Role == UserRole.Admin, user.HasListAccess, ParseModules(user.ModuleAccess));
+        AccessInfo? info;
+        if (username.StartsWith(MemberPrefix, StringComparison.Ordinal))
+        {
+            // Mitglieder-Konto: nur aktiv und mit gesetztem Passwort gueltig.
+            var members = scope.ServiceProvider.GetRequiredService<MemberRepository>();
+            var m = await members.GetByMemberNumberAsync(username[MemberPrefix.Length..]);
+            info = m == null || !m.IsActive || string.IsNullOrEmpty(m.PasswordHash)
+                ? null
+                : new AccessInfo(false, true, ParseModules(m.ModuleAccess) ?? new HashSet<string>(),
+                    IsMember: true, MemberId: m.Id, LeadershipCircle: m.LeadershipCircle);
+        }
+        else
+        {
+            var users = scope.ServiceProvider.GetRequiredService<UserRepository>();
+            var user = await users.GetByUsernameAsync(username);
+            info = user == null ? null : new AccessInfo(user.Role == UserRole.Admin, user.HasListAccess, ParseModules(user.ModuleAccess),
+                LeadershipCircle: user.Role == UserRole.Admin ? LeadershipCircles.Small : LeadershipCircles.None);
+        }
         _cache.Set(key, info, CacheTtl);
         return info;
     }

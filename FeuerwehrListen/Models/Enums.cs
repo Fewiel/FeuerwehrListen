@@ -57,7 +57,8 @@ public enum CalendarEventType
     Dienst = 1,
     Veranstaltung = 2,
     Fahrzeugbuchung = 3,
-    Raumbuchung = 4
+    Raumbuchung = 4,
+    Fuehrungskreis = 5
 }
 
 public enum CalendarEventStatus

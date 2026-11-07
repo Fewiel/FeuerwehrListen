@@ -15,27 +15,33 @@ namespace FeuerwehrListen.Services;
 /// </summary>
 public sealed class AuthTicketService
 {
-    private sealed record Entry(int UserId, DateTime ExpiresUtc);
+    private sealed record Entry(int UserId, DateTime ExpiresUtc, bool IsMember = false);
 
     private readonly ConcurrentDictionary<string, Entry> _tickets = new();
     private static readonly TimeSpan Lifetime = TimeSpan.FromSeconds(60);
 
     /// <summary>Erzeugt ein Einmal-Ticket, das die userId sicher bindet (60s gueltig).</summary>
-    public string CreateTicket(int userId)
+    public string CreateTicket(int userId) => Create(new Entry(userId, DateTime.UtcNow.Add(Lifetime)));
+
+    /// <summary>Ticket fuer ein Mitglieder-Konto (Mitgliederbereich); id = Member.Id.</summary>
+    public string CreateMemberTicket(int memberId) => Create(new Entry(memberId, DateTime.UtcNow.Add(Lifetime), IsMember: true));
+
+    private string Create(Entry entry)
     {
         var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
-        _tickets[token] = new Entry(userId, DateTime.UtcNow.Add(Lifetime));
+        _tickets[token] = entry;
         return token;
     }
 
     /// <summary>Loest ein Ticket EINMALIG ein: entfernt es und liefert die userId zurueck.</summary>
-    public bool TryConsume(string? ticket, out int userId)
+    public bool TryConsume(string? ticket, out int userId, out bool isMember)
     {
-        userId = 0;
+        userId = 0; isMember = false;
         if (string.IsNullOrEmpty(ticket)) return false;
         if (!_tickets.TryRemove(ticket, out var entry)) return false;
         if (entry.ExpiresUtc < DateTime.UtcNow) return false;
         userId = entry.UserId;
+        isMember = entry.IsMember;
         return true;
     }
 }
