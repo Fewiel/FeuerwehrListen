@@ -115,3 +115,4 @@ Die SQLite-Datenbank wird in einem Docker-Volume gespeichert. Ihre Daten bleiben
 
 * [REST-API (X-API-Key) für externe Systeme](API-DOCUMENTATION.md)
 * [SSO-Provider (OAuth2) für internen Single-Sign-On](SSO-PROVIDER.md)
+* [Login-Pflicht, IP-Whitelist und Benutzerrechte](LOGIN-ZUGRIFF.md)

@@ -1,4 +1,5 @@
 using LinqToDB.Mapping;
+using FeuerwehrListen.Services;
 
 namespace FeuerwehrListen.Models;
 
@@ -37,6 +38,11 @@ public class User
     // gesetzt; reine SSO-Konten koennen ohne Listen-Zugriff (false) angelegt werden.
     [Column("HasListAccess")]
     public bool HasListAccess { get; set; } = true;
+
+    // Modulrechte im Listen-Tool: "*" = Vollzugang (Bestandsnutzer per Migration), sonst
+    // kommagetrennte Module (s. UserAccessService.SelectableModules). Admins haben immer alles.
+    [Column("ModuleAccess")]
+    public string ModuleAccess { get; set; } = UserAccessService.FullAccess;
 
     [Column("CreatedAt")]
     public DateTime CreatedAt { get; set; }

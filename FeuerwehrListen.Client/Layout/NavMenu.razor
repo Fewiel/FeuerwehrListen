@@ -30,7 +30,7 @@
     <div class="tw-right">
         @if (_authed)
         {
-            @if (_canUseLists)
+            @if (_canUseLists && (_isAdmin || M.FullAccess))
             {
                 <div class="tw-drop">
                     <button @onclick='() => Toggle("admin")'>
@@ -116,7 +116,7 @@
 
         @if (_authed)
         {
-            @if (_canUseLists)
+            @if (_canUseLists && (_isAdmin || M.FullAccess))
             {
                 <div class="mm-sect">Listen &amp; Daten</div>
                 <a href="admin/closed-lists"><i class="bi bi-check-circle"></i> Abgeschlossene Listen</a>

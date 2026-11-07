@@ -69,6 +69,12 @@ namespace FeuerwehrListen.Repositories
             return await _db.FireSafetyWatches.FirstOrDefaultAsync(f => f.Id == id);
         }
 
+        public async Task<FireSafetyWatch?> GetByPublicIdAsync(string publicId)
+        {
+            if (string.IsNullOrWhiteSpace(publicId)) return null;
+            return await _db.FireSafetyWatches.FirstOrDefaultAsync(f => f.PublicId == publicId);
+        }
+
         public async Task<List<FireSafetyWatch>> GetClosedAsync()
         {
             return await _db.FireSafetyWatches.Where(x => x.Status == ListStatus.Closed && !x.IsArchived).ToListAsync();

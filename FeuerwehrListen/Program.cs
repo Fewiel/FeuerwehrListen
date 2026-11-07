@@ -64,6 +64,17 @@ builder.Services.AddAuthentication("FwCookie")
         // API statt Redirects: 401/403 zurueckgeben.
         options.Events.OnRedirectToLogin = ctx => { ctx.Response.StatusCode = 401; return Task.CompletedTask; };
         options.Events.OnRedirectToAccessDenied = ctx => { ctx.Response.StatusCode = 403; return Task.CompletedTask; };
+        // Geloeschte Benutzer verlieren ihre Sitzung sofort - wichtig, seit die Login-Pflicht
+        // der einzige Schutz vor dem Zugriff von aussen sein kann. Der Lookup ist gecacht.
+        options.Events.OnValidatePrincipal = async ctx =>
+        {
+            var access = ctx.HttpContext.RequestServices.GetRequiredService<FeuerwehrListen.Services.UserAccessService>();
+            if (await access.GetAsync(ctx.Principal?.Identity?.Name) == null)
+            {
+                ctx.RejectPrincipal();
+                await ctx.HttpContext.SignOutAsync("FwCookie");
+            }
+        };
     });
 
 builder.Services.AddControllers();
@@ -186,6 +197,7 @@ builder.Services.AddHttpContextAccessor();
 // InteractiveServer).
 builder.Services.AddSingleton<FeuerwehrListen.Services.AppBaseUrlProvider>();
 builder.Services.AddSingleton<FeuerwehrListen.Services.AppUrlService>();
+builder.Services.AddSingleton<FeuerwehrListen.Services.UserAccessService>();
 builder.Services.AddSingleton<FeuerwehrListen.Services.NetworkAccessService>();
 builder.Services.AddSingleton<FeuerwehrListen.Services.InternalAuthSecret>();
 builder.Services.AddScoped<HttpClient>(sp =>
@@ -238,7 +250,10 @@ builder.Services.AddScoped<HttpClient>(sp =>
     // Eigenen Host fuer die Zertifikatspruefung merken (s. u.).
     string? ownHost = null;
     if (!string.IsNullOrEmpty(baseUrl) && Uri.TryCreate(baseUrl, UriKind.Absolute, out var buri)) ownHost = buri.Host;
-    var handler = new FeuerwehrListen.Services.SelfCookieHandler(accessor, authState, secret, baseProvider, originHost, baseUrl)
+    // Echte Nutzer-IP fuer Login-Whitelist und Netz-Schranke: Self-Calls kommen technisch vom
+    // Server selbst, die IP des Nutzers geht daher als X-Fw-Client-Ip mit.
+    string? clientIp = ctx != null ? sp.GetRequiredService<FeuerwehrListen.Services.NetworkAccessService>().GetClientIp(ctx)?.ToString() : null;
+    var handler = new FeuerwehrListen.Services.SelfCookieHandler(accessor, authState, secret, baseProvider, originHost, baseUrl, clientIp)
     {
         InnerHandler = new HttpClientHandler
         {
@@ -359,6 +374,51 @@ app.Use(async (ctx, next) =>
 {
     var path = ctx.Request.Path;
 
+    // Benutzerrechte einmal je Request asynchron vorladen (Modulpruefung ist synchron).
+    await ctx.RequestServices.GetRequiredService<FeuerwehrListen.Services.UserAccessService>().PreloadAsync(ctx);
+    var gate = ctx.RequestServices.GetRequiredService<FeuerwehrListen.Services.NetworkAccessService>();
+    var isPageNavigation = HttpMethods.IsGet(ctx.Request.Method)
+        && ctx.Request.Headers.Accept.ToString().Contains("text/html", StringComparison.OrdinalIgnoreCase);
+
+    // Login-Pflicht (Einstellung Security.LoginRequired): ohne Anmeldung und ausserhalb der
+    // IP-Whitelist nur die Anmeldung selbst. API-Aufrufe bekommen 401, Seitenaufrufe landen
+    // auf dem Login. Andere Anfragen (Skripte, Styles, Framework) laufen weiter - sie
+    // enthalten keine Daten, und alle Daten kommen ueber die hier gesperrte /client-api.
+    if (gate.IsLoginRequired(ctx) && !FeuerwehrListen.Services.NetworkAccessService.IsLoginGateExemptPath(path))
+    {
+        if (path.StartsWithSegments("/client-api") || path.StartsWithSegments("/token"))
+        {
+            ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            await ctx.Response.WriteAsJsonAsync(new { error = "login_required", message = "Bitte anmelden." });
+            return;
+        }
+        if (isPageNavigation)
+        {
+            var self = path + ctx.Request.QueryString;
+            ctx.Response.Redirect(path == "/" ? "/login" : "/login?returnUrl=" + Uri.EscapeDataString(self.ToString()));
+            return;
+        }
+    }
+
+    // Seiten, fuer die ein ANGEMELDETER Benutzer kein Recht hat, auch bei direkter URL-Eingabe
+    // sperren (zur Uebersicht). Gaeste behalten das bisherige Verhalten: die Seite laedt und
+    // meldet "nicht verfuegbar", weil die Daten-Endpoints gesperrt sind.
+    if (isPageNavigation && (ctx.User.Identity?.IsAuthenticated ?? false))
+    {
+        var pageModule = FeuerwehrListen.Services.NetworkAccessService.ModuleForPagePath(path);
+        if (pageModule != null)
+        {
+            var permitted = pageModule == FeuerwehrListen.Services.UserAccessService.FullAccess
+                ? gate.HasFullUserAccess(ctx)
+                : gate.GetAllowedModules(ctx).Contains(pageModule);
+            if (!permitted)
+            {
+                ctx.Response.Redirect("/");
+                return;
+            }
+        }
+    }
+
     // Freigabe-Host: Seitenaufrufe ausserhalb des Freigabe-Wegs auf eine
     // Hinweisseite umleiten. Ohne das laedt zwar keine Daten mehr, die
     // Anwendungshuelle mit Navigation waere aber weiterhin sichtbar.
@@ -413,6 +473,18 @@ app.Use(async (ctx, next) =>
                 });
                 return;
             }
+        }
+
+        // Listen & Daten (abgeschlossene Listen, Archiv) nur mit Vollzugang.
+        if (FeuerwehrListen.Services.NetworkAccessService.RequiresFullAccess(path) && !access.HasFullUserAccess(ctx))
+        {
+            ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
+            await ctx.Response.WriteAsJsonAsync(new
+            {
+                error = "no_full_access",
+                message = "Dieses Konto hat keinen Zugriff auf diesen Bereich."
+            });
+            return;
         }
 
         // Listen-Zugriff: reine SSO-Konten (HasListAccess=false, kein Admin) duerfen das
@@ -604,8 +676,13 @@ app.MapGet("/client-api/app-context", (HttpContext http, SettingsService setting
             operations = allowed.Contains(NetworkAccessService.ModuleOperations),
             fireSafety = allowed.Contains(NetworkAccessService.ModuleFireSafety),
             defects = allowed.Contains(NetworkAccessService.ModuleDefects),
-            calendar = allowed.Contains(NetworkAccessService.ModuleCalendar)
+            calendar = allowed.Contains(NetworkAccessService.ModuleCalendar),
+            fireSafetyLink = allowed.Contains(UserAccessService.ModuleFireSafetyLink),
+            // Listen & Daten (abgeschlossene Listen, Archiv) - nur mit Vollzugang.
+            fullAccess = access.HasFullUserAccess(http)
         },
+        // Login-Pflicht greift fuer diesen Besucher (nicht angemeldet, nicht auf der Whitelist).
+        loginRequired = access.IsLoginRequired(http),
         unitLabels = Enumerable.Range(1, 9).Select(i => new { number = i, label = settings.GetUnitLabel(i) })
     });
 });
@@ -957,6 +1034,8 @@ admin.MapGet("/access-check", (HttpContext http, NetworkAccessService access, Se
         approveOnlyHost = access.IsApproveOnlyHost(http),
         allowedModules = allowed.OrderBy(x => x).ToArray(),
         authenticated = http.User.Identity?.IsAuthenticated ?? false,
+        loginGateEnabled = access.IsLoginGateEnabled(),
+        isLoginExemptIp = access.IsLoginExemptIp(http),
         configuredTrustedProxies = settings.GetSetting(SettingKeys.SecurityTrustedProxies) ?? "",
         configuredTrustedNetworks = string.IsNullOrWhiteSpace(settings.GetSetting(SettingKeys.SecurityTrustedNetworks))
             ? NetworkAccessService.DefaultTrustedNetworks + "  (Standard)"
@@ -1146,7 +1225,7 @@ admin.MapGet("/users", async (UserRepository repo, PermissionKeyRepository keys)
     var users = await repo.GetAllAsync();
     var result = new List<object>(users.Count);
     foreach (var u in users)
-        result.Add(new { id = u.Id, username = u.Username, firstName = u.FirstName, lastName = u.LastName, email = u.Email, role = u.Role.ToString(), hasQr = !string.IsNullOrEmpty(u.QrAuthCode), hasPin = !string.IsNullOrEmpty(u.AdminPin), hasListAccess = u.HasListAccess, keyIds = await keys.GetKeyIdsForUserAsync(u.Id), createdAt = u.CreatedAt });
+        result.Add(new { id = u.Id, username = u.Username, firstName = u.FirstName, lastName = u.LastName, email = u.Email, role = u.Role.ToString(), hasQr = !string.IsNullOrEmpty(u.QrAuthCode), hasPin = !string.IsNullOrEmpty(u.AdminPin), hasListAccess = u.HasListAccess, fullAccess = u.ModuleAccess == UserAccessService.FullAccess, modules = UserAccessService.ParseModules(u.ModuleAccess)?.OrderBy(x => Array.IndexOf(UserAccessService.SelectableModules, x)).ToArray() ?? UserAccessService.SelectableModules, keyIds = await keys.GetKeyIdsForUserAsync(u.Id), createdAt = u.CreatedAt });
     return Results.Json(result);
 });
 admin.MapPost("/users", async (UserRepository repo, PermissionKeyRepository keys, EmailSenderService email, UserReq r) =>
@@ -1161,6 +1240,8 @@ admin.MapPost("/users", async (UserRepository repo, PermissionKeyRepository keys
         QrAuthCode = string.IsNullOrWhiteSpace(r.QrAuthCode) ? null : r.QrAuthCode.Trim(),
         AdminPin = string.IsNullOrWhiteSpace(r.AdminPin) ? null : r.AdminPin.Trim(),
         HasListAccess = r.HasListAccess,
+        // Neue Benutzer: Vollzugang oder gezielt ausgewaehlte Module.
+        ModuleAccess = UserAccessService.SerializeModules(r.FullAccess, r.Modules),
         CreatedAt = DateTime.Now
     };
     var id = await repo.CreateAsync(user);
@@ -1188,9 +1269,10 @@ admin.MapPost("/users", async (UserRepository repo, PermissionKeyRepository keys
     }
     return Results.Json(new { id });
 });
-admin.MapPut("/users/{id:int}", async (int id, UserRepository repo, PermissionKeyRepository keys, UserReq r) =>
+admin.MapPut("/users/{id:int}", async (int id, UserRepository repo, PermissionKeyRepository keys, UserAccessService userAccess, UserReq r) =>
 {
     var u = await repo.GetByIdAsync(id); if (u == null) return Results.NotFound();
+    userAccess.Invalidate(u.Username);
     u.Username = r.Username.Trim(); u.FirstName = r.FirstName?.Trim() ?? ""; u.LastName = r.LastName?.Trim() ?? "";
     u.Email = r.Email?.Trim() ?? "";
     u.Role = Enum.TryParse<UserRole>(r.Role, out var role) ? role : u.Role;
@@ -1198,12 +1280,16 @@ admin.MapPut("/users/{id:int}", async (int id, UserRepository repo, PermissionKe
     u.QrAuthCode = string.IsNullOrWhiteSpace(r.QrAuthCode) ? null : r.QrAuthCode.Trim();
     u.AdminPin = string.IsNullOrWhiteSpace(r.AdminPin) ? null : r.AdminPin.Trim();
     u.HasListAccess = r.HasListAccess;
+    u.ModuleAccess = UserAccessService.SerializeModules(r.FullAccess, r.Modules);
     await repo.UpdateAsync(u);
+    userAccess.Invalidate(u.Username);
     await keys.SetKeysForUserAsync(id, r.KeyIds ?? new List<int>());
     return Results.Ok();
 });
-admin.MapDelete("/users/{id:int}", async (int id, UserRepository repo, PermissionKeyRepository keys) =>
+admin.MapDelete("/users/{id:int}", async (int id, UserRepository repo, PermissionKeyRepository keys, UserAccessService userAccess) =>
 {
+    var existing = await repo.GetByIdAsync(id);
+    if (existing != null) userAccess.Invalidate(existing.Username);
     await keys.DeleteAssignmentsForUserAsync(id);
     await repo.DeleteAsync(id);
     return Results.Ok();
@@ -1923,50 +2009,18 @@ app.MapGet("/client-api/members/search", async (MemberRepository repo, string? q
 
 // Brandsicherheitswache: Detail (öffentlich) + Registrieren/Austragen/Abschließen
 app.MapGet("/client-api/firesafetywatch/{id:int}", async (int id, FireSafetyWatchRepository repo, FireSafetyWatchRequirementRepository reqRepo, FireSafetyWatchEntryRepository entryRepo) =>
-{
-    var w = await repo.GetByIdAsync(id);
-    if (w == null) return Results.NotFound();
-    var reqs = await reqRepo.GetByWatchIdAsync(id);
-    var entries = await entryRepo.GetByWatchIdAsync(id);
-    return Results.Json(new
-    {
-        id = w.Id, name = w.Name, location = w.Location, eventTime = w.EventDateTime, isOpen = w.Status == ListStatus.Open,
-        requirements = reqs.OrderBy(r => r.VehicleId == null ? 1 : 0).Select(r => new
-        {
-            id = r.Id, functionName = r.FunctionDef?.Name ?? "Trupp", vehicleId = r.VehicleId, vehicleName = r.VehicleId == null ? "Ohne Fahrzeug" : r.Vehicle?.Name, amount = r.Amount,
-            entries = entries.Where(e => e.RequirementId == r.Id).Select(e => new { entryId = e.Id, memberName = $"{e.Member?.FirstName} {e.Member?.LastName}" })
-        })
-    });
-});
+    await FswDetailAsync(await repo.GetByIdAsync(id), reqRepo, entryRepo));
 
-app.MapPost("/client-api/firesafetywatch/{id:int}/register", async (int id, HttpContext http, FireSafetyWatchRepository watchRepo, FireSafetyWatchEntryRepository entryRepo, MemberRepository memberRepo, FswRegisterRequest req) =>
-{
-    // Geschlossene Wachen: Nachtragen nur fuer angemeldete Benutzer (analog attendance/add).
-    var watch = await watchRepo.GetByIdAsync(id);
-    if (watch == null) return Results.NotFound();
-    if (watch.Status != ListStatus.Open && !(http.User.Identity?.IsAuthenticated ?? false)) return Results.Forbid();
+// Direktlink /wache/{guid}: gleiche Daten, aber ueber die nicht erratbare PublicId. Eigenes
+// Modul (firesafety-link), damit Konten NUR per Link an Wachen kommen - nicht per Id/Liste.
+app.MapGet("/client-api/firesafetywatch-link/{publicId}", async (string publicId, FireSafetyWatchRepository repo, FireSafetyWatchRequirementRepository reqRepo, FireSafetyWatchEntryRepository entryRepo) =>
+    await FswDetailAsync(await repo.GetByPublicIdAsync(publicId), reqRepo, entryRepo));
 
-    Member? member = null;
-    if (req.MemberId is int mid) member = await memberRepo.GetByIdAsync(mid);
-    else if (!string.IsNullOrWhiteSpace(req.Code))
-    {
-        var input = req.Code.Trim();
-        if (int.TryParse(input, out _)) member = await memberRepo.GetByMemberNumberAsync(input);
-        if (member == null)
-        {
-            var found = await memberRepo.SearchAsync(input);
-            if (found.Count == 1) member = found[0];
-            else if (found.Count > 1) return Results.Json(new { status = "choose-member", members = found.Select(m => new { id = m.Id, name = $"{m.FirstName} {m.LastName}", number = m.MemberNumber }) });
-        }
-    }
-    if (member == null) return Results.Json(new { status = "notfound" });
+app.MapPost("/client-api/firesafetywatch-link/{publicId}/register", async (string publicId, HttpContext http, FireSafetyWatchRepository watchRepo, FireSafetyWatchRequirementRepository reqRepo, FireSafetyWatchEntryRepository entryRepo, MemberRepository memberRepo, FswRegisterRequest req) =>
+    await FswRegisterAsync(await watchRepo.GetByPublicIdAsync(publicId), http, reqRepo, entryRepo, memberRepo, req)).DisableAntiforgery();
 
-    var entries = await entryRepo.GetByWatchIdAsync(id);
-    if (entries.Any(e => e.MemberId == member.Id)) return Results.Json(new { status = "duplicate", name = $"{member.FirstName} {member.LastName}" });
-
-    await entryRepo.InsertAsync(new FireSafetyWatchEntry { FireSafetyWatchId = id, RequirementId = req.RequirementId, MemberId = member.Id });
-    return Results.Json(new { status = "added", name = $"{member.FirstName} {member.LastName}" });
-}).DisableAntiforgery();
+app.MapPost("/client-api/firesafetywatch/{id:int}/register", async (int id, HttpContext http, FireSafetyWatchRepository watchRepo, FireSafetyWatchRequirementRepository reqRepo, FireSafetyWatchEntryRepository entryRepo, MemberRepository memberRepo, FswRegisterRequest req) =>
+    await FswRegisterAsync(await watchRepo.GetByIdAsync(id), http, reqRepo, entryRepo, memberRepo, req)).DisableAntiforgery();
 
 app.MapDelete("/client-api/firesafetywatch/{id:int}/entry/{entryId:int}", async (int entryId, FireSafetyWatchEntryRepository entryRepo) =>
 { await entryRepo.DeleteAsync(entryId); return Results.Ok(); }).RequireAuthorization("Admin").DisableAntiforgery();
@@ -2740,6 +2794,55 @@ static string AppendQuery(string url, params (string Key, string? Value)[] pairs
     return url;
 }
 
+// Brandsicherheitswache: Detaildaten - gemeinsam fuer Aufruf per Id und per Direktlink.
+static async Task<IResult> FswDetailAsync(FireSafetyWatch? w, FireSafetyWatchRequirementRepository reqRepo, FireSafetyWatchEntryRepository entryRepo)
+{
+    if (w == null) return Results.NotFound();
+    var reqs = await reqRepo.GetByWatchIdAsync(w.Id);
+    var entries = await entryRepo.GetByWatchIdAsync(w.Id);
+    return Results.Json(new
+    {
+        id = w.Id, publicId = w.PublicId, name = w.Name, location = w.Location, eventTime = w.EventDateTime, isOpen = w.Status == ListStatus.Open,
+        requirements = reqs.OrderBy(r => r.VehicleId == null ? 1 : 0).Select(r => new
+        {
+            id = r.Id, functionName = r.FunctionDef?.Name ?? "Trupp", vehicleId = r.VehicleId, vehicleName = r.VehicleId == null ? "Ohne Fahrzeug" : r.Vehicle?.Name, amount = r.Amount,
+            entries = entries.Where(e => e.RequirementId == r.Id).Select(e => new { entryId = e.Id, memberName = $"{e.Member?.FirstName} {e.Member?.LastName}" })
+        })
+    });
+}
+
+// Brandsicherheitswache: Eintragen - gemeinsam fuer Aufruf per Id und per Direktlink.
+static async Task<IResult> FswRegisterAsync(FireSafetyWatch? watch, HttpContext http, FireSafetyWatchRequirementRepository reqRepo, FireSafetyWatchEntryRepository entryRepo, MemberRepository memberRepo, FswRegisterRequest req)
+{
+    // Geschlossene Wachen: Nachtragen nur fuer angemeldete Benutzer (analog attendance/add).
+    if (watch == null) return Results.NotFound();
+    if (watch.Status != ListStatus.Open && !(http.User.Identity?.IsAuthenticated ?? false)) return Results.Forbid();
+    // Die Anforderung muss zu DIESER Wache gehoeren - sonst liesse sich ueber den Direktlink
+    // einer Wache in eine fremde Wache eintragen.
+    if (!(await reqRepo.GetByWatchIdAsync(watch.Id)).Any(r => r.Id == req.RequirementId)) return Results.BadRequest();
+
+    Member? member = null;
+    if (req.MemberId is int mid) member = await memberRepo.GetByIdAsync(mid);
+    else if (!string.IsNullOrWhiteSpace(req.Code))
+    {
+        var input = req.Code.Trim();
+        if (int.TryParse(input, out _)) member = await memberRepo.GetByMemberNumberAsync(input);
+        if (member == null)
+        {
+            var found = await memberRepo.SearchAsync(input);
+            if (found.Count == 1) member = found[0];
+            else if (found.Count > 1) return Results.Json(new { status = "choose-member", members = found.Select(m => new { id = m.Id, name = $"{m.FirstName} {m.LastName}", number = m.MemberNumber }) });
+        }
+    }
+    if (member == null) return Results.Json(new { status = "notfound" });
+
+    var entries = await entryRepo.GetByWatchIdAsync(watch.Id);
+    if (entries.Any(e => e.MemberId == member.Id)) return Results.Json(new { status = "duplicate", name = $"{member.FirstName} {member.LastName}" });
+
+    await entryRepo.InsertAsync(new FireSafetyWatchEntry { FireSafetyWatchId = watch.Id, RequirementId = req.RequirementId, MemberId = member.Id });
+    return Results.Json(new { status = "added", name = $"{member.FirstName} {member.LastName}" });
+}
+
 static async Task SignInUser(HttpContext ctx, User user)
 {
     var claims = new List<Claim>
@@ -2783,7 +2886,8 @@ public record ApiKeyReq(string? Description);
 // B15/B17: Email + optionaler Willkommens-Mail-Versand. Der Client generiert das Klartext-Passwort
 // (Password) und zeigt es einmalig an; ist SendWelcomeMail=true und Email gesetzt, versendet der
 // POST die Zugangsdaten (Benutzername + Klartext-Passwort) per Mail.
-public record UserReq(string Username, string? FirstName, string? LastName, string Role, string? Password, string? QrAuthCode, string? AdminPin, string? Email = null, bool SendWelcomeMail = false, bool HasListAccess = true, List<int>? KeyIds = null);
+public record UserReq(string Username, string? FirstName, string? LastName, string Role, string? Password, string? QrAuthCode, string? AdminPin, string? Email = null, bool SendWelcomeMail = false, bool HasListAccess = true, List<int>? KeyIds = null,
+    bool FullAccess = true, List<string>? Modules = null);
 public record PermissionKeyReq(string? Name, string? Description);
 // RedirectUris zeilenweise, RequiredKeys kommagetrennt. RegenerateSecret nur bei PUT relevant.
 public record SsoClientReq(string? Name, string? RedirectUris, string? RequiredKeys, bool IsActive = true, bool RegenerateSecret = false);

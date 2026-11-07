@@ -20,11 +20,20 @@ public sealed class NetworkAccessService
 {
     private readonly SettingsService _settings;
     private readonly InternalAuthSecret _secret;
+    private readonly UserAccessService _userAccess;
 
-    public NetworkAccessService(SettingsService settings, InternalAuthSecret secret)
+    public NetworkAccessService(SettingsService settings, InternalAuthSecret secret, UserAccessService userAccess)
     {
         _settings = settings;
         _secret = secret;
+        _userAccess = userAccess;
+    }
+
+    /// <summary>Echter Server-eigener Self-Call (Server-Modus/Prerender)?</summary>
+    private bool IsInternalCall(HttpContext ctx)
+    {
+        var internalHeader = ctx.Request.Headers["X-Fw-Internal"].ToString();
+        return !string.IsNullOrEmpty(internalHeader) && internalHeader == _secret.Value;
     }
 
     /// <summary>
@@ -73,6 +82,15 @@ public sealed class NetworkAccessService
     /// </summary>
     public IPAddress? GetClientIp(HttpContext ctx)
     {
+        // Server-Modus: Self-Calls kommen technisch vom Server selbst. Die IP des Nutzers
+        // reicht der SelfCookieHandler als X-Fw-Client-Ip durch - geglaubt wird ihr nur
+        // zusammen mit dem prozess-geheimen X-Fw-Internal.
+        if (IsInternalCall(ctx))
+        {
+            var forwardedIp = Normalize(ParseIp(ctx.Request.Headers["X-Fw-Client-Ip"].ToString()));
+            if (forwardedIp != null) return forwardedIp;
+        }
+
         var remote = Normalize(ctx.Connection.RemoteIpAddress);
         if (remote == null) return null;
 
@@ -103,6 +121,54 @@ public sealed class NetworkAccessService
         var networks = ParseList(_settings.GetSetting(SettingKeys.SecurityTrustedNetworks));
         if (networks.Count == 0) networks = ParseList(DefaultTrustedNetworks);
         return IsInAny(ip, networks);
+    }
+
+    // ---------------------------------------------------------- Login-Pflicht
+
+    /// <summary>
+    /// Login-Pflicht: eingeschaltet muss sich jeder anmelden, AUSSER die Anfrage kommt von
+    /// einer Adresse der IP-Whitelist (z. B. das Feuerwehrhaus). Ersetzt den Passwortschutz
+    /// im Reverse-Proxy.
+    /// </summary>
+    public bool IsLoginGateEnabled() => IsTrue(_settings.GetSetting(SettingKeys.SecurityLoginRequired));
+
+    /// <summary>Kommt die Anfrage von einer Adresse der Login-Whitelist?</summary>
+    public bool IsLoginExemptIp(HttpContext ctx)
+    {
+        // Self-Call ohne durchgereichte Nutzer-IP: Absender waere der Server selbst und
+        // stuende womoeglich auf der Whitelist -> sicherheitshalber NICHT befreien.
+        if (IsInternalCall(ctx) && string.IsNullOrWhiteSpace(ctx.Request.Headers["X-Fw-Client-Ip"].ToString()))
+            return false;
+        var ip = GetClientIp(ctx);
+        if (ip == null) return false;
+        var whitelist = ParseList(_settings.GetSetting(SettingKeys.SecurityLoginWhitelist));
+        return whitelist.Count > 0 && IsInAny(ip, whitelist);
+    }
+
+    /// <summary>True, wenn dieser Request erst nach einer Anmeldung weiter darf.</summary>
+    public bool IsLoginRequired(HttpContext ctx)
+    {
+        if (!IsLoginGateEnabled()) return false;
+        if (ctx.User.Identity?.IsAuthenticated ?? false) return false;
+        return !IsLoginExemptIp(ctx);
+    }
+
+    /// <summary>
+    /// Wege, die trotz Login-Pflicht offen bleiben: die Anmeldung selbst samt Blazor-Framework,
+    /// der per Mail verschickte Freigabe-Link, der SSO-Provider (leitet selbst zum Login) und
+    /// die externe API (eigener API-Key).
+    /// </summary>
+    public static bool IsLoginGateExemptPath(PathString path)
+    {
+        if (!path.HasValue) return false;
+        var p = path.Value!.ToLowerInvariant();
+        if (p == "/login" || p.StartsWith("/login/") || p == "/logout") return true;
+        if (p.StartsWith("/client-api/auth/") || p.StartsWith("/client-api/app-context")) return true;
+        if (p.StartsWith("/approve/") || p.StartsWith("/client-api/approve/") || p == "/nur-freigabe") return true;
+        if (p.StartsWith("/_framework/") || p.StartsWith("/_blazor") || p.StartsWith("/_content/")) return true;
+        if (p.StartsWith("/sso/") || p == "/api" || p.StartsWith("/api/")) return true;
+        if (p == "/error" || p.StartsWith("/favicon") || p == "/manifest.json" || p == "/manifest.webmanifest") return true;
+        return false;
     }
 
     public const string DefaultTrustedNetworks = "127.0.0.1/32,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,fc00::/7";
@@ -179,6 +245,10 @@ public sealed class NetworkAccessService
     public HashSet<string> GetAllowedModules(HttpContext ctx)
     {
         var authenticated = ctx.User.Identity?.IsAuthenticated ?? false;
+
+        // 0. Login-Pflicht: ohne Anmeldung (und nicht von der Whitelist) gibt es nichts.
+        if (IsLoginRequired(ctx)) return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         var allowed = GloballyEnabled();
 
         // 1. Host-Profil
@@ -201,7 +271,54 @@ public sealed class NetworkAccessService
             allowed.IntersectWith(external);
         }
 
+        // Der Wachen-Direktlink haengt am Wachen-Modul: wo Wachen sichtbar sind, geht auch der Link.
+        if (allowed.Contains(ModuleFireSafety)) allowed.Add(UserAccessService.ModuleFireSafetyLink);
+
+        // 3. Modulrechte des angemeldeten Benutzers (Admins und Vollzugang: keine Einschraenkung).
+        if (authenticated)
+        {
+            var info = _userAccess.Get(ctx);
+            if (info == null) allowed.Clear();
+            else if (!info.IsFull) allowed.IntersectWith(info.Modules!);
+        }
+
         return allowed;
+    }
+
+    /// <summary>Hat der Request-Benutzer Vollzugang? Anonyme Besucher gelten hier als
+    /// "voll" - fuer sie greifen Login-Pflicht und Netz-Schranke, nicht die Benutzerrechte.</summary>
+    public bool HasFullUserAccess(HttpContext ctx)
+    {
+        if (!(ctx.User.Identity?.IsAuthenticated ?? false)) return true;
+        return _userAccess.Get(ctx)?.IsFull ?? false;
+    }
+
+    /// <summary>Endpunkte, die nur mit Vollzugang nutzbar sind (Listen &amp; Daten:
+    /// abgeschlossene Listen, Archiv). Eingeschraenkte Benutzer sehen nur ihre Module.</summary>
+    public static bool RequiresFullAccess(PathString path)
+    {
+        if (!path.HasValue) return false;
+        var p = path.Value!.ToLowerInvariant();
+        return p.StartsWith("/client-api/closed-lists") || p.StartsWith("/client-api/archived-lists")
+            || p.StartsWith("/client-api/list/");
+    }
+
+    /// <summary>
+    /// Modul einer Seiten-Route (fuer das Sperren direkt aufgerufener URLs). Spiegelt die
+    /// @page-Routen des Clients. "*" = nur mit Vollzugang, null = nicht modulgebunden.
+    /// </summary>
+    public static string? ModuleForPagePath(PathString path)
+    {
+        if (!path.HasValue) return null;
+        var p = path.Value!.ToLowerInvariant().TrimEnd('/');
+        if (p.StartsWith("/wache/")) return UserAccessService.ModuleFireSafetyLink;
+        if (p == "/create-attendance" || p.StartsWith("/attendance/")) return ModuleAttendance;
+        if (p == "/create-operation" || p.StartsWith("/operation/")) return ModuleOperations;
+        if (p == "/firesafetywatches" || p.StartsWith("/firesafetywatches/")) return ModuleFireSafety;
+        if (p == "/defects") return ModuleDefects;
+        if (p == "/kalender") return ModuleCalendar;
+        if (p == "/admin/closed-lists" || p == "/admin/archive") return UserAccessService.FullAccess;
+        return null;
     }
 
     /// <summary>
@@ -222,6 +339,9 @@ public sealed class NetworkAccessService
         if (p.StartsWith("/client-api/members/search")) return null;
         // Uebersichts-Endpoints filtern selbst nach erlaubten Modulen.
         if (p.StartsWith("/client-api/open-lists")) return null;
+
+        // Wachen-Direktlink VOR dem allgemeinen Wachen-Praefix pruefen.
+        if (p.StartsWith("/client-api/firesafetywatch-link")) return UserAccessService.ModuleFireSafetyLink;
 
         if (p.StartsWith("/client-api/attendance") || p.StartsWith("/client-api/export/attendance")) return ModuleAttendance;
         if (p.StartsWith("/client-api/operation") || p.StartsWith("/client-api/export/operation")

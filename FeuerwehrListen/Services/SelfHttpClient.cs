@@ -36,13 +36,15 @@ public sealed class SelfCookieHandler : DelegatingHandler
     private readonly InternalAuthSecret _secret;
     private readonly AppBaseUrlProvider _baseUrl;
     private readonly string? _originHost;
+    private readonly string? _clientIp;
     private readonly Uri? _selfBase;
 
     /// <param name="originHost">Host, den der Nutzer tatsaechlich aufgerufen hat. Wird als
     /// X-Fw-Host mitgegeben, damit host-abhaengige Regeln (Host-Profile) auch dann greifen,
     /// wenn der Self-Call aus technischen Gruenden eine andere Zieladresse verwendet.</param>
-    public SelfCookieHandler(IHttpContextAccessor accessor, AuthenticationStateProvider auth, InternalAuthSecret secret, AppBaseUrlProvider baseUrl, string? originHost = null, string? selfBaseUrl = null)
+    public SelfCookieHandler(IHttpContextAccessor accessor, AuthenticationStateProvider auth, InternalAuthSecret secret, AppBaseUrlProvider baseUrl, string? originHost = null, string? selfBaseUrl = null, string? clientIp = null)
     {
+        _clientIp = clientIp;
         _accessor = accessor;
         _auth = auth;
         _secret = secret;
@@ -109,6 +111,9 @@ public sealed class SelfCookieHandler : DelegatingHandler
         request.Headers.TryAddWithoutValidation("X-Fw-Internal", _secret.Value);
         if (!string.IsNullOrEmpty(_originHost))
             request.Headers.TryAddWithoutValidation("X-Fw-Host", _originHost);
+        // Echte Nutzer-IP (Login-Whitelist, Netz-Schranke) - sonst saehe der Server nur sich selbst.
+        if (!string.IsNullOrEmpty(_clientIp))
+            request.Headers.TryAddWithoutValidation("X-Fw-Client-Ip", _clientIp);
 
         var ctx = _accessor.HttpContext;
         if (ctx != null)

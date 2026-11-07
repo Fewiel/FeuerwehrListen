@@ -1,11 +1,78 @@
 @inherits LayoutComponentBase
+@using FeuerwehrListen.Client.Models
+@using FeuerwehrListen.Client.Services
+@inject AppContextService AppCtx
+@inject NavigationManager Nav
+@implements IDisposable
 
 <div class="tw-shell">
     <NavMenu />
 
     <main>
         <article class="content px-4">
-            @Body
+            @if (_blocked)
+            {
+                @* Seite ist fuer diesen Besucher/Benutzer gesperrt (Modulrechte, Netz-Schranke).
+                   Der Server sperrt Daten und direkte Aufrufe ebenfalls - das hier verhindert
+                   nur, dass bei Client-Navigation eine leere Seite mit Fehlern erscheint. *@
+                <div class="container mt-5 text-center">
+                    <div class="alert alert-warning d-inline-block">
+                        <i class="bi bi-shield-lock me-1"></i> Kein Zugriff auf diesen Bereich.
+                    </div>
+                    <div>
+                        <a class="btn btn-primary mt-2" href="/">Zur Übersicht</a>
+                        @if (!_authed) { <a class="btn btn-outline-primary mt-2 ms-2" href="@LoginHref()">Anmelden</a> }
+                    </div>
+                </div>
+            }
+            else
+            {
+                @Body
+            }
         </article>
     </main>
 </div>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private AppContextDto? _ctx;
+    private bool _blocked;
+    private bool _authed;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _ctx = await AppCtx.GetAsync();
+        if (AuthState != null) _authed = (await AuthState).User.Identity?.IsAuthenticated == true;
+        Nav.LocationChanged += OnLocationChanged;
+        Evaluate();
+    }
+
+    private string LoginHref() => "login?returnUrl=" + Uri.EscapeDataString(Nav.ToBaseRelativePath(Nav.Uri));
+
+    private void OnLocationChanged(object? s, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        Evaluate();
+        StateHasChanged();
+    }
+
+    private void Evaluate()
+    {
+        var rel = Nav.ToBaseRelativePath(Nav.Uri);
+        var page = rel.Split('?', '#')[0].Trim('/').ToLowerInvariant();
+
+        // Login-Pflicht: alles ausser An-/Abmeldung fuehrt zum Login. Der Server leitet
+        // direkte Aufrufe schon um; das hier deckt die Navigation innerhalb der App ab.
+        if (_ctx?.LoginRequired == true && page != "login" && page != "logout")
+        {
+            _blocked = true;
+            Nav.NavigateTo(page.Length == 0 ? "login" : LoginHref());
+            return;
+        }
+
+        // Kontext nicht ladbar -> nichts sperren (der Server entscheidet ohnehin).
+        _blocked = _ctx != null && !_ctx.Modules.AllowsPage(rel);
+    }
+
+    public void Dispose() => Nav.LocationChanged -= OnLocationChanged;
+}
