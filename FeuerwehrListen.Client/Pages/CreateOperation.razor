@@ -47,6 +47,18 @@
                     {
                         <div class="alert alert-danger py-2">@_error</div>
                     }
+                    @if (_dup is not null)
+                    {
+                        <div class="alert alert-warning">
+                            <strong><i class="bi bi-exclamation-triangle me-1"></i>Zu dieser Einsatznummer gibt es schon eine offene Liste</strong><br />
+                            @_dup.Keyword · @_dup.AlertTime.ToString("dd.MM.yyyy HH:mm")@(string.IsNullOrWhiteSpace(_dup.Address) ? "" : " · " + _dup.Address)
+                            <div class="small text-muted mt-1">Doppelalarmierung der Leitstelle? Dann einfach die vorhandene Liste weiterverwenden.</div>
+                            <div class="d-grid gap-2 mt-2">
+                                <a class="btn btn-warning" href="@($"/operation/{_dup.Id}")"><i class="bi bi-box-arrow-in-right me-1"></i>Vorhandene Liste öffnen</a>
+                                <button class="btn btn-outline-secondary" @onclick="() => CreateList(force: true)" disabled="@_saving">Trotzdem neue Liste anlegen</button>
+                            </div>
+                        </div>
+                    }
                     <div class="d-grid gap-2">
                         <button class="btn btn-danger btn-lg" @onclick="CreateList" disabled="@_saving">
                             @if (_saving) { <span class="spinner-border spinner-border-sm me-1"></span> }
@@ -99,9 +111,13 @@
         catch { }
     }
 
-    private async Task CreateList()
+    private DupDto? _dup;
+
+    private async Task CreateList() => await CreateList(false);
+
+    private async Task CreateList(bool force)
     {
-        _error = null;
+        _error = null; _dup = null;
         if (string.IsNullOrWhiteSpace(_operationNumber) || string.IsNullOrWhiteSpace(_keywordInput))
         {
             _error = "Bitte Einsatznummer und Stichwort ausfüllen.";
@@ -111,14 +127,16 @@
         try
         {
             var resp = await Http.PostAsJsonAsync("client-api/operation/create",
-                new { OperationNumber = _operationNumber, Keyword = _keywordInput, AlertTime = _alertTime, Address = _address });
+                new { OperationNumber = _operationNumber, Keyword = _keywordInput, AlertTime = _alertTime, Address = _address, Force = force });
             if (!resp.IsSuccessStatusCode) { _error = "Erstellen fehlgeschlagen."; return; }
             var res = await resp.Content.ReadFromJsonAsync<CreatedDto>();
+            if (res?.Status == "duplicate") { _dup = new DupDto(res.Id, res.Keyword ?? "", res.AlertTime ?? DateTime.Now, res.Address); return; }
             Nav.NavigateTo($"/operation/{res!.Id}", forceLoad: true);
         }
         catch { _error = "Erstellen fehlgeschlagen. Bitte erneut versuchen."; }
         finally { _saving = false; }
     }
 
-    private record CreatedDto(int Id);
+    private record CreatedDto(int Id, string? Status = null, string? Keyword = null, DateTime? AlertTime = null, string? Address = null);
+    private record DupDto(int Id, string Keyword, DateTime AlertTime, string? Address);
 }

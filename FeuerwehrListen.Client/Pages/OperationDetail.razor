@@ -206,6 +206,15 @@ else
         </div>
 
         @if (_info is not null) { <div class="alert alert-success mt-3">@_info</div> }
+        @if (_data.DuplicateOf is DupDto dup)
+        {
+            <AuthorizeView Roles="Admin,User" Context="dupctx">
+                <div class="alert alert-warning mt-3 d-flex flex-wrap align-items-center" style="gap:10px;">
+                    <div class="flex-grow-1"><i class="bi bi-exclamation-triangle me-1"></i><strong>Doppelalarmierung?</strong> Es gibt noch einen Einsatz mit derselben Nummer: @dup.Keyword, @dup.AlertTime.ToString("dd.MM. HH:mm")@(dup.IsOpen ? "" : " (abgeschlossen)").</div>
+                    <button class="btn btn-warning" @onclick="() => OpenMerge(dup.Id)"><i class="bi bi-union me-1"></i>Zusammenlegen</button>
+                </div>
+            </AuthorizeView>
+        }
         @if (_showMerge)
         {
             <div class="modal fade show" style="display:block;background-color:rgba(0,0,0,0.5);" tabindex="-1">
@@ -228,7 +237,7 @@ else
                                     @foreach (var c in _mergeCandidates)
                                     {
                                         <button type="button" class="list-group-item list-group-item-action @(_mergeSelected?.Id == c.Id ? "active" : "")" @onclick="() => _mergeSelected = c">
-                                            <div class="d-flex justify-content-between"><strong>@c.Number · @c.Keyword</strong><span>@c.Time.ToString("dd.MM. HH:mm")</span></div>
+                                            <div class="d-flex justify-content-between"><strong>@c.Number · @c.Keyword @if (c.Number == _data.Number) { <span class="badge bg-warning text-dark ms-1">gleiche Nummer</span> }</strong><span>@c.Time.ToString("dd.MM. HH:mm")</span></div>
                                             <div class="small">@c.Address</div>
                                         </button>
                                     }
@@ -248,7 +257,7 @@ else
         <AuthorizeView Roles="Admin,User">
             <div class="d-grid gap-2 mt-4" style="max-width:500px;">
                 <a class="btn btn-outline-secondary" href="@($"/operation/{Id}/edit-entries")"><i class="bi bi-pencil me-1"></i>Einträge bearbeiten</a>
-                <button class="btn btn-outline-secondary" @onclick="OpenMerge"><i class="bi bi-union me-1"></i>Mit anderem Einsatz zusammenlegen</button>
+                <button class="btn btn-outline-secondary" @onclick="() => OpenMerge()"><i class="bi bi-union me-1"></i>Mit anderem Einsatz zusammenlegen</button>
                 @if (_data.IsOpen)
                 {
                     <button class="btn btn-outline-secondary" @onclick="() => _showAddress = !_showAddress"><i class="bi bi-geo-alt me-1"></i>Einsatzadresse @(string.IsNullOrWhiteSpace(_data.Address) ? "hinzufügen" : "ändern")</button>
@@ -277,10 +286,13 @@ else
     private MergeCandidate? _mergeSelected;
     private string? _mergeError;
 
-    private async Task OpenMerge()
+    private async Task OpenMerge(int? preselectId = null)
     {
         _showMerge = true; _mergeSelected = null; _mergeError = null; _mergeQuery = "";
         await SearchMerge();
+        // Gleiche Einsatznummer = typische Doppelalarmierung -> nach oben und vorauswaehlen.
+        _mergeCandidates = _mergeCandidates.OrderByDescending(c => c.Number == _data?.Number).ThenByDescending(c => c.Time).ToList();
+        _mergeSelected = _mergeCandidates.FirstOrDefault(c => c.Id == preselectId) ?? _mergeCandidates.FirstOrDefault(c => c.Number == _data?.Number);
     }
 
     private async Task SearchMerge()
@@ -597,7 +609,8 @@ else
         }
     </div>;
 
-    private record OpDto(int Id, string Number, string Keyword, string? Address, DateTime AlertTime, DateTime CreatedAt, bool IsOpen, List<EntryDto> Entries, List<VehicleDto> Vehicles, List<FuncDto> Functions, RequirementsDto? Requirements);
+    private record OpDto(int Id, string Number, string Keyword, string? Address, DateTime AlertTime, DateTime CreatedAt, bool IsOpen, List<EntryDto> Entries, List<VehicleDto> Vehicles, List<FuncDto> Functions, RequirementsDto? Requirements, DupDto? DuplicateOf = null);
+    private record DupDto(int Id, string Keyword, DateTime AlertTime, bool IsOpen);
     private record EntryDto(int Id, string Name, string? Vehicle, bool Breathing, List<string> Functions);
     private record VehicleDto(int Id, string Name);
     private record FuncDto(int Id, string Name);

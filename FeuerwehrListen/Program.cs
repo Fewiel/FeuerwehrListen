@@ -1864,6 +1864,9 @@ app.MapGet("/client-api/operation/{id:int}", async (int id, OperationListReposit
     if (list == null) return Results.NotFound();
     var entries = await entryRepo.GetByListIdAsync(id);
     var funcMap = await efRepo.GetFunctionsForEntriesAsync(entries.Select(e => e.Id).ToList());
+    // Doppelalarmierung: gibt es eine weitere (nicht archivierte) Liste mit derselben Nummer?
+    var twin = (await repo.GetForFeedbackAsync()).FirstOrDefault(o => o.Id != list.Id
+        && string.Equals(o.OperationNumber?.Trim(), list.OperationNumber?.Trim(), StringComparison.OrdinalIgnoreCase));
     // Nur einsatz-taugliche Fahrzeuge anbieten - kalender-only-Fahrzeuge bleiben aussen vor.
     var vehicles = await vehicleRepo.GetForOperationsAsync();
     var funcs = await funcRepo.GetAllAsync();
@@ -1897,6 +1900,7 @@ app.MapGet("/client-api/operation/{id:int}", async (int id, OperationListReposit
     {
         id = list.Id,
         number = NextcloudService.StripLeadingYear(list.OperationNumber, list.AlertTime.Year),
+        duplicateOf = twin == null ? null : new { id = twin.Id, keyword = twin.Keyword, alertTime = twin.AlertTime, isOpen = twin.Status == ListStatus.Open },
         keyword = list.Keyword,
         address = list.Address,
         alertTime = list.AlertTime,
@@ -2951,6 +2955,16 @@ app.MapPost("/client-api/attendance/create", async (AttendanceListRepository rep
 app.MapPost("/client-api/operation/create", async (OperationListRepository repo, KeywordRepository kw, CreateOperationRequest req) =>
 {
     if (string.IsNullOrWhiteSpace(req.OperationNumber) || string.IsNullOrWhiteSpace(req.Keyword)) return Results.BadRequest();
+    // Doppelalarmierung: die Leitstelle schickt meist dieselbe Einsatznummer noch einmal. Gibt es
+    // dazu schon eine offene Liste, nicht stillschweigend eine zweite anlegen, sondern melden -
+    // der Client bietet dann "vorhandene Liste oeffnen" oder "trotzdem anlegen" (Force) an.
+    if (!req.Force)
+    {
+        var number = req.OperationNumber.Trim();
+        var dup = (await repo.GetOpenAsync()).FirstOrDefault(o => string.Equals(o.OperationNumber?.Trim(), number, StringComparison.OrdinalIgnoreCase));
+        if (dup != null)
+            return Results.Json(new { status = "duplicate", id = dup.Id, keyword = dup.Keyword, alertTime = dup.AlertTime, address = dup.Address });
+    }
     var name = req.Keyword.Trim();
     var all = await kw.GetAllAsync();
     var existing = all.FirstOrDefault(k => k.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
@@ -2968,7 +2982,7 @@ app.MapPost("/client-api/operation/create", async (OperationListRepository repo,
         Status = ListStatus.Open,
         Address = string.IsNullOrWhiteSpace(req.Address) ? null : req.Address!.Trim()
     });
-    return Results.Json(new { id });
+    return Results.Json(new { status = "ok", id });
 }).DisableAntiforgery();
 
 // Einsatz-Auswahl/-Suche fuer das Feedback (letzte 5 bzw. Suche nach Adresse/Stichwort/Nummer).
@@ -3160,7 +3174,7 @@ public record AuthQrRequest(string? Code, string? Pin);
 public record ChangePwRequest(string? OldPassword, string? NewPassword);
 public record FeedbackRequest(int OperationId, string? Text, string? SubmitterName, string? SubmitterNumber);
 public record CreateAttendanceRequest(string Title, string Unit, string? Description, int? UnitNumber);
-public record CreateOperationRequest(string OperationNumber, string Keyword, DateTime AlertTime, string? Address);
+public record CreateOperationRequest(string OperationNumber, string Keyword, DateTime AlertTime, string? Address, bool Force = false);
 public record AttendanceAddRequest(string? Code, int? MemberId, int? TargetListId);
 public record OperationResolveRequest(string? Code);
 public record ExcuseReq(string? Code);
