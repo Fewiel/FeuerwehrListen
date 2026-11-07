@@ -1948,6 +1948,8 @@ app.MapGet("/client-api/operation/{id:int}/report", async (int id, OperationList
 // Einsatzbericht: speichern (Report + externe Kräfte + Mittel + Fahrzeug-Stärken)
 app.MapPost("/client-api/operation/{id:int}/report", async (int id, OperationReportRepository repo, ReportSaveRequest req) =>
 {
+    // Ohne Bericht im Body gab es bisher einen 500er statt einer sauberen 400.
+    if (req?.Report == null) return Results.BadRequest("Bericht fehlt.");
     var existing = await repo.GetOrCreateAsync(id);
     var r = req.Report;
     r.Id = existing.Id; r.OperationListId = id; r.CreatedAt = existing.CreatedAt; r.UpdatedAt = DateTime.Now;
