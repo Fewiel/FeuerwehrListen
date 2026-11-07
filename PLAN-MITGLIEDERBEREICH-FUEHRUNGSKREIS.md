@@ -1,6 +1,6 @@
 # Plan: Mitgliederbereich mit Dienstausweis + Führungskreis
 
-Stand: 07.11.2026 · Status: **abgestimmt, noch nicht umgesetzt**
+Stand: 07.11.2026 · Status: **umgesetzt auf `feature/sso-provider` (noch nicht in master)**
 Mockups: Canvas „Digitaler Dienstausweis – Mockups“ (Reihen *Mitgliederbereich* und *Führungskreis*, Design A).
 Baut auf `LOGIN-ZUGRIFF.md` auf (Login-Pflicht, IP-Whitelist, Modulrechte).
 
@@ -174,3 +174,21 @@ Jeder Schritt einzeln lauffähig und ohne Wirkung auf bestehende Abläufe (Kiosk
 - Prüfseite: gültig, gesperrt, abgelaufen, neu ausgestellt (alte GUID), unbekannte GUID; kein Personendatum bei ungültig.
 - Rechte: Mitglied ohne Kalender sieht keinen Kalender (Menü + Route + API); großer Kreis sieht keine Sitzung/Aufgabe des kleinen Kreises, kleiner Kreis sieht beide.
 - Aufgabe erledigt → genau ein Punkt in der nächsten Sitzung bzw. im Rückstau.
+
+---
+
+## Umsetzungsstand / Abweichungen vom Plan
+
+- Alle 8 Schritte umgesetzt (Migrationen 33 + 34, Endpunkte in `Endpoints/MemberAreaEndpoints.cs` und `Endpoints/LeadershipEndpoints.cs`, Logik in `Services/LeadershipService.cs`).
+- Passwort-Vergabe-Sitzung liegt **im Speicher** statt in einer Tabelle: ein Neustart beendet den Modus. Protokolliert wird je Mitglied (`PasswordSetAt`, `PasswordSetByUserId`).
+- Ausweis-Nr. = Mitgliedsnummer.
+- Tagesordnung sortieren per Pfeil-Buttons statt Ziehen (zuverlässiger auf alten iPads).
+- Führungskreis-Sitzungen nur als Einzeltermine, nicht als Serie.
+- Beim Abschließen wandern nicht besprochene und vertagte Punkte automatisch in die nächste Sitzung des Kreises.
+- Mitglieder dürfen im Kalender nur eigene Termine und Sitzungen ihres Kreises ändern/stornieren, keine Serien anlegen.
+
+## Testumgebung
+
+Beispieldaten: `python3 tools/seed-testdata.py http://127.0.0.1:5180` gegen eine frisch migrierte Test-DB
+(Aufruf von 127.0.0.1, da die Passwort-Vergabe ein Whitelist-Gerät braucht). Legt Mitglieder mit
+Zugang/Lichtbild, Wachen, Dienste, drei Führungskreis-Sitzungen (eine abgeschlossen) und Aufgaben an.

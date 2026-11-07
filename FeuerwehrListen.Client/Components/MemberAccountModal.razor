@@ -1,0 +1,163 @@
+@using System.Net.Http.Json
+@inject HttpClient Http
+@inject IJSRuntime JS
+
+@* Verwaltung: Mitgliederbereich-Zugang, Bereiche, Fuehrungskreis, Dienstgrad und Dienstausweis
+   eines Mitglieds. Das Passwort setzt das Mitglied selbst (Passwort-Vergabe am Tablet). *@
+
+<div class="modal fade show" style="display:block;background-color:rgba(0,0,0,.5);" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Zugang &amp; Ausweis@(_a is null ? "" : $" – {_a.Name}")</h5>
+                <button type="button" class="btn-close" aria-label="Schließen" @onclick="Close"></button>
+            </div>
+            <div class="modal-body">
+                @if (_a is null) { <p><em>Lade…</em></p> }
+                else
+                {
+                    <div class="d-flex align-items-start mb-3">
+                        <img src="@PhotoUrl" alt="Lichtbild" style="width:80px;height:100px;object-fit:cover;border-radius:6px;background:#E3E0DB;margin-right:16px;" />
+                        <div class="flex-grow-1">
+                            <div><strong>Mitgliederbereich:</strong>
+                                @if (_a.HasPassword) { <span class="badge bg-success">Zugang aktiv</span> <small class="text-muted">seit @_a.PasswordSetAt?.ToString("dd.MM.yyyy")</small> }
+                                else { <span class="badge bg-secondary">kein Passwort</span> <small class="text-muted">– wird am Tablet im Gerätehaus festgelegt</small> }
+                            </div>
+                            @if (_a.LockedUntil is DateTime lu && lu > DateTime.Now) { <div class="text-danger small mt-1">Gesperrt bis @lu.ToString("HH:mm") (Fehlversuche) <button class="btn btn-link btn-sm p-0" @onclick="() => _unlock = true">entsperren</button>@(_unlock ? " ✓" : "")</div> }
+                            <div class="mt-1"><strong>Ausweis:</strong>
+                                @if (_a.Card.Valid) { <span class="badge bg-success">gültig</span> }
+                                else if (_a.Card.Revoked) { <span class="badge bg-danger">gesperrt</span> }
+                                else if (!_a.Card.Issued) { <span class="badge bg-secondary">nicht ausgestellt</span> }
+                                else if (!_a.HasPhoto) { <span class="badge bg-warning text-dark">Lichtbild fehlt</span> }
+                                else { <span class="badge bg-warning text-dark">abgelaufen</span> }
+                                @if (_a.Card.CheckUrl is not null) { <a class="small ms-2" href="@_a.Card.CheckUrl" target="_blank" rel="noopener">Prüfseite</a> }
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row g-3">
+                        <div class="col-md-6"><label class="form-label">Dienstgrad</label><input class="form-control" @bind="_rank" placeholder="z. B. Oberfeuerwehrmann" /></div>
+                        <div class="col-md-6"><label class="form-label">E-Mail</label><input type="email" class="form-control" @bind="_email" /></div>
+                        <div class="col-md-6"><label class="form-label">Ausweis gültig bis</label><input type="date" class="form-control" @bind="_validUntil" /><small class="text-muted">leer = unbefristet</small></div>
+                        <div class="col-md-6">
+                            <label class="form-label">Führungskreis</label>
+                            <select class="form-select" @bind="_circle">
+                                <option value="0">kein</option>
+                                <option value="1">Großer Führungskreis</option>
+                                <option value="2">Kleiner Führungskreis (sieht auch den großen)</option>
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label d-block">Bereiche im Mitgliederbereich</label>
+                            <div class="d-flex flex-wrap gap-3">
+                                @foreach (var (key, label) in ModuleOptions)
+                                {
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="@($"mm-{key}")" checked="@_modules.Contains(key)" @onchange="e => Toggle(key, (bool)e.Value!)" />
+                                        <label class="form-check-label" for="@($"mm-{key}")">@label</label>
+                                    </div>
+                                }
+                            </div>
+                            <small class="text-muted">Ausweis und Profil hat jedes Mitglied mit Zugang.</small>
+                        </div>
+                    </div>
+
+                    <hr />
+                    <div class="d-flex flex-wrap gap-2">
+                        <button class="btn btn-outline-primary btn-sm" @onclick="Reissue">Ausweis neu ausstellen</button>
+                        @if (!_a.Card.Revoked && _a.Card.Issued) { <button class="btn btn-outline-danger btn-sm" @onclick="Revoke">Ausweis sperren</button> }
+                        @if (_a.HasPhoto) { <button class="btn btn-outline-secondary btn-sm" @onclick="DeletePhoto">Lichtbild löschen</button> }
+                        @if (_a.HasPassword) { <button class="btn btn-outline-danger btn-sm" @onclick="RemoveAccess">Zugang entziehen</button> }
+                    </div>
+                    <small class="text-muted d-block mt-1">„Neu ausstellen“ erzeugt einen neuen QR-Code – der alte Prüflink ist sofort ungültig.</small>
+                    @if (_msg is not null) { <div class="alert alert-info py-2 mt-2 mb-0">@_msg</div> }
+                }
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" @onclick="Close">Schließen</button>
+                <button class="btn btn-primary" @onclick="Save" disabled="@(_a is null || _saving)">Speichern</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public int MemberId { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    // Muss zu UserAccessService.SelectableModules passen.
+    private static readonly (string Key, string Label)[] ModuleOptions =
+    {
+        ("firesafety", "Brandsicherheitswachen"),
+        ("firesafety-link", "Wachen über Direktlink"),
+        ("calendar", "Kalender"),
+        ("attendance", "Anwesenheitslisten"),
+        ("operations", "Einsatzlisten"),
+        ("defects", "Mängel")
+    };
+
+    private AccountDto? _a;
+    private string _rank = "", _email = "";
+    private DateTime? _validUntil;
+    private int _circle;
+    private HashSet<string> _modules = new();
+    private bool _saving, _unlock;
+    private string? _msg;
+
+    private string PhotoUrl => _a?.HasPhoto == true ? $"client-api/admin/members/{MemberId}/photo?v={_a.PhotoVersion}" : "data:image/gif;base64,R0lGODlhAQABAAAAACw=";
+
+    protected override async Task OnParametersSetAsync() => await Load();
+
+    private async Task Load()
+    {
+        try
+        {
+            _a = await Http.GetFromJsonAsync<AccountDto>($"client-api/admin/members/{MemberId}/account");
+            if (_a is null) return;
+            _rank = _a.Rank ?? ""; _email = _a.Email ?? ""; _validUntil = _a.Card.ValidUntil; _circle = _a.LeadershipCircle;
+            _modules = new HashSet<string>(_a.Modules ?? new());
+        }
+        catch { _msg = "Laden fehlgeschlagen."; }
+    }
+
+    private void Toggle(string key, bool on) { if (on) _modules.Add(key); else _modules.Remove(key); }
+
+    private async Task Save()
+    {
+        _saving = true; _msg = null;
+        try
+        {
+            var resp = await Http.PutAsJsonAsync($"client-api/admin/members/{MemberId}/account", new
+            {
+                Modules = _modules.ToList(), LeadershipCircle = _circle, Rank = _rank, Email = _email, CardValidUntil = _validUntil, Unlock = _unlock
+            });
+            if (resp.IsSuccessStatusCode) await Close();
+            else _msg = "Speichern fehlgeschlagen.";
+        }
+        catch { _msg = "Speichern fehlgeschlagen."; }
+        finally { _saving = false; }
+    }
+
+    private async Task Action(string method, string url, string confirm, string done)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", confirm)) return;
+        try
+        {
+            var resp = method == "DELETE" ? await Http.DeleteAsync(url) : await Http.PostAsync(url, null);
+            _msg = resp.IsSuccessStatusCode ? done : "Aktion fehlgeschlagen.";
+            await Load();
+        }
+        catch { _msg = "Aktion fehlgeschlagen."; }
+    }
+
+    private Task Reissue() => Action("POST", $"client-api/admin/members/{MemberId}/card/reissue", "Ausweis neu ausstellen? Der bisherige QR-Code wird ungültig.", "Neuer Ausweis ausgestellt.");
+    private Task Revoke() => Action("POST", $"client-api/admin/members/{MemberId}/card/revoke", "Ausweis sperren? Die Prüfseite zeigt dann „nicht gültig“.", "Ausweis gesperrt.");
+    private Task DeletePhoto() => Action("DELETE", $"client-api/admin/members/{MemberId}/photo", "Lichtbild löschen? Der Ausweis ist dann nicht mehr gültig.", "Lichtbild gelöscht.");
+    private Task RemoveAccess() => Action("DELETE", $"client-api/admin/members/{MemberId}/password", "Zugang entziehen? Das Mitglied wird abgemeldet und braucht ein neues Passwort.", "Zugang entzogen.");
+
+    private Task Close() => OnClose.InvokeAsync();
+
+    private record CardDto(bool Issued, bool Valid, DateTime? ValidUntil, bool Revoked, bool HasPhoto, string? CheckUrl);
+    private record AccountDto(int Id, string Name, string Number, bool HasPassword, DateTime? PasswordSetAt, List<string>? Modules,
+        int LeadershipCircle, string? Rank, string? Email, bool HasPhoto, long PhotoVersion, DateTime? LockedUntil, CardDto Card);
+}

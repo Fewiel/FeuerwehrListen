@@ -39,11 +39,17 @@
     private AppContextDto? _ctx;
     private bool _blocked;
     private bool _authed;
+    private bool _isMember;
 
     protected override async Task OnInitializedAsync()
     {
         _ctx = await AppCtx.GetAsync();
-        if (AuthState != null) _authed = (await AuthState).User.Identity?.IsAuthenticated == true;
+        if (AuthState != null)
+        {
+            var u = (await AuthState).User;
+            _authed = u.Identity?.IsAuthenticated == true;
+            _isMember = u.FindFirst("IsMember")?.Value == "true" || (u.Identity?.Name ?? "").StartsWith("member:");
+        }
         Nav.LocationChanged += OnLocationChanged;
         Evaluate();
     }
@@ -67,6 +73,14 @@
         {
             _blocked = true;
             Nav.NavigateTo(page.Length == 0 ? "login" : LoginHref());
+            return;
+        }
+
+        // Mitglieder ohne Listen-Bereiche haben auf der Uebersicht nichts - Start ist "Mein Bereich".
+        if (_isMember && page.Length == 0 && _ctx != null
+            && !(_ctx.Modules.Attendance || _ctx.Modules.Operations || _ctx.Modules.Defects))
+        {
+            Nav.NavigateTo("mein");
             return;
         }
 

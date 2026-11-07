@@ -381,6 +381,13 @@ textarea.form-control { min-height: unset; }
 }
 
 /* ---------- Responsive ---------- */
+/* iPad quer: mit "Mein Bereich" und "Fuehrungskreis" wird die Leiste zu breit -
+   Icons im Menue weglassen und Abstaende verkleinern, statt rechts abzuschneiden. */
+@media (min-width: 901px) and (max-width: 1280px) {
+    .tw-nav a .bi { display: none; }
+    .tw-nav a, .tw-drop > button { padding: 8px 9px; }
+    .tw-appbar { gap: 8px; }
+}
 @media (max-width: 900px) {
     .tw-nav, .tw-right { display: none; }
     .tw-hamburger { display: inline-flex; align-items: center; }

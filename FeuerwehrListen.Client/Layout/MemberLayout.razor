@@ -1,0 +1,83 @@
+@inherits LayoutComponentBase
+@using FeuerwehrListen.Client.Models
+@using FeuerwehrListen.Client.Services
+@inject AppContextService AppCtx
+@inject NavigationManager Nav
+@implements IDisposable
+
+@* Layout des Mitgliederbereichs (Design A): rote Kopfzeile, unten eine Tab-Leiste.
+   Tabs nur fuer freigegebene Bereiche - der Server sperrt den Rest zusaetzlich. *@
+
+<div class="fwm-shell">
+    <header class="fwm-head">
+        <a href="/mein" class="fwm-brand">
+            @if (!string.IsNullOrWhiteSpace(_ctx?.LogoUrl)) { <img src="@_ctx!.LogoUrl" alt="" /> }
+            <span>@(_ctx?.AppName ?? "Feuerwehr")</span>
+        </a>
+        <div class="fwm-head-right">
+            @if (HasListModules)
+            {
+                <a href="/" class="fwm-iconbtn" aria-label="Zur Übersicht"><i class="bi bi-grid"></i></a>
+            }
+            <a href="/mein/profil" class="fwm-iconbtn" aria-label="Profil"><i class="bi bi-person-circle"></i></a>
+        </div>
+    </header>
+
+    <main class="fwm-main">
+        @Body
+    </main>
+
+    <nav class="fwm-tabs" aria-label="Mitgliederbereich">
+        <a href="/mein" class="@Tab("mein", true)"><i class="bi bi-house"></i><span>Start</span></a>
+        <a href="/mein/ausweis" class="@Tab("mein/ausweis")"><i class="bi bi-person-vcard"></i><span>Ausweis</span></a>
+        @if (M.FireSafety) { <a href="/firesafetywatches" class="@Tab("firesafetywatches")"><i class="bi bi-shield-check"></i><span>Wachen</span></a> }
+        @if (M.Calendar) { <a href="/kalender" class="@Tab("kalender")"><i class="bi bi-calendar3"></i><span>Kalender</span></a> }
+        @if (M.Leadership) { <a href="/fuehrungskreis" class="@Tab("fuehrungskreis")"><i class="bi bi-people"></i><span>Führung</span></a> }
+    </nav>
+</div>
+
+<style>
+    .fwm-shell { min-height: 100vh; background: #F4F2EF; color: #1A1A1A; display: flex; flex-direction: column; }
+    .fwm-head { background: #C8102E; color: #fff; height: 56px; display: flex; align-items: center; padding-left: 16px; padding-right: 8px; position: sticky; top: 0; z-index: 20; }
+    .fwm-brand { color: #fff; text-decoration: none; display: flex; align-items: center; font-weight: 700; font-size: 1.05rem; flex: 1; min-width: 0; }
+    .fwm-brand img { height: 30px; width: auto; margin-right: 8px; }
+    .fwm-brand span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .fwm-head-right { display: flex; }
+    .fwm-iconbtn { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 1.35rem; text-decoration: none; }
+    .fwm-iconbtn:hover { color: #fff; opacity: .85; }
+    .fwm-main { flex: 1; width: 100%; max-width: 640px; margin-left: auto; margin-right: auto; padding: 16px 16px 96px; box-sizing: border-box; }
+    .fwm-tabs { position: fixed; left: 0; right: 0; bottom: 0; height: 68px; background: #fff; border-top: 1px solid #E5E1DB; display: flex; z-index: 20; padding-bottom: env(safe-area-inset-bottom); }
+    .fwm-tabs a { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #5C5853; text-decoration: none; font-size: .75rem; }
+    .fwm-tabs a i { font-size: 1.3rem; margin-bottom: 2px; }
+    .fwm-tabs a.active { color: #C8102E; font-weight: 600; }
+    .fwm-card { background: #fff; border-radius: 16px; box-shadow: 0 4px 18px rgba(0,0,0,.07); padding: 16px; margin-bottom: 14px; }
+    .fwm-label { font-size: .7rem; color: #5C5853; text-transform: uppercase; letter-spacing: .06em; }
+    .fwm-btn { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 50px; border-radius: 12px; border: 0; background: #C8102E; color: #fff; font-weight: 600; font-size: 1rem; text-decoration: none; }
+    .fwm-btn:hover { color: #fff; background: #A50D26; }
+    .fwm-btn i { margin-right: 8px; }
+    .fwm-btn-outline { background: #fff; color: #1A1A1A; border: 1.5px solid #CFCAC3; }
+    .fwm-btn-outline:hover { background: #F8F7F5; color: #1A1A1A; }
+</style>
+
+@code {
+    private AppContextDto? _ctx;
+    private ModuleFlags M => _ctx?.Modules ?? new ModuleFlags(false, false, false, false, false, false, false, false);
+    private bool HasListModules => M.Attendance || M.Operations || M.Defects;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _ctx = await AppCtx.GetAsync();
+        Nav.LocationChanged += OnLocationChanged;
+    }
+
+    private void OnLocationChanged(object? s, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e) => StateHasChanged();
+
+    private string Tab(string path, bool exact = false)
+    {
+        var rel = Nav.ToBaseRelativePath(Nav.Uri).Split('?', '#')[0].Trim('/').ToLowerInvariant();
+        var hit = exact ? rel == path : rel == path || rel.StartsWith(path + "/");
+        return hit ? "active" : "";
+    }
+
+    public void Dispose() => Nav.LocationChanged -= OnLocationChanged;
+}

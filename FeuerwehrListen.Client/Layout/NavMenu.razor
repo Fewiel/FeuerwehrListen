@@ -15,6 +15,7 @@
     </a>
 
     <nav class="tw-nav">
+        @if (_isMember) { <a href="/mein" class="@Active("mein")"><i class="bi bi-person-vcard"></i> Mein Bereich</a> }
         <a href="/" class="@Active("/")"><i class="bi bi-house"></i> Übersicht</a>
         @if (!_authed || _canUseLists)
         {
@@ -30,6 +31,14 @@
     <div class="tw-right">
         @if (_authed)
         {
+            @if (M.Leadership)
+            {
+                <div class="tw-drop">
+                    <button @onclick='() => Toggle("fk")'>
+                        <i class="bi bi-people"></i> Führungskreis <i class="bi bi-chevron-down" style="font-size:.8rem"></i>
+                    </button>
+                </div>
+            }
             @if (_canUseLists && (_isAdmin || M.FullAccess))
             {
                 <div class="tw-drop">
@@ -75,6 +84,7 @@
             <a href="admin/functions"><i class="bi bi-puzzle"></i> Funktionen</a>
             <a href="admin/keywords"><i class="bi bi-tags"></i> Stichwörter</a>
             <a href="admin/users"><i class="bi bi-people"></i> Benutzer</a>
+            <a href="admin/passwort-vergabe"><i class="bi bi-tablet"></i> Passwort-Vergabe</a>
             <a href="admin/permission-keys"><i class="bi bi-key-fill"></i> Berechtigungskeys</a>
             <a href="admin/sso-clients"><i class="bi bi-box-arrow-in-right"></i> SSO-Clients</a>
             <a href="admin/apikeys"><i class="bi bi-key"></i> API Keys</a>
@@ -85,10 +95,20 @@
     </div>
 }
 
+@if (_open == "fk")
+{
+    <div class="tw-drop-menu tw-menu-fixed">
+        <div class="tw-drop-head">Führungskreis</div>
+        <a href="fuehrungskreis"><i class="bi bi-journal-text"></i> Protokoll</a>
+        <a href="fuehrungskreis/aufgaben"><i class="bi bi-check2-square"></i> Aufgaben</a>
+    </div>
+}
+
 @if (_open == "user")
 {
     <div class="tw-drop-menu tw-menu-fixed">
-        <div class="tw-drop-head">@_username</div>
+        <div class="tw-drop-head">@DisplayName</div>
+        @if (_isMember) { <a href="mein/profil"><i class="bi bi-person"></i> Mein Profil</a> }
         <a href="camera-settings"><i class="bi bi-camera-video"></i> Kamera-Einstellungen</a>
         <a href="change-password"><i class="bi bi-key"></i> Passwort ändern</a>
         <hr />
@@ -104,6 +124,7 @@
             <b>@(_ctx?.AppName ?? "Feuerwehr Listen")</b>
             <button @onclick="Close" aria-label="Schließen"><i class="bi bi-x"></i></button>
         </div>
+        @if (_isMember) { <a href="/mein"><i class="bi bi-person-vcard"></i> Mein Bereich</a> }
         <a href="/"><i class="bi bi-house"></i> Übersicht</a>
         @if (!_authed || _canUseLists)
         {
@@ -116,6 +137,12 @@
 
         @if (_authed)
         {
+            @if (M.Leadership)
+            {
+                <div class="mm-sect">Führungskreis</div>
+                <a href="fuehrungskreis"><i class="bi bi-journal-text"></i> Protokoll</a>
+                <a href="fuehrungskreis/aufgaben"><i class="bi bi-check2-square"></i> Aufgaben</a>
+            }
             @if (_canUseLists && (_isAdmin || M.FullAccess))
             {
                 <div class="mm-sect">Listen &amp; Daten</div>
@@ -132,6 +159,7 @@
                 <a href="admin/functions"><i class="bi bi-puzzle"></i> Funktionen</a>
                 <a href="admin/keywords"><i class="bi bi-tags"></i> Stichwörter</a>
                 <a href="admin/users"><i class="bi bi-people"></i> Benutzer</a>
+            <a href="admin/passwort-vergabe"><i class="bi bi-tablet"></i> Passwort-Vergabe</a>
                 <a href="admin/permission-keys"><i class="bi bi-key-fill"></i> Berechtigungskeys</a>
                 <a href="admin/sso-clients"><i class="bi bi-box-arrow-in-right"></i> SSO-Clients</a>
                 <a href="admin/apikeys"><i class="bi bi-key"></i> API Keys</a>
@@ -140,6 +168,7 @@
                 <a href="admin/settings"><i class="bi bi-sliders"></i> Einstellungen</a>
             }
             <div class="mm-sect">Konto</div>
+            @if (_isMember) { <a href="mein/profil"><i class="bi bi-person"></i> Mein Profil</a> }
             <a href="camera-settings"><i class="bi bi-camera-video"></i> Kamera-Einstellungen</a>
             <a href="change-password"><i class="bi bi-key"></i> Passwort ändern</a>
             <a href="logout"><i class="bi bi-box-arrow-right"></i> Logout</a>
@@ -158,6 +187,7 @@
     private bool _authed;
     private bool _isAdmin;
     private bool _hasListAccess;
+    private bool _isMember;
     // Admins haben implizit Listen-Zugriff; reine SSO-Konten (kein Admin, kein Listen-Zugriff)
     // sehen die Listen-Navigation nicht.
     private bool _canUseLists => _isAdmin || _hasListAccess;
@@ -183,6 +213,8 @@
         _authed = u.Identity?.IsAuthenticated == true;
         _isAdmin = u.IsInRole("Admin");
         _hasListAccess = u.FindFirst("ListAccess")?.Value == "true";
+        // Mitglieder-Konten: per Claim (WASM) bzw. am Anmeldenamen erkennbar (Server-Modus).
+        _isMember = u.FindFirst("IsMember")?.Value == "true" || (u.Identity?.Name ?? "").StartsWith("member:");
         _username = u.Identity?.Name ?? "";
         _firstName = u.FindFirst("FirstName")?.Value ?? "";
         _lastName = u.FindFirst("LastName")?.Value ?? "";
@@ -198,6 +230,8 @@
 
     private void Toggle(string name) => _open = _open == name ? null : name;
     private void Close() => _open = null;
+
+    private string DisplayName => _isMember ? $"{_firstName} {_lastName}".Trim() : _username;
 
     private string Initials()
     {

@@ -1,0 +1,132 @@
+@page "/mein"
+@layout MemberLayout
+@using System.Net.Http.Json
+@inject HttpClient Http
+
+<PageTitle>Mein Bereich</PageTitle>
+
+<AuthGuard>
+    @if (_loadError) { <div class="alert alert-danger">Daten konnten nicht geladen werden.</div> }
+    else if (_me is null) { <p><em>Lade…</em></p> }
+    else if (!_me.IsMember)
+    {
+        <div class="fwm-card">
+            <p class="mb-2">Der Mitgliederbereich ist für Mitglieder-Konten (Anmeldung mit Mitgliedsnummer).</p>
+            <a href="/" class="fwm-btn fwm-btn-outline">Zur Übersicht</a>
+        </div>
+    }
+    else
+    {
+        <h1 style="font-size:1.4rem;font-weight:700;margin:4px 0 14px;">Hallo, @_me.FirstName</h1>
+
+        <a href="/mein/ausweis" class="fwm-card" style="display:flex;align-items:center;text-decoration:none;color:inherit;border-left:6px solid #C8102E;">
+            <img src="@PhotoUrl" alt="" style="width:52px;height:65px;object-fit:cover;border-radius:6px;background:#E3E0DB;margin-right:14px;" />
+            <div style="flex:1;min-width:0;">
+                <div class="fwm-label" style="color:#C8102E;font-weight:700;">Dienstausweis</div>
+                <div style="font-weight:600;">@_me.FirstName @_me.LastName</div>
+                @if (_me.Card.Valid)
+                {
+                    <div style="font-size:.85rem;color:#1E7A3C;font-weight:600;">● gültig@(_me.Card.ValidUntil is DateTime vu ? $" bis {vu:dd.MM.yyyy}" : "")</div>
+                }
+                else
+                {
+                    <div style="font-size:.85rem;color:#B8001F;font-weight:600;">@CardHint</div>
+                }
+            </div>
+            <i class="bi bi-chevron-right" style="color:#5C5853;"></i>
+        </a>
+
+        @if (_overview is not null)
+        {
+            @if (_overview.Events.Count > 0)
+            {
+                <section class="fwm-card">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                        <h2 style="font-size:1rem;margin:0;">Nächste Termine</h2>
+                        @if (_ctx?.Modules.Calendar == true) { <a href="/kalender" style="font-size:.9rem;">Kalender</a> }
+                    </div>
+                    @foreach (var e in _overview.Events)
+                    {
+                        <a href="@(e.Leadership ? $"/fuehrungskreis/termin/{e.Id}" : "/kalender")" style="display:flex;align-items:center;padding:8px 0;border-top:1px solid #F0EEEB;text-decoration:none;color:inherit;">
+                            <div style="width:46px;text-align:center;border-radius:8px;background:#F4F2EF;padding:4px 0;margin-right:12px;">
+                                <div style="font-size:.7rem;color:#5C5853;">@e.Start.ToString("ddd", De).ToUpperInvariant()</div>
+                                <div style="font-size:1.1rem;font-weight:700;">@e.Start.Day</div>
+                            </div>
+                            <div style="flex:1;min-width:0;">
+                                <div style="font-weight:600;">@e.Title</div>
+                                <div style="font-size:.85rem;color:#5C5853;">@e.Start.ToString("HH:mm") Uhr@(string.IsNullOrWhiteSpace(e.Location) ? "" : " · " + e.Location)</div>
+                            </div>
+                            @if (e.Leadership) { <span style="font-size:.7rem;font-weight:700;color:#6B3FA0;background:#F1EAFA;border-radius:6px;padding:3px 6px;">FK</span> }
+                        </a>
+                    }
+                </section>
+            }
+
+            @if (_overview.Watches.Count > 0)
+            {
+                <section class="fwm-card">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                        <h2 style="font-size:1rem;margin:0;">Brandsicherheitswachen</h2>
+                        <a href="/firesafetywatches" style="font-size:.9rem;">Alle</a>
+                    </div>
+                    @foreach (var w in _overview.Watches)
+                    {
+                        <div style="display:flex;align-items:center;padding:8px 0;border-top:1px solid #F0EEEB;">
+                            <div style="flex:1;min-width:0;">
+                                <div style="font-weight:600;">@w.Name</div>
+                                <div style="font-size:.85rem;color:#5C5853;">@w.Time.ToString("ddd dd.MM. · HH:mm", De) · @(w.Free > 0 ? $"noch {w.Free} frei" : "voll besetzt")</div>
+                            </div>
+                            <a href="/firesafetywatches/@w.Id" class="btn btn-sm" style="background:#C8102E;color:#fff;border-radius:10px;min-height:40px;display:flex;align-items:center;">@(w.Free > 0 ? "Eintragen" : "Ansehen")</a>
+                        </div>
+                    }
+                </section>
+            }
+
+            @if (_ctx?.Modules.Leadership == true)
+            {
+                <a href="/fuehrungskreis/aufgaben" class="fwm-card" style="display:flex;align-items:center;text-decoration:none;color:inherit;">
+                    <i class="bi bi-check2-square" style="font-size:1.4rem;color:#6B3FA0;margin-right:12px;"></i>
+                    <div style="flex:1;">
+                        <div style="font-weight:600;">Führungskreis</div>
+                        <div style="font-size:.85rem;color:#5C5853;">@(_overview.OpenTasks == 0 ? "Keine offenen Aufgaben für dich" : $"{_overview.OpenTasks} offene Aufgabe{(_overview.OpenTasks == 1 ? "" : "n")} für dich")</div>
+                    </div>
+                    <i class="bi bi-chevron-right" style="color:#5C5853;"></i>
+                </a>
+            }
+        }
+    }
+</AuthGuard>
+
+@code {
+    private static readonly System.Globalization.CultureInfo De = new("de-DE");
+    private MeDto? _me;
+    private OverviewDto? _overview;
+    private FeuerwehrListen.Client.Models.AppContextDto? _ctx;
+    private bool _loadError;
+
+    [Inject] private FeuerwehrListen.Client.Services.AppContextService AppCtx { get; set; } = default!;
+
+    private string PhotoUrl => _me?.HasPhoto == true ? $"client-api/me/photo?v={_me.PhotoVersion}" : "data:image/gif;base64,R0lGODlhAQABAAAAACw=";
+
+    private string CardHint => _me!.Card.Revoked ? "gesperrt – bitte Verwaltung ansprechen"
+        : !_me.HasPhoto ? "Lichtbild fehlt – im Profil hochladen"
+        : "nicht gültig";
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _ctx = await AppCtx.GetAsync();
+            _me = await Http.GetFromJsonAsync<MeDto>("client-api/me");
+            if (_me?.IsMember == true) _overview = await Http.GetFromJsonAsync<OverviewDto>("client-api/me/overview");
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Unauthorized) { /* AuthGuard leitet um */ }
+        catch { _loadError = true; }
+    }
+
+    private record CardDto(bool Issued, bool Valid, DateTime? ValidUntil, bool Revoked, bool HasPhoto, string? CheckUrl);
+    private record MeDto(bool IsMember, string FirstName = "", string LastName = "", bool HasPhoto = false, long PhotoVersion = 0, CardDto Card = null!);
+    private record EventDto(int Id, string Title, DateTime Start, string? Location, bool Leadership);
+    private record WatchDto(int Id, string Name, DateTime Time, int Free);
+    private record OverviewDto(List<EventDto> Events, List<WatchDto> Watches, int OpenTasks);
+}

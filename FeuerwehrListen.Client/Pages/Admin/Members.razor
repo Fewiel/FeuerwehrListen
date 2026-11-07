@@ -84,6 +84,11 @@
             </div></div>
         }
 
+        @if (_accountId is int accId)
+        {
+            <MemberAccountModal MemberId="accId" OnClose="() => _accountId = null" />
+        }
+
         @if (!_showForm && _error is not null) { <div class="alert alert-danger">@_error</div> }
 
         <div class="card"><div class="card-body">
@@ -103,6 +108,7 @@
                                 <td>@if (m.IsActive) { <span class="badge bg-success">Aktiv</span> } else { <span class="badge bg-secondary">Inaktiv</span> }</td>
                                 <td>
                                     <button class="btn btn-sm btn-outline-danger me-2" @onclick="() => OpenTag(m)" title="Tag erstellen & herunterladen"><i class="bi bi-tag"></i> Tag</button>
+                                    <button class="btn btn-sm btn-outline-primary me-2" @onclick="() => _accountId = m.Id" title="Mitgliederbereich, Führungskreis, Dienstausweis"><i class="bi bi-person-vcard"></i> Zugang</button>
                                     <button class="btn btn-sm btn-primary me-2" @onclick="() => Edit(m)">Bearbeiten</button>
                                     <button class="btn btn-sm btn-danger" @onclick="() => Delete(m.Id)">Löschen</button>
                                 </td>
@@ -200,6 +206,7 @@
 @code {
     private List<MemberDto>? _items;
     private bool _showForm, _saving, _showCsv, _importing;
+    private int? _accountId;
     private int? _editId;
     private string _number = "", _firstName = "", _lastName = "", _csv = "";
     private bool _isActive = true;

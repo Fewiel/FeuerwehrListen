@@ -1,0 +1,68 @@
+@page "/ausweis/{Id}"
+@layout StandaloneLayout
+@using System.Net.Http.Json
+@inject HttpClient Http
+
+<PageTitle>Ausweisprüfung</PageTitle>
+<HeadContent><meta name="robots" content="noindex, nofollow" /></HeadContent>
+
+@* Oeffentliche Echtheitspruefung (QR-Code auf dem Dienstausweis). Ohne Login erreichbar,
+   zeigt bewusst nur Lichtbild + Gueltigkeit - keine Namen, keine Nummern. *@
+
+<div style="max-width:440px;margin:0 auto;padding:24px 16px;font-family:inherit;">
+    @if (_state == State.Loading)
+    {
+        <p class="text-center text-muted mt-5">Ausweis wird geprüft…</p>
+    }
+    else if (_state == State.Valid)
+    {
+        <div style="display:flex;justify-content:center;">
+            <img src="client-api/card-check/@Uri.EscapeDataString(Id)/photo" alt="Lichtbild des Ausweisinhabers"
+                 style="width:220px;height:275px;object-fit:cover;border-radius:12px;background:#E3E0DB;box-shadow:0 6px 24px rgba(0,0,0,.12);" />
+        </div>
+        <div style="margin-top:20px;background:#1E7A3C;color:#fff;border-radius:14px;padding:18px;display:flex;align-items:center;justify-content:center;">
+            <i class="bi bi-check-circle" style="font-size:2rem;margin-right:12px;"></i>
+            <span style="font-size:2.3rem;font-weight:800;letter-spacing:.06em;">GÜLTIG</span>
+        </div>
+        <p style="margin-top:18px;text-align:center;color:#5C5853;font-size:.9rem;line-height:1.5;">
+            Geprüft am @_checkedAt.ToString("dd.MM.yyyy") um @_checkedAt.ToString("HH:mm:ss") Uhr.<br />
+            Bitte das Lichtbild mit der vorzeigenden Person vergleichen.
+        </p>
+    }
+    else if (_state == State.Invalid)
+    {
+        <div style="margin-top:24px;background:#8A1C1C;color:#fff;border-radius:14px;padding:18px;display:flex;align-items:center;justify-content:center;">
+            <i class="bi bi-x-circle" style="font-size:2rem;margin-right:12px;"></i>
+            <span style="font-size:2rem;font-weight:800;letter-spacing:.06em;">NICHT GÜLTIG</span>
+        </div>
+        <p style="margin-top:18px;text-align:center;color:#3D3A36;line-height:1.5;">
+            Dieser Ausweis ist gesperrt, abgelaufen oder unbekannt.<br />
+            <span style="color:#5C5853;font-size:.9rem;">Aus Datenschutzgründen werden keine Personendaten angezeigt.</span>
+        </p>
+    }
+    else
+    {
+        <div class="alert alert-warning mt-4">Die Prüfung ist gerade nicht möglich. Bitte in einer Minute erneut versuchen.</div>
+    }
+</div>
+
+@code {
+    [Parameter] public string Id { get; set; } = "";
+
+    private enum State { Loading, Valid, Invalid, Error }
+    private State _state = State.Loading;
+    private DateTime _checkedAt;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            var r = await Http.GetFromJsonAsync<CheckDto>($"client-api/card-check/{Uri.EscapeDataString(Id)}");
+            _checkedAt = r?.CheckedAt ?? DateTime.Now;
+            _state = r?.Valid == true ? State.Valid : State.Invalid;
+        }
+        catch { _state = State.Error; }
+    }
+
+    private record CheckDto(bool Valid, DateTime CheckedAt);
+}
