@@ -365,6 +365,50 @@ app.Use(async (ctx, next) =>
     await next();
 });
 
+// Branding (Logo, PWA-Icon) liegt im Datenordner (<data>/branding) - der ueberlebt Updates, das
+// wwwroot im Container nicht (wird bei jedem "docker compose up --build" neu gebaut).
+// manifest.json wird aus den Einstellungen erzeugt, damit App-Name und Icon immer passen.
+app.Use(async (ctx, next) =>
+{
+    var p = ctx.Request.Path.Value ?? "";
+    if (!HttpMethods.IsGet(ctx.Request.Method) && !HttpMethods.IsHead(ctx.Request.Method)) { await next(); return; }
+    var dir = Path.Combine(ctx.RequestServices.GetRequiredService<FeuerwehrListen.Services.DataPathService>().Root, "branding");
+    var icon = Path.Combine(dir, "icon.png");
+    if (p.Equals("/manifest.json", StringComparison.OrdinalIgnoreCase))
+    {
+        var settings = ctx.RequestServices.GetRequiredService<SettingsService>();
+        var appName = settings.GetSetting(SettingKeys.BrandingAppName);
+        var v = File.Exists(icon) ? "?v=" + File.GetLastWriteTimeUtc(icon).Ticks : "";
+        ctx.Response.Headers.CacheControl = "no-cache";
+        await ctx.Response.WriteAsJsonAsync(new
+        {
+            name = string.IsNullOrWhiteSpace(appName) ? "Feuerwehr Listen" : appName,
+            short_name = "FW Listen",
+            description = "Feuerwehr Anwesenheits- und Einsatzlisten",
+            start_url = "/", id = "/", display = "standalone",
+            background_color = "#F5F6F8", theme_color = "#E4002B", orientation = "portrait",
+            icons = new[]
+            {
+                new { src = "icon-192.png" + v, sizes = "192x192", type = "image/png", purpose = "any" },
+                new { src = "icon-512.png" + v, sizes = "512x512", type = "image/png", purpose = "any" }
+            }
+        }, new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = null }, "application/manifest+json");
+        return;
+    }
+    string? file = null;
+    if (p is "/icon-192.png" or "/icon-512.png" or "/apple-touch-icon.png" or "/favicon.png" && File.Exists(icon)) file = icon;
+    else if (p.StartsWith("/custom-logo.", StringComparison.OrdinalIgnoreCase) && !p.Contains("..") && File.Exists(Path.Combine(dir, p.TrimStart('/'))))
+        file = Path.Combine(dir, p.TrimStart('/'));
+    if (file != null)
+    {
+        new Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider().TryGetContentType(file, out var ct);
+        ctx.Response.Headers.CacheControl = "no-cache";
+        await Results.File(file, ct ?? "application/octet-stream", lastModified: File.GetLastWriteTimeUtc(file), enableRangeProcessing: false).ExecuteAsync(ctx);
+        return;
+    }
+    await next();
+});
+
 app.UseStaticFiles();
 
 app.UseAuthentication();
@@ -1701,31 +1745,7 @@ admin.MapPost("/settings", async (SettingsService settings, IWebHostEnvironment 
 {
     foreach (var kv in body)
         await settings.UpdateSettingAsync(kv.Key, kv.Value ?? "");
-    // manifest.json App-Name aktualisieren. Per System.Text.Json (JsonNode) statt Regex -
-    // sonst koennen Sonderzeichen im Namen ($0, Anfuehrungszeichen) die Datei korrumpieren.
-    if (body.TryGetValue(SettingKeys.BrandingAppName, out var appName))
-    {
-        try
-        {
-            var path = Path.Combine(env.WebRootPath, "manifest.json");
-            if (File.Exists(path))
-            {
-                var raw = await File.ReadAllTextAsync(path);
-                var node = System.Text.Json.Nodes.JsonNode.Parse(raw);
-                if (node is System.Text.Json.Nodes.JsonObject obj)
-                {
-                    obj["name"] = string.IsNullOrWhiteSpace(appName) ? "Feuerwehr Listen" : appName;
-                    var opts = new System.Text.Json.JsonSerializerOptions { WriteIndented = true };
-                    await File.WriteAllTextAsync(path, obj.ToJsonString(opts));
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            // Read-only Container o. ae.: tolerant fangen, aber loggen statt still schlucken.
-            app.Logger.LogWarning(ex, "manifest.json konnte nicht aktualisiert werden");
-        }
-    }
+    // manifest.json wird dynamisch aus den Einstellungen erzeugt (siehe Branding-Middleware).
     return Results.Ok();
 });
 
@@ -1802,8 +1822,8 @@ admin.MapPost("/nextcloud/test", async (NextcloudService nc, NextcloudTestReq? r
 });
 
 // B2/B3: Branding - Logo- und PWA-Icon-Upload (portiert aus Settings.razor).
-// Logo: schreibt wwwroot/custom-logo.<ext>, setzt Setting BrandingLogoUrl, gibt { logoUrl } zurueck.
-admin.MapPost("/branding/logo", async (HttpRequest http, IWebHostEnvironment env, SettingsService settings) =>
+// Logo: schreibt <data>/branding/custom-logo.<ext>, setzt Setting BrandingLogoUrl, gibt { logoUrl } zurueck.
+admin.MapPost("/branding/logo", async (HttpRequest http, DataPathService data, SettingsService settings) =>
 {
     var form = await http.ReadFormAsync();
     var file = form.Files.FirstOrDefault();
@@ -1814,11 +1834,12 @@ admin.MapPost("/branding/logo", async (HttpRequest http, IWebHostEnvironment env
         return Results.BadRequest(new { error = "Ungueltiger Dateityp (erlaubt: png, jpg, jpeg, svg)." });
     try
     {
+        var dir = Directory.CreateDirectory(Path.Combine(data.Root, "branding")).FullName;
+        foreach (var old in Directory.GetFiles(dir, "custom-logo.*")) File.Delete(old);
         var fileName = $"custom-logo{ext}";
-        var filePath = Path.Combine(env.WebRootPath, fileName);
-        await using (var fs = new FileStream(filePath, FileMode.Create))
+        await using (var fs = new FileStream(Path.Combine(dir, fileName), FileMode.Create))
             await file.CopyToAsync(fs);
-        var logoUrl = $"/{fileName}";
+        var logoUrl = $"/{fileName}?v={DateTime.UtcNow.Ticks}";
         await settings.UpdateSettingAsync(SettingKeys.BrandingLogoUrl, logoUrl);
         return Results.Json(new { logoUrl });
     }
@@ -1828,15 +1849,15 @@ admin.MapPost("/branding/logo", async (HttpRequest http, IWebHostEnvironment env
         return Results.Problem("Logo konnte nicht gespeichert werden (Dateisystem schreibgeschuetzt?).");
     }
 });
-admin.MapPost("/branding/logo/remove", async (IWebHostEnvironment env, SettingsService settings) =>
+admin.MapPost("/branding/logo/remove", async (DataPathService data, SettingsService settings) =>
 {
     try
     {
         var current = settings.GetSetting(SettingKeys.BrandingLogoUrl);
         if (!string.IsNullOrWhiteSpace(current) && current.StartsWith("/custom-logo"))
         {
-            var filePath = Path.Combine(env.WebRootPath, current.TrimStart('/'));
-            if (File.Exists(filePath)) File.Delete(filePath);
+            var dir = Path.Combine(data.Root, "branding");
+            if (Directory.Exists(dir)) foreach (var old in Directory.GetFiles(dir, "custom-logo.*")) File.Delete(old);
         }
         await settings.UpdateSettingAsync(SettingKeys.BrandingLogoUrl, "");
         return Results.Ok();
@@ -1847,9 +1868,9 @@ admin.MapPost("/branding/logo/remove", async (IWebHostEnvironment env, SettingsS
         return Results.Problem("Logo konnte nicht entfernt werden.");
     }
 });
-// Icon: schreibt icon-192.png + icon-512.png (1:1 wie Original: dieselben Bytes) und regeneriert
-// manifest.json. Der App-Name im manifest wird aus dem gespeicherten Setting uebernommen.
-admin.MapPost("/branding/icon", async (HttpRequest http, IWebHostEnvironment env, SettingsService settings) =>
+// Icon: speichert <data>/branding/icon.png; ausgeliefert als icon-192/512, apple-touch-icon und
+// favicon (Branding-Middleware), manifest.json verweist darauf.
+admin.MapPost("/branding/icon", async (HttpRequest http, DataPathService data) =>
 {
     var form = await http.ReadFormAsync();
     var file = form.Files.FirstOrDefault();
@@ -1859,30 +1880,9 @@ admin.MapPost("/branding/icon", async (HttpRequest http, IWebHostEnvironment env
         return Results.BadRequest(new { error = "Nur PNG erlaubt." });
     try
     {
-        await using var ms = new MemoryStream();
-        await file.CopyToAsync(ms);
-        var bytes = ms.ToArray();
-        await File.WriteAllBytesAsync(Path.Combine(env.WebRootPath, "icon-192.png"), bytes);
-        await File.WriteAllBytesAsync(Path.Combine(env.WebRootPath, "icon-512.png"), bytes);
-
-        var manifestPath = Path.Combine(env.WebRootPath, "manifest.json");
-        var appName = settings.GetSetting(SettingKeys.BrandingAppName);
-        if (string.IsNullOrWhiteSpace(appName)) appName = "Feuerwehr Listen";
-        var manifest = "{\n" +
-            "  \"name\": \"" + appName + "\",\n" +
-            "  \"short_name\": \"FW Listen\",\n" +
-            "  \"description\": \"Feuerwehr Anwesenheits- und Einsatzlisten\",\n" +
-            "  \"start_url\": \"/\",\n" +
-            "  \"id\": \"/\",\n" +
-            "  \"display\": \"standalone\",\n" +
-            "  \"background_color\": \"#F5F6F8\",\n" +
-            "  \"theme_color\": \"#E4002B\",\n" +
-            "  \"orientation\": \"portrait\",\n" +
-            "  \"icons\": [\n" +
-            "    { \"src\": \"icon-192.png\", \"sizes\": \"192x192\", \"type\": \"image/png\", \"purpose\": \"any\" },\n" +
-            "    { \"src\": \"icon-512.png\", \"sizes\": \"512x512\", \"type\": \"image/png\", \"purpose\": \"any\" }\n" +
-            "  ]\n}";
-        await File.WriteAllTextAsync(manifestPath, manifest);
+        var dir = Directory.CreateDirectory(Path.Combine(data.Root, "branding")).FullName;
+        await using (var fs = new FileStream(Path.Combine(dir, "icon.png"), FileMode.Create))
+            await file.CopyToAsync(fs);
         return Results.Json(new { ok = true });
     }
     catch (Exception ex)
