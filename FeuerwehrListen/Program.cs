@@ -1951,8 +1951,12 @@ app.MapPost("/client-api/attendance/{id:int}/add", async (int id, HttpContext ht
     }
 
     var targetEntries = await entryRepo.GetByListIdAsync(targetListId);
-    if (targetEntries.Any(e => e.NameOrId.Contains($"({member.MemberNumber})")))
+    var own = targetEntries.Where(e => e.NameOrId.Contains($"({member.MemberNumber})")).ToList();
+    if (own.Any(e => !e.IsExcused))
         return Results.Json(new { status = "duplicate", name });
+    // War als entschuldigt eingetragen (z. B. aus einer Abwesenheitsmeldung), ist aber doch da:
+    // Entschuldigung entfernen und normal als anwesend eintragen.
+    foreach (var ex in own) await entryRepo.DeleteAsync(ex.Id);
 
     await entryRepo.CreateAsync(new AttendanceEntry
     {
