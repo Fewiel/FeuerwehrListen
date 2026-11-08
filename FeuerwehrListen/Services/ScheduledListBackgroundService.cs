@@ -130,6 +130,10 @@ public class ScheduledListBackgroundService : BackgroundService
             _logger.LogError(ex, "Fuehrungskreis-Sitzungen konnten nicht gestartet werden.");
         }
 
+        // Push-Erinnerung 1 Stunde vor Dienstabend.
+        try { await scope.ServiceProvider.GetRequiredService<PushService>().RemindUpcomingDutiesAsync(now); }
+        catch (Exception ex) { _logger.LogError(ex, "Dienst-Erinnerungen fehlgeschlagen."); }
+
         var due = await calendarRepo.GetDueDienstEventsAsync(now, now.AddDays(1));
 
         foreach (var ev in due)

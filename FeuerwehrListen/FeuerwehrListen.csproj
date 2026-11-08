@@ -22,6 +22,7 @@
         <PackageReference Include="PdfSharp" Version="6.0.0" />
         <PackageReference Include="QRCoder" Version="1.6.0" />
         <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="8.0.0" />
+        <PackageReference Include="WebPush" Version="1.0.12" />
     </ItemGroup>
 
     <ItemGroup>

@@ -2,6 +2,7 @@
 @layout MemberLayout
 @using System.Net.Http.Json
 @inject HttpClient Http
+@inject IJSRuntime JS
 
 <PageTitle>Mein Bereich</PageTitle>
 
@@ -18,6 +19,18 @@
     else
     {
         <h1 style="font-size:1.4rem;font-weight:700;margin:4px 0 14px;">Hallo, @_me.FirstName</h1>
+
+        @if (_askPush)
+        {
+            <section class="fwm-card" style="border-left:6px solid #1D4E89;">
+                <div style="font-weight:700;"><i class="bi bi-bell me-1"></i>Benachrichtigungen zulassen?</div>
+                <div class="small text-muted mb-2">Hinweise, wenn dein Mangel bearbeitet wurde, du eine Aufgabe bekommst oder 1 Stunde vor dem Dienstabend.</div>
+                <div class="d-flex" style="gap:8px;">
+                    <button class="btn btn-primary flex-fill" style="min-height:44px;" @onclick="AllowPush">Zulassen</button>
+                    <button class="btn btn-outline-secondary flex-fill" style="min-height:44px;" @onclick="DenyPush">Nicht zulassen</button>
+                </div>
+            </section>
+        }
 
         <a href="/mein/ausweis" class="fwm-card" style="display:flex;align-items:center;text-decoration:none;color:inherit;border-left:6px solid #C8102E;">
             <img src="@PhotoUrl" alt="" style="width:52px;height:65px;object-fit:cover;border-radius:6px;background:#E3E0DB;margin-right:14px;" />
@@ -84,6 +97,14 @@
                 </section>
             }
 
+            @if (_overview.MyDefects > 0)
+            {
+                <a href="/mein/maengel" class="fwm-card" style="display:flex;align-items:center;text-decoration:none;color:inherit;">
+                    <i class="bi bi-tools" style="font-size:1.4rem;color:#C8102E;margin-right:12px;"></i>
+                    <div style="flex:1;"><div style="font-weight:600;">Meine gemeldeten Mängel</div><div style="font-size:.85rem;color:#5C5853;">@_overview.MyDefects noch nicht erledigt</div></div>
+                    <i class="bi bi-chevron-right" style="color:#5C5853;"></i>
+                </a>
+            }
             @* Aufgaben: fuer Fuehrungskreis immer, sonst nur wenn es welche gibt. *@
             @if (_ctx?.Modules.Leadership == true || _overview.OpenTasks > 0)
             {
@@ -137,5 +158,16 @@
     private record MeDto(bool IsMember, string FirstName = "", string LastName = "", bool HasPhoto = false, long PhotoVersion = 0, CardDto Card = null!);
     private record EventDto(int Id, string Title, DateTime Start, string? Location, bool Leadership);
     private record WatchDto(int Id, string Name, DateTime Time, int Free);
-    private record OverviewDto(List<EventDto> Events, List<WatchDto> Watches, int OpenTasks);
+    private record OverviewDto(List<EventDto> Events, List<WatchDto> Watches, int OpenTasks, int MyDefects = 0);
+
+    private bool _askPush;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Erst nach dem Rendern: braucht den Browser (Notification-API).
+        if (firstRender && _me?.IsMember != false && await PushHelper.ShouldAskAsync(JS)) { _askPush = true; StateHasChanged(); }
+    }
+
+    private async Task AllowPush() { _askPush = false; await PushHelper.EnableAsync(JS, Http); }
+    private async Task DenyPush() { _askPush = false; await PushHelper.DismissAsync(JS); }
 }

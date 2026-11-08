@@ -1,0 +1,46 @@
+@page "/mein/maengel"
+@layout MemberLayout
+@using System.Net.Http.Json
+@inject HttpClient Http
+
+<PageTitle>Meine Mängel</PageTitle>
+
+@* Selbst gemeldete Maengel: Status und Verlauf mit Notizen. *@
+<AuthGuard>
+    <h1 style="font-size:1.4rem;font-weight:700;margin:4px 0 14px;">Meine gemeldeten Mängel</h1>
+    @if (_list is null) { <p><em>Lade…</em></p> }
+    else if (_list.Count == 0) { <div class="fwm-card text-muted">Du hast noch keine Mängel gemeldet.</div> }
+    @foreach (var d in _list ?? new())
+    {
+        <section class="fwm-card">
+            <div class="d-flex align-items-center mb-1" style="gap:8px;">
+                <strong class="flex-grow-1">@d.Vehicle</strong>
+                <span class="badge @Badge(d.Status)">@Label(d.Status)</span>
+            </div>
+            <div style="white-space:pre-line;overflow-wrap:anywhere;">@d.Description</div>
+            <div class="small text-muted mt-1">Gemeldet @d.ReportedAt.ToString("dd.MM.yyyy HH:mm")</div>
+            @foreach (var h in d.History)
+            {
+                <div class="border-top mt-2 pt-2">
+                    <div class="small"><span class="badge @Badge(h.Status)">@Label(h.Status)</span> <span class="text-muted">@h.At.ToString("dd.MM. HH:mm") · @h.By</span></div>
+                    @if (!string.IsNullOrWhiteSpace(h.Comment)) { <div style="white-space:pre-line;overflow-wrap:anywhere;"><i class="bi bi-chat-left-text me-1"></i>@h.Comment</div> }
+                </div>
+            }
+        </section>
+    }
+</AuthGuard>
+
+@code {
+    private List<DefectVm>? _list;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try { _list = await Http.GetFromJsonAsync<List<DefectVm>>("client-api/me/defects") ?? new(); } catch { _list = new(); }
+    }
+
+    private static string Label(string s) => s switch { "Done" => "Erledigt", "InProgress" => "In Arbeit", _ => "Offen" };
+    private static string Badge(string s) => s switch { "Done" => "bg-success", "InProgress" => "bg-warning text-dark", _ => "bg-danger" };
+
+    private record HistVm(DateTime At, string Status, string? By, string? Comment);
+    private record DefectVm(int Id, string? Vehicle, string Description, string Status, DateTime ReportedAt, List<HistVm> History);
+}

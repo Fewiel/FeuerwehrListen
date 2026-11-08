@@ -129,7 +129,9 @@ public static class MemberAreaEndpoints
             var openTasks = m == null ? 0 : (await leadership.GetTasksAsync())
                 .Count(t => t.AssigneeMemberId == m.Id && t.Status != LeadershipTaskStatus.Erledigt);
 
-            return Results.Json(new { events, watches = openWatches, openTasks });
+            var myDefects = m == null ? 0 : (await http.RequestServices.GetRequiredService<DefectRepository>().GetByReporterAsync(m.Id))
+                .Count(d => d.Status != DefectStatus.Done);
+            return Results.Json(new { events, watches = openWatches, openTasks, myDefects });
         });
 
         // Eigene Aufgaben (zugeordnet aus dem Fuehrungskreis): ansehen, Notizen, Status.
@@ -169,6 +171,41 @@ public static class MemberAreaEndpoints
             var note = $"Eingereicht von {m.FirstName} {m.LastName}" + (string.IsNullOrWhiteSpace(r.Notes) ? "" : ": " + r.Notes.Trim());
             var item = await svc.ScheduleForNextMeetingAsync(t.Circle, t.Title, m.Id, t.Id, note);
             return Results.Json(new { ok = true, scheduled = item.ProtocolId != null });
+        });
+
+        // Push: oeffentlicher VAPID-Schluessel + Abo des eigenen Geraets.
+        me.MapGet("/push/key", async (PushService push) => Results.Json(new { publicKey = (await push.GetVapidAsync()).PublicKey }));
+        me.MapPost("/push/subscribe", async (HttpContext http, MemberRepository members, UserAccessService ua, PushService push, PushSubscribeRequest r) =>
+        {
+            var m = await CurrentMemberAsync(http, members, ua);
+            if (m == null || string.IsNullOrWhiteSpace(r.Endpoint) || string.IsNullOrWhiteSpace(r.P256dh) || string.IsNullOrWhiteSpace(r.Auth)) return Results.BadRequest();
+            await push.SubscribeAsync(m.Id, r.Endpoint, r.P256dh, r.Auth);
+            await push.SendToMemberAsync(m.Id, "Benachrichtigungen aktiv", "Du bekommst ab jetzt Hinweise zu Mängeln, Aufgaben und Diensten.", "/mein");
+            return Results.Ok();
+        });
+        me.MapPost("/push/unsubscribe", async (PushService push, PushSubscribeRequest r) =>
+        {
+            if (!string.IsNullOrWhiteSpace(r.Endpoint)) await push.UnsubscribeAsync(r.Endpoint);
+            return Results.Ok();
+        });
+
+        // Selbst gemeldete Maengel mit Status und Verlauf (Notizen).
+        me.MapGet("/defects", async (HttpContext http, MemberRepository members, UserAccessService ua, DefectRepository defects) =>
+        {
+            var m = await CurrentMemberAsync(http, members, ua);
+            if (m == null) return Results.Json(Array.Empty<object>());
+            var list = (await defects.GetByReporterAsync(m.Id)).Take(50).ToList();
+            var result = new List<object>();
+            foreach (var d in list)
+            {
+                var hist = await defects.GetStatusChangesAsync(d.Id);
+                result.Add(new
+                {
+                    id = d.Id, vehicle = d.VehicleName ?? d.CustomVehicle, description = d.Description, status = d.Status.ToString(), reportedAt = d.ReportedAt,
+                    history = hist.OrderBy(h => h.ChangedAt).Select(h => new { at = h.ChangedAt, status = h.NewStatus.ToString(), by = h.ChangedByName, comment = h.Comment })
+                });
+            }
+            return Results.Json(result);
         });
 
         // ------------------------------------------------- oeffentliche Ausweispruefung
@@ -431,6 +468,7 @@ public static class MemberAreaEndpoints
 }
 
 public record PhotoUpload(string? DataUrl);
+public record PushSubscribeRequest(string? Endpoint, string? P256dh, string? Auth);
 public record MyTaskUpdate(string? Notes, string? Status);
 public record ProfileUpdate(string? Email);
 public record MemberAccountUpdate(List<string>? Modules, int LeadershipCircle, string? Rank, string? Email, DateTime? CardValidUntil, bool Unlock = false);

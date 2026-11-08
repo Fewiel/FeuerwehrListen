@@ -43,3 +43,4 @@ Beim Erhöhen von MAJOR/MINOR wird der rechte Teil auf 0 gesetzt.
 * **3.4.0** – Mängel mit Fotos (Nextcloud, <Basis Mängel>/JJJJ/<MangelID>), eigener Basisordner in den Einstellungen
 * **3.4.1** – Fix: Fotos beim Melden eines Mangels landen im richtigen Ordner
 * **3.5.0** – Führungskreis: Themenbereiche und Bereiche über Sitzungen hinweg, Infos aus dem kleinen in den großen Kreis weitergeben
+* **3.6.0** – Push-Benachrichtigungen (Mangel bearbeitet, neue Aufgabe, 1 h vor Dienstabend), „Meine gemeldeten Mängel“ im Mitgliederbereich

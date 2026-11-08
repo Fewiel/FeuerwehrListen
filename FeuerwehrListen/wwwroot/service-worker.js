@@ -32,3 +32,26 @@ self.addEventListener('activate', function (event) {
 // Bewusst KEIN fetch-Handler: keine Interception, keine Ersatzantwort.
 // Der Browser behandelt alle Requests normal; bei Verbindungsverlust greift die
 // Blazor-Reconnect-Behandlung, nicht eine im Service Worker erzeugte Seite.
+
+// Web-Push (Mitgliederbereich): Benachrichtigung anzeigen und beim Antippen die passende Seite oeffnen.
+self.addEventListener('push', function (event) {
+    var data = {};
+    try { data = event.data ? event.data.json() : {}; } catch (e) { data = { title: 'Feuerwehr', body: event.data ? event.data.text() : '' }; }
+    event.waitUntil(self.registration.showNotification(data.title || 'Feuerwehr', {
+        body: data.body || '',
+        icon: '/icon-192.png',
+        badge: '/icon-192.png',
+        data: { url: data.url || '/mein' }
+    }));
+});
+
+self.addEventListener('notificationclick', function (event) {
+    event.notification.close();
+    var url = (event.notification.data && event.notification.data.url) || '/mein';
+    event.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (list) {
+        for (var i = 0; i < list.length; i++) {
+            if ('focus' in list[i]) { list[i].navigate(url); return list[i].focus(); }
+        }
+        return self.clients.openWindow(url);
+    }));
+});
