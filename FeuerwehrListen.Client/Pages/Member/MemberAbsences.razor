@@ -1,0 +1,114 @@
+@page "/mein/abwesenheiten"
+@layout MemberLayout
+@using System.Net.Http.Json
+@inject HttpClient Http
+@inject IJSRuntime JS
+
+<PageTitle>Abwesenheiten</PageTitle>
+
+@* Abwesenheiten im Voraus melden: jede Anwesenheitsliste, die den Zeitraum ueberschneidet,
+   bekommt das Mitglied automatisch als "entschuldigt" (Einsatzlisten nicht). *@
+<AuthGuard Roles="Admin,User">
+    <h1 style="font-size:1.4rem;font-weight:700;margin:4px 0 14px;">Abwesenheiten</h1>
+
+    <section class="fwm-card">
+        <h2 style="font-size:1rem;margin:0 0 10px;">Neue Abwesenheit</h2>
+        @if (_member is null)
+        {
+            <label for="q" class="form-label small fw-semibold">Mitglied</label>
+            <input id="q" class="form-control" style="min-height:46px;" placeholder="Name oder Mitgliedsnummer" value="@_q" @oninput="Search" />
+            @foreach (var m in _hits)
+            {
+                <button type="button" class="btn w-100 text-start border-bottom rounded-0" style="min-height:46px;" @onclick="() => { _member = m; _hits.Clear(); }">@m.Name <span class="text-muted">(@m.Number)</span></button>
+            }
+        }
+        else
+        {
+            <div class="d-flex align-items-center mb-2"><strong class="flex-grow-1">@_member.Name</strong><button class="btn btn-sm btn-outline-secondary" @onclick="() => _member = null">ändern</button></div>
+            <div class="row g-2">
+                <div class="col-6"><label class="form-label small fw-semibold">Von</label><input type="date" class="form-control" @bind="_fromDate" @bind:after="SyncTo" /></div>
+                <div class="col-6"><label class="form-label small fw-semibold">Uhrzeit</label><input type="time" class="form-control" @bind="_fromTime" /></div>
+                <div class="col-6"><label class="form-label small fw-semibold">Bis</label><input type="date" class="form-control" @bind="_toDate" /></div>
+                <div class="col-6"><label class="form-label small fw-semibold">Uhrzeit</label><input type="time" class="form-control" @bind="_toTime" /></div>
+                <div class="col-12"><input class="form-control" placeholder="Grund (optional)" @bind="_note" /></div>
+            </div>
+            <button class="fwm-btn mt-3" @onclick="Save" disabled="@_busy"><i class="bi bi-person-dash"></i>Als abwesend eintragen</button>
+        }
+        @if (_msg is not null) { <div class="small mt-2 @(_ok ? "text-success" : "text-danger")">@_msg</div> }
+    </section>
+
+    <section class="fwm-card">
+        <h2 style="font-size:1rem;margin:0 0 6px;">Gemeldet</h2>
+        @if (_list is null) { <div class="text-muted">Lade…</div> }
+        else if (_list.Count == 0) { <div class="text-muted">Keine Abwesenheiten gemeldet.</div> }
+        @foreach (var a in _list ?? new())
+        {
+            <div class="d-flex align-items-center py-2 border-top" style="gap:10px;">
+                <div class="flex-grow-1" style="min-width:0;">
+                    <div class="fw-semibold">@a.Name</div>
+                    <div class="small text-muted">@Range(a.From, a.To)@(string.IsNullOrWhiteSpace(a.Note) ? "" : " · " + a.Note)</div>
+                </div>
+                <button class="btn btn-outline-danger" style="min-width:44px;min-height:44px;" aria-label="Löschen" @onclick="() => Delete(a)"><i class="bi bi-trash"></i></button>
+            </div>
+        }
+    </section>
+</AuthGuard>
+
+@code {
+    private string _q = "";
+    private List<Hit> _hits = new();
+    private Hit? _member;
+    private DateTime _fromDate = DateTime.Today, _toDate = DateTime.Today;
+    // Standard: Dienstabend 19-21 Uhr.
+    private TimeOnly _fromTime = new(19, 0), _toTime = new(21, 0);
+    private string _note = "";
+    private bool _busy, _ok;
+    private string? _msg;
+    private List<AbsenceDto>? _list;
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load()
+    {
+        try { _list = await Http.GetFromJsonAsync<List<AbsenceDto>>("client-api/absences"); } catch { _list = new(); }
+    }
+
+    private async Task Search(ChangeEventArgs e)
+    {
+        _q = e.Value?.ToString() ?? "";
+        if (_q.Trim().Length < 2) { _hits.Clear(); return; }
+        try { _hits = await Http.GetFromJsonAsync<List<Hit>>($"client-api/members/search?q={Uri.EscapeDataString(_q.Trim())}") ?? new(); } catch { }
+    }
+
+    private void SyncTo() { if (_toDate < _fromDate) _toDate = _fromDate; }
+
+    private async Task Save()
+    {
+        if (_member is null) return;
+        var from = _fromDate.Date + _fromTime.ToTimeSpan(); var to = _toDate.Date + _toTime.ToTimeSpan();
+        if (to <= from) { _ok = false; _msg = "Das Ende muss nach dem Beginn liegen."; return; }
+        _busy = true; _msg = null;
+        try
+        {
+            var resp = await Http.PostAsJsonAsync("client-api/absences", new { MemberId = _member.Id, From = from, To = to, Note = _note });
+            _ok = resp.IsSuccessStatusCode;
+            _msg = _ok ? $"{_member.Name} ist für {Range(from, to)} als entschuldigt vorgemerkt." : "Speichern fehlgeschlagen.";
+            if (_ok) { _member = null; _q = ""; _note = ""; await Load(); }
+        }
+        catch { _ok = false; _msg = "Speichern fehlgeschlagen."; }
+        finally { _busy = false; }
+    }
+
+    private async Task Delete(AbsenceDto a)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", $"Abwesenheit von {a.Name} wirklich löschen?")) return;
+        try { await Http.DeleteAsync($"client-api/absences/{a.Id}"); } catch { }
+        await Load();
+    }
+
+    private static string Range(DateTime f, DateTime t) =>
+        f.Date == t.Date ? $"{f:dd.MM.yyyy} {f:HH:mm}–{t:HH:mm} Uhr" : $"{f:dd.MM. HH:mm} – {t:dd.MM.yyyy HH:mm} Uhr";
+
+    private record Hit(int Id, string Name, string Number);
+    private record AbsenceDto(int Id, int MemberId, string Name, DateTime From, DateTime To, string Note, string CreatedBy);
+}
