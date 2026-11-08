@@ -101,14 +101,16 @@ public class LeadershipService
     }
 
     /// <summary>Punkt fuer die naechste Sitzung des Kreises einplanen (sonst Rueckstau).</summary>
-    public async Task<LeadershipItem> ScheduleForNextMeetingAsync(int circle, string title, int? ownerMemberId, int? sourceTaskId, string notes = "")
+    public async Task<LeadershipItem> ScheduleForNextMeetingAsync(int circle, string title, int? ownerMemberId, int? sourceTaskId, string notes = "",
+        int section = LeadershipItem.SectionAgenda, int? topicId = null, int? areaId = null)
     {
         var next = await NextPreparingProtocolAsync(circle);
         var item = new LeadershipItem
         {
             Circle = circle, Title = title, OwnerMemberId = ownerMemberId, SourceTaskId = sourceTaskId, Notes = notes,
+            Section = section, TopicId = topicId, AreaId = areaId,
             ProtocolId = next?.Id, CreatedAt = DateTime.Now,
-            SortOrder = next == null ? 0 : await SortOrderBeforeMiscAsync(next.Id)
+            SortOrder = next == null || section != LeadershipItem.SectionAgenda ? 0 : await SortOrderBeforeMiscAsync(next.Id)
         };
         await _repo.InsertItemAsync(item);
         return item;
@@ -339,16 +341,24 @@ public class LeadershipService
         if (excused.Count > 0) Text($"Entschuldigt ({excused.Count}): {string.Join(", ", excused)}", F(10));
         if (absent.Count > 0) Text($"Fehlend ({absent.Count}): {string.Join(", ", absent)}", F(10), after: 12);
 
+        var topicNames = (await _repo.GetTopicsAsync()).ToDictionary(t => t.Id, t => t.Title);
         void Plain(string heading, int section)
         {
             var list = items.Where(i => i.Section == section && i.Status != LeadershipItemStatus.Abgelehnt).ToList();
             if (list.Count == 0) return;
             Text(heading, F(13, true));
-            foreach (var it in list)
+            // Gruppiert: Bereich -> Themenbereich -> lose Infos.
+            foreach (var g in list.GroupBy(i => (i.AreaId, i.TopicId)).OrderBy(g => g.Key.AreaId.HasValue ? 0 : 1).ThenBy(g => g.Key.TopicId.HasValue ? 0 : 1))
             {
-                var owner = it.OwnerMemberId is int oid && memberNames.TryGetValue(oid, out var on) ? $" ({on})" : "";
-                Text($"• {it.Title}{owner}", F(11, true), after: 2);
-                Text(it.Notes, F(10), indent: 14);
+                var parts = new[] { g.Key.AreaId, g.Key.TopicId }.Where(x => x is int).Select(x => topicNames.GetValueOrDefault(x!.Value, "?"));
+                var label = string.Join(" › ", parts);
+                if (label.Length > 0) Text(label, F(11, true), after: 2);
+                foreach (var it in g)
+                {
+                    var owner = it.OwnerMemberId is int oid && memberNames.TryGetValue(oid, out var on) ? $" ({on})" : "";
+                    Text($"• {it.Title}{owner}", F(10.5, label.Length == 0), indent: label.Length > 0 ? 10 : 0, after: 2);
+                    Text(it.Notes, F(10), indent: 18);
+                }
             }
             y += 6;
         }

@@ -62,6 +62,14 @@ public class LeadershipRepository
         return (max ?? 0) + 10;
     }
 
+    // --- Themenbereiche / Bereiche ---
+    public Task<List<LeadershipTopic>> GetTopicsAsync() => _db.LeadershipTopics.OrderBy(x => x.Title).ToListAsync();
+    public Task<LeadershipTopic?> GetTopicAsync(int id) => _db.LeadershipTopics.FirstOrDefaultAsync(x => x.Id == id);
+    public async Task<int> InsertTopicAsync(LeadershipTopic t) => t.Id = await _db.InsertWithInt32IdentityAsync(t);
+    public Task UpdateTopicAsync(LeadershipTopic t) => _db.UpdateAsync(t);
+    public Task<List<LeadershipItem>> GetItemsForTopicAsync(int topicId) =>
+        _db.LeadershipItems.Where(x => x.TopicId == topicId || x.AreaId == topicId).OrderByDescending(x => x.CreatedAt).ToListAsync();
+
     // --- Aufgaben ---
     public Task<List<LeadershipTask>> GetTasksAsync(LeadershipTaskStatus? status = null) =>
         (status is LeadershipTaskStatus st ? _db.LeadershipTasks.Where(x => x.Status == st) : _db.LeadershipTasks)

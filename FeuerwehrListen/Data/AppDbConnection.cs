@@ -20,6 +20,7 @@ public class AppDbConnection : DataConnection
     public ITable<LeadershipProtocol> LeadershipProtocols => this.GetTable<LeadershipProtocol>();
     public ITable<LeadershipItem> LeadershipItems => this.GetTable<LeadershipItem>();
     public ITable<LeadershipTask> LeadershipTasks => this.GetTable<LeadershipTask>();
+    public ITable<LeadershipTopic> LeadershipTopics => this.GetTable<LeadershipTopic>();
     public ITable<ApiKey> ApiKeys => this.GetTable<ApiKey>();
     public ITable<PermissionKey> PermissionKeys => this.GetTable<PermissionKey>();
     public ITable<UserPermissionKey> UserPermissionKeys => this.GetTable<UserPermissionKey>();
