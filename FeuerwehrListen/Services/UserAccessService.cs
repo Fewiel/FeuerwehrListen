@@ -57,7 +57,8 @@ public sealed class UserAccessService
         public bool IsFull => IsAdmin || (!IsMember && Modules == null);
 
         /// <summary>Darf Inhalte des Fuehrungskreises dieser Stufe sehen?</summary>
-        public bool CanSeeCircle(int circle) => IsAdmin || (LeadershipCircle > 0 && LeadershipCircle >= circle);
+        /// Im Mitgliedslogin zaehlt nur die eigene Kreis-Stufe - auch wenn ein Admin verknuepft ist.
+        public bool CanSeeCircle(int circle) => (IsAdmin && !IsMember) || (LeadershipCircle > 0 && LeadershipCircle >= circle);
     }
 
     public async Task<AccessInfo?> GetAsync(string? username)
@@ -86,8 +87,7 @@ public sealed class UserAccessService
                 mods.UnionWith(ParseModules(linked.ModuleAccess) ?? new HashSet<string>(SelectableModules));
                 info = info with
                 {
-                    IsAdmin = linked.Role == UserRole.Admin, Modules = mods, IsStaff = true,
-                    LeadershipCircle = linked.Role == UserRole.Admin ? LeadershipCircles.Small : info.LeadershipCircle
+                    IsAdmin = linked.Role == UserRole.Admin, Modules = mods, IsStaff = true
                 };
             }
         }
