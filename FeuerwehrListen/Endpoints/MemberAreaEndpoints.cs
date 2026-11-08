@@ -95,12 +95,19 @@ public static class MemberAreaEndpoints
             var events = new List<object>();
             if (allowed.Contains(NetworkAccessService.ModuleCalendar) || allowed.Contains(NetworkAccessService.ModuleLeadership))
             {
+                // Einheiten des Mitglieds: Termine mit Einheitenzuordnung nur, wenn sie zur eigenen
+                // Einheit gehoeren; ohne Zuordnung sehen alle. Fahrzeug-/Raumbuchungen nur eigene.
+                var myUnits = m == null ? new HashSet<int>() : (await members.GetUnitsForMemberAsync(m.Id)).ToHashSet();
+                if (m?.UnitNumber is int pu) myUnits.Add(pu);
                 var from = DateTime.Now;
                 var list = (await calendar.GetEventsInRangeAsync(from, from.AddDays(21)))
                     .Where(e => e.Status != CalendarEventStatus.Abgelehnt && e.Status != CalendarEventStatus.Storniert)
                     .Where(e => e.Type == CalendarEventType.Fuehrungskreis
                         ? info.CanSeeCircle(e.LeadershipCircle ?? LeadershipCircles.Small)
                         : allowed.Contains(NetworkAccessService.ModuleCalendar))
+                    .Where(e => e.Type != CalendarEventType.Fahrzeugbuchung && e.Type != CalendarEventType.Raumbuchung
+                        || (m != null && e.MemberId == m.Id))
+                    .Where(e => e.UnitNumber is not int u || myUnits.Contains(u))
                     .OrderBy(e => e.StartTime).Take(5);
                 events.AddRange(list.Select(e => new
                 {

@@ -382,6 +382,21 @@ textarea.form-control { min-height: unset; }
     background: rgba(0,0,0,.7); color: #cdd3da; border-radius: var(--tw-radius); z-index: 2;
 }
 
+/* ---------- Kalender ---------- */
+.cal-dots { display: none; }
+@media (max-width: 768px) {
+    .cal-page.container { padding-left: 8px; padding-right: 8px; }
+    .cal-head h1 { font-size: 1.4rem; }
+    /* Monatsraster auf dem Handy: kompakte Zellen, Punkte statt Text, Tagesliste darunter. */
+    .cal-table td { height: 48px !important; padding: 3px !important; }
+    .cal-table th { padding: 4px 0; }
+    .cal-items { display: none; }
+    .cal-dots { display: flex; flex-wrap: wrap; align-items: center; margin-top: 2px; }
+    .cal-dots span { width: 7px; height: 7px; border-radius: 50%; display: inline-block; margin: 1px; }
+    .cal-dots small { font-size: .6rem; color: #6c757d; margin-left: 2px; }
+    .cal-daynum { font-size: .8rem; }
+}
+
 /* ---------- Responsive ---------- */
 /* iPad quer: mit "Mein Bereich" und "Fuehrungskreis" wird die Leiste zu breit -
    Icons im Menue weglassen und Abstaende verkleinern, statt rechts abzuschneiden. */

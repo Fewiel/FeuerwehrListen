@@ -12,30 +12,64 @@
    schlichte HTML-Tabelle, Monatswechsel laeuft ueber State (kein Link = keine
    Vollnavigation = kein neuer Circuit), und "heute" kommt aus der Serverzeit. *@
 
-<div class="container mt-4">
-    <div class="row mb-3">
-        <div class="col"><h1 class="mb-0">Kalender</h1></div>
-        <div class="col-auto"><button class="btn btn-primary" @onclick="OpenCreate"><i class="bi bi-plus-circle"></i> Neuer Termin</button></div>
+<div class="container mt-4 cal-page">
+    <div class="d-flex align-items-center mb-3 cal-head">
+        <h1 class="mb-0 flex-grow-1">Kalender</h1>
+        <div class="btn-group me-2" role="group" aria-label="Ansicht">
+            <button class="btn btn-sm @(_view == "grid" ? "btn-dark" : "btn-outline-secondary")" @onclick='() => _view = "grid"' title="Monat"><i class="bi bi-grid-3x3"></i><span class="d-none d-sm-inline ms-1">Monat</span></button>
+            <button class="btn btn-sm @(_view == "list" ? "btn-dark" : "btn-outline-secondary")" @onclick='() => _view = "list"' title="Liste"><i class="bi bi-list-ul"></i><span class="d-none d-sm-inline ms-1">Liste</span></button>
+        </div>
+        <button class="btn btn-primary" @onclick="OpenCreate"><i class="bi bi-plus-circle"></i><span class="d-none d-sm-inline ms-1">Neuer Termin</span></button>
     </div>
 
     <div class="card mb-3"><div class="card-body py-2">
-        <div class="d-flex flex-wrap align-items-center justify-content-between">
-            <div>
-                <button class="btn btn-outline-secondary btn-sm" @onclick="PrevMonth" title="Voriger Monat">&laquo;</button>
-                <button class="btn btn-outline-secondary btn-sm ms-1" @onclick="Today">Heute</button>
-                <button class="btn btn-outline-secondary btn-sm ms-1" @onclick="NextMonth" title="Naechster Monat">&raquo;</button>
+        <div class="d-flex align-items-center justify-content-between">
+            <button class="btn btn-outline-secondary" style="min-width:44px;min-height:40px;" @onclick="PrevMonth" aria-label="Voriger Monat">&laquo;</button>
+            <div class="text-center">
+                <h4 class="mb-0">@MonthName(_month.Month) @_month.Year</h4>
+                <button class="btn btn-link btn-sm p-0" @onclick="Today">Heute</button>
+                @if (_loading) { <span class="spinner-border spinner-border-sm ms-2"></span> }
             </div>
-            <h4 class="mb-0">@MonthName(_month.Month) @_month.Year</h4>
-            <div>
-                @if (_loading) { <span class="spinner-border spinner-border-sm"></span> }
-            </div>
+            <button class="btn btn-outline-secondary" style="min-width:44px;min-height:40px;" @onclick="NextMonth" aria-label="Nächster Monat">&raquo;</button>
         </div>
     </div></div>
 
     @if (_error is not null) { <div class="alert alert-danger">@_error</div> }
 
+    @if (_view == "list")
+    {
+        @* Listenansicht: alle Termine des Monats nach Tagen - auf dem Handy die uebersichtlichere Form. *@
+        var days = MonthDays();
+        @if (days.Count == 0) { <div class="card"><div class="card-body text-muted">Keine Termine in diesem Monat.</div></div> }
+        @foreach (var day in days)
+        {
+            <div class="card mb-2">
+                <div class="card-header py-2 d-flex align-items-center" style="gap:10px;">
+                    <span class="fw-bold @(day.Date == _serverToday.Date ? "text-danger" : "")">@day.Day</span>
+                    <span>@WeekdayName(day.DayOfWeek)@(day.Date == _serverToday.Date ? " · heute" : "")</span>
+                </div>
+                <ul class="list-group list-group-flush">
+                    @foreach (var it in ItemsOn(day))
+                    {
+                        <li class="list-group-item list-group-item-action px-3" style="cursor:pointer;" @onclick="() => OpenDetail(it)">
+                            <div class="d-flex align-items-start" style="gap:10px;">
+                                <span style="color:@ColorOf(it.Kind);margin-top:2px;">&#9679;</span>
+                                <div class="flex-grow-1" style="min-width:0;">
+                                    <div class="fw-semibold">@it.Title</div>
+                                    <div class="small text-muted">@(it.AllDay ? "ganztägig" : $"{it.Start:HH:mm} – {it.End:HH:mm}")@(string.IsNullOrWhiteSpace(it.Location) ? "" : " · " + it.Location) · @KindLabel(it.Kind)</div>
+                                </div>
+                                <i class="bi bi-chevron-right text-muted"></i>
+                            </div>
+                        </li>
+                    }
+                </ul>
+            </div>
+        }
+    }
+    else
+    {
     <div class="table-responsive">
-        <table class="table table-bordered mb-0" style="table-layout:fixed;">
+        <table class="table table-bordered mb-0 cal-table" style="table-layout:fixed;">
             <thead>
                 <tr>
                     @foreach (var d in new[] { "Mo", "Di", "Mi", "Do", "Fr", "Sa", "So" })
@@ -59,20 +93,27 @@
                             <td class="p-1 align-top @(isSelected ? "table-active" : "")"
                                 style="height:88px; cursor:pointer; @(isCurrentMonth ? "" : "background-color:#f8f9fa;")"
                                 @onclick="() => SelectDay(day)">
-                                <div class="small @(isToday ? "fw-bold text-danger" : (isCurrentMonth ? "" : "text-muted"))">
+                                <div class="small cal-daynum @(isToday ? "fw-bold text-danger" : (isCurrentMonth ? "" : "text-muted"))">
                                     @day.Day@(isToday ? " •" : "")
                                 </div>
-                                @foreach (var it in dayItems.Take(3))
-                                {
-                                    <div class="small text-truncate" style="line-height:1.2;" title="@it.Title">
-                                        <span style="color:@ColorOf(it.Kind);">&#9679;</span>
-                                        <span>@ShortTime(it)</span> @it.Title
-                                    </div>
-                                }
-                                @if (dayItems.Count > 3)
-                                {
-                                    <div class="small text-muted">+@(dayItems.Count - 3) weitere</div>
-                                }
+                                <div class="cal-items">
+                                    @foreach (var it in dayItems.Take(3))
+                                    {
+                                        <div class="small text-truncate" style="line-height:1.2;" title="@it.Title">
+                                            <span style="color:@ColorOf(it.Kind);">&#9679;</span>
+                                            <span>@ShortTime(it)</span> @it.Title
+                                        </div>
+                                    }
+                                    @if (dayItems.Count > 3)
+                                    {
+                                        <div class="small text-muted">+@(dayItems.Count - 3) weitere</div>
+                                    }
+                                </div>
+                                @* Handy: nur Punkte statt Text - der Tag unten zeigt die Liste. *@
+                                <div class="cal-dots">
+                                    @foreach (var it in dayItems.Take(4)) { <span style="background:@ColorOf(it.Kind);"></span> }
+                                    @if (dayItems.Count > 4) { <small>+@(dayItems.Count - 4)</small> }
+                                </div>
                             </td>
                         }
                     </tr>
@@ -80,6 +121,8 @@
             </tbody>
         </table>
     </div>
+
+    }
 
     <div class="mt-2 small text-muted">
         <span style="color:#C77700;">&#9679;</span> Wache
@@ -478,6 +521,16 @@
     private DateTime _month = new(DateTime.Now.Year, DateTime.Now.Month, 1);
     private DateTime _serverToday = DateTime.Now;
     private DateTime? _selected;
+    private string _view = "grid";
+
+    // Tage des angezeigten Monats mit mindestens einem Termin (Listenansicht).
+    private List<DateTime> MonthDays()
+    {
+        var first = _month; var last = _month.AddMonths(1);
+        var days = new List<DateTime>();
+        for (var d = first; d < last; d = d.AddDays(1)) if (ItemsOn(d).Count > 0) days.Add(d);
+        return days;
+    }
     private List<CalItem> _items = new();
     private bool _loading, _saving;
     private string? _error, _formError, _info;
@@ -640,6 +693,10 @@
             {
                 _items = resp.Items ?? new();
                 _serverToday = resp.ServerTime;
+                // Im aktuellen Monat gleich "heute" auswaehlen - dann steht unter dem Raster sofort
+                // die Tagesliste (auf dem Handy zeigt das Raster nur Punkte).
+                if (_selected is null && _month.Year == _serverToday.Year && _month.Month == _serverToday.Month)
+                    _selected = _serverToday.Date;
             }
         }
         catch { _error = "Kalender konnte nicht geladen werden."; }
