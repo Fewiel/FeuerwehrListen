@@ -21,6 +21,10 @@ public class DefectRepository
         return await query.CountAsync();
     }
 
+    /// <summary>Maengel einer meldenden Person (Mitgliederbereich).</summary>
+    public Task<List<Defect>> GetByReporterAsync(int memberId) =>
+        _db.Defects.Where(d => d.ReportedByMemberId == memberId).OrderByDescending(d => d.ReportedAt).ToListAsync();
+
     public async Task<List<Defect>> GetPagedAsync(int page, int pageSize, DefectStatus? statusFilter = null)
     {
         var query = _db.Defects.AsQueryable();

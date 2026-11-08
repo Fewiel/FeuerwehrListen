@@ -181,6 +181,7 @@ builder.Services.AddScoped<CalendarService>();
 builder.Services.AddScoped<LeadershipRepository>();
 builder.Services.AddScoped<LeadershipService>();
 builder.Services.AddScoped<OperationMergeService>();
+builder.Services.AddScoped<PushService>();
 builder.Services.AddScoped<StatisticsService>();
 builder.Services.AddScoped<PdfExportService>();
 // GeocodingService ueber IHttpClientFactory (typed client) - kein new HttpClient() je Scope.
@@ -2339,7 +2340,7 @@ app.MapGet("/client-api/defects/{id:int}/history", async (int id, DefectReposito
 // Bearbeiter identifiziert sich per Mitgliedsnummer, die zu einem gueltigen Mitglied
 // aufloesen MUSS -> "bearbeitet durch"-Nachweis. (Frueher RequireAuthorization; das hat den
 // Geraetewart am PC ohne Login blockiert -> 401/"Speichern fehlgeschlagen".)
-app.MapPost("/client-api/defects/{id:int}/status", async (int id, DefectRepository repo, MemberRepository mRepo, DefectStatusRequest r) =>
+app.MapPost("/client-api/defects/{id:int}/status", async (int id, DefectRepository repo, MemberRepository mRepo, PushService push, DefectStatusRequest r) =>
 {
     var d = await repo.GetByIdAsync(id); if (d == null) return Results.NotFound();
     if (!Enum.TryParse<DefectStatus>(r.NewStatus, out var ns) || !Enum.IsDefined(ns) || ns == d.Status) return Results.BadRequest();
@@ -2351,6 +2352,13 @@ app.MapPost("/client-api/defects/{id:int}/status", async (int id, DefectReposito
     if (ns == DefectStatus.Done) { d.ResolvedAt = DateTime.Now; d.ResolvedByMemberId = member.Id; d.ResolvedByName = disp; }
     else { d.ResolvedAt = null; d.ResolvedByMemberId = null; d.ResolvedByName = null; } // Wiedereroeffnet
     await repo.UpdateAsync(d);
+    // Push an die meldende Person (nicht an sich selbst).
+    if (d.ReportedByMemberId is int reporter && reporter != member.Id)
+    {
+        var label = ns switch { DefectStatus.Done => "erledigt", DefectStatus.InProgress => "in Arbeit", _ => "offen" };
+        await push.SendToMemberAsync(reporter, $"Mangel {label}: {d.VehicleName ?? d.CustomVehicle}",
+            string.IsNullOrWhiteSpace(r.Comment) ? d.Description : $"Notiz: {r.Comment.Trim()}", "/mein/maengel");
+    }
     return Results.Json(new { status = "ok" });
 }).DisableAntiforgery();
 

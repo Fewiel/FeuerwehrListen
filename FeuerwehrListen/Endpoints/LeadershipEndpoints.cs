@@ -64,7 +64,7 @@ public static class LeadershipEndpoints
             }));
         });
 
-        g.MapPost("/tasks", async (HttpContext http, UserAccessService ua, LeadershipRepository repo, TaskRequest r) =>
+        g.MapPost("/tasks", async (HttpContext http, UserAccessService ua, LeadershipRepository repo, PushService push, TaskRequest r) =>
         {
             var viewer = ua.Get(http)!;
             if (string.IsNullOrWhiteSpace(r.Title)) return Results.BadRequest();
@@ -82,17 +82,21 @@ public static class LeadershipEndpoints
                 CreatedAt = DateTime.Now
             };
             await repo.InsertTaskAsync(t);
+            if (t.AssigneeMemberId is int a && a != ua.Get(http)!.MemberId)
+                await push.SendToMemberAsync(a, "Neue Aufgabe für dich", t.Title + (t.DueDate is DateTime d ? $" (fällig {d:dd.MM.})" : ""), "/mein/aufgaben");
             return Results.Json(new { id = t.Id });
         });
 
-        g.MapPut("/tasks/{id:int}", async (int id, HttpContext http, UserAccessService ua, LeadershipRepository repo, TaskRequest r) =>
+        g.MapPut("/tasks/{id:int}", async (int id, HttpContext http, UserAccessService ua, LeadershipRepository repo, PushService push, TaskRequest r) =>
         {
             var viewer = ua.Get(http)!;
             var t = await repo.GetTaskAsync(id);
             if (t == null || !viewer.CanSeeCircle(t.Circle)) return Results.NotFound();
             if (!string.IsNullOrWhiteSpace(r.Title)) t.Title = r.Title.Trim();
             t.Description = r.Description?.Trim() ?? "";
+            var newlyAssigned = r.AssigneeMemberId is int na && na != t.AssigneeMemberId && na != viewer.MemberId ? na : (int?)null;
             t.AssigneeMemberId = r.AssigneeMemberId;
+            if (newlyAssigned is int nm) await push.SendToMemberAsync(nm, "Neue Aufgabe für dich", t.Title, "/mein/aufgaben");
             t.DueDate = r.DueDate?.Date;
             if (r.Circle is int c && LeadershipCircles.IsValid(c) && viewer.CanSeeCircle(c)) t.Circle = c;
             await repo.UpdateTaskAsync(t);

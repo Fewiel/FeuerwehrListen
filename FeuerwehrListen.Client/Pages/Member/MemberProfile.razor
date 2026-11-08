@@ -46,6 +46,28 @@
             @if (_emailMsg is not null) { <div class="small mt-1 @(_emailOk ? "text-success" : "text-danger")">@_emailMsg</div> }
         </section>
 
+        @if (_pushState != "unsupported")
+        {
+            <section class="fwm-card">
+                <h2 style="font-size:1rem;">Benachrichtigungen</h2>
+                @if (_pushState == "denied")
+                {
+                    <div class="small text-muted">Im Browser blockiert. Bitte in den Website-Einstellungen des Browsers (bzw. App-Einstellungen von Android/iOS) die Mitteilungen für diese Seite erlauben, danach hier aktivieren.</div>
+                }
+                else if (_pushOn)
+                {
+                    <div class="small mb-2"><i class="bi bi-check-circle text-success me-1"></i>Auf diesem Gerät aktiv.</div>
+                    <button class="btn btn-outline-secondary w-100" style="min-height:44px;" @onclick="DisablePush">Deaktivieren</button>
+                }
+                else
+                {
+                    <div class="small text-muted mb-2">Hinweise zu deinen Mängeln, neuen Aufgaben und 1 Stunde vor dem Dienstabend.</div>
+                    <button class="fwm-btn" @onclick="EnablePush"><i class="bi bi-bell"></i> Benachrichtigungen aktivieren</button>
+                }
+                @if (_pushMsg is not null) { <div class="small mt-1">@_pushMsg</div> }
+            </section>
+        }
+
         <a href="/change-password" class="fwm-btn fwm-btn-outline mb-2"><i class="bi bi-key"></i> Passwort ändern</a>
         <a href="/logout" class="fwm-btn fwm-btn-outline"><i class="bi bi-box-arrow-right"></i> Abmelden</a>
         <div style="text-align:center;color:#8A857F;font-size:.75rem;margin-top:14px;">Version @(_version ?? "–")</div>
@@ -113,6 +135,27 @@
         catch { _emailOk = false; _emailMsg = "Speichern fehlgeschlagen."; }
         finally { _emailBusy = false; }
     }
+
+    private string _pushState = "unsupported";
+    private bool _pushOn;
+    private string? _pushMsg;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        _pushState = await PushHelper.PermissionAsync(JS);
+        _pushOn = _pushState == "granted" && await PushHelper.IsSubscribedAsync(JS);
+        StateHasChanged();
+    }
+
+    private async Task EnablePush()
+    {
+        _pushOn = await PushHelper.EnableAsync(JS, Http);
+        _pushState = await PushHelper.PermissionAsync(JS);
+        _pushMsg = _pushOn ? "Aktiviert – eine Test-Benachrichtigung wurde geschickt." : _pushState == "denied" ? null : "Nicht aktiviert.";
+    }
+
+    private async Task DisablePush() { await PushHelper.DisableAsync(JS, Http); _pushOn = false; _pushMsg = "Deaktiviert."; }
 
     private record UploadResult(bool Ok, string? Error = null);
     private record MeDto(bool IsMember, string Number = "", string FirstName = "", string LastName = "", string? Rank = null, DateTime? BirthDate = null,
