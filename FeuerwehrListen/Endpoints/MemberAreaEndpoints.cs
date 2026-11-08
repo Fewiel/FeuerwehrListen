@@ -125,12 +125,50 @@ public static class MemberAreaEndpoints
                     .Select(w => new { id = w.Id, name = w.Name, time = w.EventDateTime, free = Math.Max(0, w.TotalRequired - w.TotalAssigned) }));
             }
 
-            var openTasks = 0;
-            if (m != null && allowed.Contains(NetworkAccessService.ModuleLeadership))
-                openTasks = (await leadership.GetTasksAsync(LeadershipTaskStatus.Offen))
-                    .Count(t => t.AssigneeMemberId == m.Id && info.CanSeeCircle(t.Circle));
+            // Eigene Aufgaben (auch fuer Mitglieder ausserhalb des Fuehrungskreises).
+            var openTasks = m == null ? 0 : (await leadership.GetTasksAsync())
+                .Count(t => t.AssigneeMemberId == m.Id && t.Status != LeadershipTaskStatus.Erledigt);
 
             return Results.Json(new { events, watches = openWatches, openTasks });
+        });
+
+        // Eigene Aufgaben (zugeordnet aus dem Fuehrungskreis): ansehen, Notizen, Status.
+        me.MapGet("/tasks", async (HttpContext http, MemberRepository members, UserAccessService ua, LeadershipRepository repo) =>
+        {
+            var m = await CurrentMemberAsync(http, members, ua);
+            if (m == null) return Results.Json(Array.Empty<object>());
+            var tasks = (await repo.GetTasksAsync()).Where(t => t.AssigneeMemberId == m.Id)
+                .Where(t => t.Status != LeadershipTaskStatus.Erledigt || t.CompletedAt > DateTime.Now.AddDays(-30));
+            return Results.Json(tasks.Select(t => new { id = t.Id, title = t.Title, description = t.Description, due = t.DueDate,
+                status = t.Status.ToString(), notes = t.Notes, createdBy = t.CreatedBy }));
+        });
+
+        me.MapPut("/tasks/{id:int}", async (int id, HttpContext http, MemberRepository members, UserAccessService ua, LeadershipRepository repo,
+            LeadershipService svc, MyTaskUpdate r) =>
+        {
+            var m = await CurrentMemberAsync(http, members, ua);
+            var t = await repo.GetTaskAsync(id);
+            if (m == null || t == null || t.AssigneeMemberId != m.Id) return Results.NotFound();
+            if (r.Notes != null) t.Notes = r.Notes.Length > 4000 ? r.Notes[..4000] : r.Notes;
+            if (Enum.TryParse<LeadershipTaskStatus>(r.Status, true, out var st) && st != t.Status)
+            {
+                if (st == LeadershipTaskStatus.Erledigt) { await repo.UpdateTaskAsync(t); await svc.CompleteTaskAsync(t); return Results.Ok(); }
+                t.Status = st; t.CompletedAt = null;
+            }
+            await repo.UpdateTaskAsync(t);
+            return Results.Ok();
+        });
+
+        // Aus der eigenen Aufgabe einen Tagespunkt fuer die naechste Sitzung vorschlagen (mit Notiz).
+        me.MapPost("/tasks/{id:int}/to-agenda", async (int id, HttpContext http, MemberRepository members, UserAccessService ua,
+            LeadershipRepository repo, LeadershipService svc, MyTaskUpdate r) =>
+        {
+            var m = await CurrentMemberAsync(http, members, ua);
+            var t = await repo.GetTaskAsync(id);
+            if (m == null || t == null || t.AssigneeMemberId != m.Id) return Results.NotFound();
+            var note = $"Eingereicht von {m.FirstName} {m.LastName}" + (string.IsNullOrWhiteSpace(r.Notes) ? "" : ": " + r.Notes.Trim());
+            var item = await svc.ScheduleForNextMeetingAsync(t.Circle, t.Title, m.Id, t.Id, note);
+            return Results.Json(new { ok = true, scheduled = item.ProtocolId != null });
         });
 
         // ------------------------------------------------- oeffentliche Ausweispruefung
@@ -393,6 +431,7 @@ public static class MemberAreaEndpoints
 }
 
 public record PhotoUpload(string? DataUrl);
+public record MyTaskUpdate(string? Notes, string? Status);
 public record ProfileUpdate(string? Email);
 public record MemberAccountUpdate(List<string>? Modules, int LeadershipCircle, string? Rank, string? Email, DateTime? CardValidUntil, bool Unlock = false);
 public record EnrollmentLookup(string? Code);

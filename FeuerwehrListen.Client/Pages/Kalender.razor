@@ -206,6 +206,13 @@
                             <div class="form-text">Nur Mitglieder dieses Kreises sehen den Termin (der kleine Kreis sieht beide). Das Protokoll wird automatisch angelegt.</div>
                         </div>
                         <div class="mb-2">
+                            <label class="form-label">Protokollführung</label>
+                            <select class="form-select" @bind="_fKeeper" @onfocus="LoadKeepers">
+                                <option value="0">– später festlegen –</option>
+                                @foreach (var k in _keepers.Where(k => k.Circle >= _fCircle)) { <option value="@k.Id">@k.Name</option> }
+                            </select>
+                        </div>
+                        <div class="mb-2">
                             <label class="form-label">Anwesenheit öffnen … Minuten vor Beginn</label>
                             <input type="number" class="form-control" style="max-width:200px" min="0" max="1440" @bind="_fLeadMinutes" />
                         </div>
@@ -542,6 +549,14 @@
     private string _fUnitNumber = "";
     private string _fLeadMinutes = "";
     private int _fCircle = 1;
+    private int _fKeeper;
+    private List<KeeperDto> _keepers = new();
+    private record KeeperDto(int Id, string Name, int Circle);
+    private async Task LoadKeepers()
+    {
+        if (_keepers.Count > 0) return;
+        try { _keepers = await Http.GetFromJsonAsync<List<KeeperDto>>("client-api/leadership/members?circle=1") ?? new(); } catch { }
+    }
     private bool _leadership;
     private List<FeuerwehrListen.Client.Models.UnitLabel> _unitLabels = new();
     private DateTime _fStart = DateTime.Now.Date.AddHours(18);
@@ -849,7 +864,8 @@
                 VehicleIds = _fVehicles.ToList(),
                 RoomIds = _fRooms.ToList(),
                 MinutesBeforeEvent = string.IsNullOrWhiteSpace(_fLeadMinutes) ? (int?)null : int.Parse(_fLeadMinutes),
-                LeadershipCircle = _fType == "Fuehrungskreis" ? _fCircle : (int?)null
+                LeadershipCircle = _fType == "Fuehrungskreis" ? _fCircle : (int?)null,
+                KeeperMemberId = _fType == "Fuehrungskreis" && _fKeeper > 0 ? _fKeeper : (int?)null
             };
             var resp = await Http.PostAsJsonAsync("client-api/calendar/events", body);
             var result = await resp.Content.ReadFromJsonAsync<CreateResult>();

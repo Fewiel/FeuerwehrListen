@@ -44,7 +44,7 @@
                         <label class="form-label">Verantwortlich</label>
                         <select class="form-select" @bind="_assignee">
                             <option value="0">– offen –</option>
-                            @foreach (var m in _members.Where(m => m.Circle >= _circle)) { <option value="@m.Id">@m.Name</option> }
+                            @foreach (var m in _members) { <option value="@m.Id">@m.Name@(m.Circle == 0 ? " (nicht im FK)" : "")</option> }
                         </select>
                     </div>
                     <div class="col-md-6"><label class="form-label">Beschreibung</label><input class="form-control" @bind="_description" /></div>
@@ -77,6 +77,8 @@
                                 <td>
                                     <div class="fw-semibold" style="@(t.Done ? "text-decoration:line-through;color:#5C5853;" : "")">@t.Title</div>
                                     @if (!string.IsNullOrWhiteSpace(t.Description)) { <div class="small text-muted">@t.Description</div> }
+                                    @if (t.Status == "InArbeit") { <span class="badge bg-info text-dark">in Arbeit</span> }
+                                    @if (!string.IsNullOrWhiteSpace(t.Notes)) { <div class="small" style="white-space:pre-line;"><i class="bi bi-chat-left-text me-1"></i>@t.Notes</div> }
                                     @if (t.Done && t.FollowUp is not null) { <div class="small fw-semibold" style="color:#1E7A3C;">→ als Punkt in @t.FollowUp übernommen</div> }
                                 </td>
                                 <td>@(t.Assignee ?? "–")</td>
@@ -84,6 +86,7 @@
                                 <td><span class="badge" style="background:#F1EAFA;color:#6B3FA0;">@(t.Circle == 2 ? "Klein" : "Groß")</span></td>
                                 <td class="small">@t.Origin</td>
                                 <td class="text-end text-nowrap">
+                                    @if (!t.Done) { <button class="btn btn-sm btn-outline-secondary me-1" title="Als Tagespunkt in die nächste Sitzung" @onclick="() => ToAgenda(t)"><i class="bi bi-journal-plus"></i></button> }
                                     <button class="btn btn-sm btn-outline-primary me-1" @onclick="() => Edit(t)" aria-label="Bearbeiten"><i class="bi bi-pencil"></i></button>
                                     <button class="btn btn-sm btn-outline-danger" @onclick="() => Delete(t)" aria-label="Löschen"><i class="bi bi-trash"></i></button>
                                 </td>
@@ -117,7 +120,7 @@
 
     protected override async Task OnInitializedAsync()
     {
-        try { _members = await Http.GetFromJsonAsync<List<MemberDto>>("client-api/leadership/members?circle=1") ?? new(); } catch { }
+        try { _members = await Http.GetFromJsonAsync<List<MemberDto>>("client-api/leadership/members?all=true") ?? new(); } catch { }
         await Load();
     }
 
@@ -165,6 +168,13 @@
         await Load();
     }
 
+    private async Task ToAgenda(TaskDto t)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", $"„{t.Title}“ als Tagespunkt in die nächste Sitzung aufnehmen?")) return;
+        try { await Http.PostAsJsonAsync($"client-api/leadership/tasks/{t.Id}/to-agenda", new { Note = t.Notes }); } catch { }
+        await Load();
+    }
+
     private async Task Delete(TaskDto t)
     {
         if (!await JS.InvokeAsync<bool>("confirm", $"Aufgabe „{t.Title}“ löschen?")) return;
@@ -174,5 +184,5 @@
 
     private record MemberDto(int Id, string Name, int Circle);
     private record TaskDto(int Id, string Title, string? Description, int Circle, int? AssigneeId, string? Assignee, bool Mine,
-        DateTime? Due, bool Overdue, bool Done, DateTime? CompletedAt, string Origin, string? FollowUp);
+        DateTime? Due, bool Overdue, bool Done, DateTime? CompletedAt, string Origin, string? FollowUp, string Status = "Offen", string Notes = "");
 }

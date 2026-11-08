@@ -31,13 +31,16 @@ public enum LeadershipItemStatus
 {
     Offen = 1,
     Besprochen = 2,
-    Vertagt = 3
+    Vertagt = 3,
+    /// <summary>Von der Protokollfuehrung abgelehnt - bleibt sichtbar, wird nicht behandelt/uebertragen.</summary>
+    Abgelehnt = 4
 }
 
 public enum LeadershipTaskStatus
 {
     Offen = 1,
-    Erledigt = 2
+    Erledigt = 2,
+    InArbeit = 3
 }
 
 /// <summary>Protokoll einer Fuehrungskreis-Sitzung (1:1 zum Kalendertermin).</summary>
@@ -49,6 +52,8 @@ public class LeadershipProtocol
     [Column("Circle")] public int Circle { get; set; }
     [Column("Status")] public LeadershipProtocolStatus Status { get; set; } = LeadershipProtocolStatus.Vorbereitung;
     [Column("AttendanceListId")] public int? AttendanceListId { get; set; }
+    /// <summary>Protokollfuehrung: darf Punkte ablehnen/sortieren und die Sitzung beenden.</summary>
+    [Column("KeeperMemberId")] public int? KeeperMemberId { get; set; }
     [Column("StartedAt")] public DateTime? StartedAt { get; set; }
     [Column("ClosedAt")] public DateTime? ClosedAt { get; set; }
     [Column("ClosedBy")] public string? ClosedBy { get; set; }
@@ -83,6 +88,8 @@ public class LeadershipTask
     [Column("DueDate")] public DateTime? DueDate { get; set; }
     [Column("Status")] public LeadershipTaskStatus Status { get; set; } = LeadershipTaskStatus.Offen;
     [Column("SourceItemId")] public int? SourceItemId { get; set; }
+    /// <summary>Notizen der/des Verantwortlichen (auch Nicht-Fuehrungskreis im Mitgliedsbereich).</summary>
+    [Column("Notes")] public string Notes { get; set; } = string.Empty;
     [Column("CreatedBy")] public string CreatedBy { get; set; } = string.Empty;
     [Column("CreatedAt")] public DateTime CreatedAt { get; set; }
     [Column("CompletedAt")] public DateTime? CompletedAt { get; set; }

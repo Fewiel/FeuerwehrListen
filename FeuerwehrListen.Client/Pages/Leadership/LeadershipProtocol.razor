@@ -30,10 +30,22 @@
                         @if (Preparing) { <text> · Anwesenheit öffnet automatisch @(_p.MinutesBefore ?? 30) Min. vorher</text> }
                         @if (Closed) { <text> · abgeschlossen @_p.ClosedAt?.ToString("dd.MM.yyyy HH:mm") von @_p.ClosedBy</text> }
                     </div>
+                    <div class="small mt-1 d-flex align-items-center flex-wrap" style="gap:6px;">
+                        <span class="fw-semibold">Protokollführung:</span>
+                        @if (!Closed && (_p.CanManage || _p.KeeperId is null))
+                        {
+                            <select class="form-select form-select-sm" style="width:auto;" value="@(_p.KeeperId ?? 0)" @onchange="SetKeeper">
+                                <option value="0">– nicht festgelegt –</option>
+                                @foreach (var m in _members) { <option value="@m.Id">@m.Name</option> }
+                            </select>
+                        }
+                        else { <span>@(_p.Keeper ?? "nicht festgelegt")</span> }
+                    </div>
                 </div>
                 <a href="/fuehrungskreis" class="btn btn-outline-secondary">Übersicht</a>
+                @if (Preparing) { <button class="btn btn-outline-secondary" @onclick="SendAgenda" disabled="@_busy"><i class="bi bi-envelope me-1"></i>Tagesordnung versenden</button> }
                 @if (Preparing) { <button class="btn btn-success" @onclick="Start" disabled="@_busy"><i class="bi bi-play-fill me-1"></i>Sitzung starten</button> }
-                @if (Running) { <button class="btn btn-danger" @onclick="Close" disabled="@_busy"><i class="bi bi-flag me-1"></i>Sitzung abschließen</button> }
+                @if (Running && _p.CanManage) { <button class="btn btn-danger" @onclick="Close" disabled="@_busy"><i class="bi bi-flag me-1"></i>Sitzung beenden</button> }
                 @if (Closed) { <a class="btn btn-outline-primary" href="client-api/leadership/protocols/@Id/pdf" target="_blank" rel="noopener"><i class="bi bi-file-earmark-pdf me-1"></i>PDF</a> }
             </div></div>
             @if (_info is not null) { <div class="alert alert-info py-2">@_info</div> }
@@ -66,14 +78,16 @@
                                             }
                                             else
                                             {
-                                                <div class="fw-semibold">@it.Title</div>
+                                                <div class="fw-semibold" style="@(it.Status == "Abgelehnt" ? "text-decoration:line-through;color:#8A857F;" : "")">@it.Title</div>
+                                                @if (it.Status == "Abgelehnt") { <span class="badge bg-secondary">abgelehnt</span> }
                                                 @if (it.FromTask) { <span class="badge" style="background:#E5EEF9;color:#1D4E89;">aus Aufgabe</span> }
                                                 @if (!string.IsNullOrWhiteSpace(it.Notes)) { <div class="small text-muted">@it.Notes</div> }
                                             }
                                         </div>
                                         <span class="small text-muted">@it.Owner</span>
-                                        @if (!it.FixedItem && _editItemId != it.Id)
+                                        @if (!it.FixedItem && _editItemId != it.Id && _p.CanManage)
                                         {
+                                            <button class="btn btn-sm @(it.Status == "Abgelehnt" ? "btn-outline-success" : "btn-outline-warning")" @onclick="() => ToggleReject(it)">@(it.Status == "Abgelehnt" ? "Zulassen" : "Ablehnen")</button>
                                             <div class="btn-group">
                                                 <button class="btn btn-sm btn-outline-secondary" aria-label="Nach oben" disabled="@(!CanMove(idx, -1))" @onclick="() => Move(idx, -1)"><i class="bi bi-arrow-up"></i></button>
                                                 <button class="btn btn-sm btn-outline-secondary" aria-label="Nach unten" disabled="@(!CanMove(idx, 1))" @onclick="() => Move(idx, 1)"><i class="bi bi-arrow-down"></i></button>
@@ -139,6 +153,7 @@
                             {
                                 var it = _p.Items[i];
                                 var no = i + 1;
+                                if (it.Status == "Abgelehnt") continue;
                                 <button class="btn w-100 d-flex align-items-center text-start" style="min-height:44px;gap:8px;@(it.Id == _currentId ? "background:#FCEBEE;color:#8A0017;font-weight:600;" : "")" @onclick="() => Select(it.Id)">
                                     <span style="width:24px;font-weight:700;">@no</span>
                                     <span class="flex-grow-1">@it.Title</span>
@@ -185,7 +200,7 @@
                                             <input class="form-control" style="flex:3 1 220px;" placeholder="Neue Aufgabe aus diesem Punkt…" @bind="_taskTitle" @bind:event="oninput" />
                                             <select class="form-select" style="flex:2 1 150px;" @bind="_taskAssignee">
                                                 <option value="0">Verantwortlich…</option>
-                                                @foreach (var m in _members) { <option value="@m.Id">@m.Name</option> }
+                                                @foreach (var m in _allMembers) { <option value="@m.Id">@m.Name</option> }
                                             </select>
                                             <input type="date" class="form-control" style="flex:1 1 140px;" aria-label="Fällig am" @bind="_taskDue" />
                                             <button class="btn btn-danger" @onclick="AddTask" disabled="@string.IsNullOrWhiteSpace(_taskTitle)">Anlegen</button>
@@ -217,7 +232,7 @@
 
     private static readonly System.Globalization.CultureInfo De = new("de-DE");
     private ProtocolDto? _p;
-    private List<MemberDto> _members = new();
+    private List<MemberDto> _members = new(), _allMembers = new();
     private string? _error, _info;
     private bool _busy;
 
@@ -240,6 +255,33 @@
     private string StatusClass => Running ? "bg-success" : Closed ? "bg-secondary" : "bg-warning text-dark";
     private ItemDto? Current => _p?.Items.FirstOrDefault(i => i.Id == _currentId) ?? _p?.Items.FirstOrDefault();
 
+    private async Task SetKeeper(ChangeEventArgs e)
+    {
+        var id = int.TryParse(e.Value?.ToString(), out var v) && v > 0 ? v : (int?)null;
+        try { var r = await Http.PutAsJsonAsync($"client-api/leadership/protocols/{Id}/keeper", new { MemberId = id }); if (!r.IsSuccessStatusCode) _error = "Nur die Protokollführung kann das ändern."; } catch { }
+        await Load();
+    }
+
+    private async Task ToggleReject(ItemDto it)
+    {
+        var to = it.Status == "Abgelehnt" ? "Offen" : "Abgelehnt";
+        if (to == "Abgelehnt" && !await JS.InvokeAsync<bool>("confirm", $"Punkt „{it.Title}“ ablehnen?")) return;
+        await PutItem(it with { Status = to });
+        await Load();
+    }
+
+    private async Task SendAgenda()
+    {
+        _busy = true;
+        try
+        {
+            var r = await (await Http.PostAsync($"client-api/leadership/protocols/{Id}/send-agenda", null)).Content.ReadFromJsonAsync<CloseDto>();
+            _info = r?.Mailed == true ? $"Tagesordnung an {r.Recipients} Empfänger verschickt." : "Nicht verschickt – keine E-Mail-Adressen hinterlegt oder SMTP nicht eingerichtet.";
+        }
+        catch { _error = "Versand fehlgeschlagen."; }
+        _busy = false;
+    }
+
     protected override async Task OnParametersSetAsync() => await Load();
 
     private async Task Load()
@@ -249,6 +291,8 @@
             _p = await Http.GetFromJsonAsync<ProtocolDto>($"client-api/leadership/protocols/{Id}");
             if (_p is null) return;
             _members = await Http.GetFromJsonAsync<List<MemberDto>>($"client-api/leadership/members?circle={_p.Circle}") ?? new();
+            // Aufgaben auch an Mitglieder ausserhalb des Fuehrungskreises.
+            _allMembers = await Http.GetFromJsonAsync<List<MemberDto>>("client-api/leadership/members?all=true") ?? new();
             if (_currentId is null || _p.Items.All(i => i.Id != _currentId))
                 _currentId = _p.Items.FirstOrDefault(i => i.Status == "Offen")?.Id ?? _p.Items.FirstOrDefault()?.Id;
             SyncEditor();
@@ -443,6 +487,6 @@
     private record OpenTaskDto(int Id, string Title, string? Assignee, DateTime? Due, bool Overdue);
     private record AttendanceDto(int MemberId, string Name, int State);
     private record ProtocolDto(int Id, int EventId, string? Title, DateTime? Start, string? Location, int? MinutesBefore, int Circle, string CircleLabel,
-        string Status, DateTime? StartedAt, DateTime? ClosedAt, string? ClosedBy, bool CanEdit, List<ItemDto> Items, List<OpenTaskDto> OpenTasks, List<AttendanceDto>? Attendance);
+        string Status, DateTime? StartedAt, DateTime? ClosedAt, string? ClosedBy, bool CanEdit, int? KeeperId, string? Keeper, bool CanManage, List<ItemDto> Items, List<OpenTaskDto> OpenTasks, List<AttendanceDto>? Attendance);
     private record CloseDto(bool Ok, bool Mailed, int Recipients);
 }
