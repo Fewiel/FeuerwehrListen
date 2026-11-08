@@ -312,6 +312,15 @@ public static class MemberAreaEndpoints
             return m == null ? Results.NotFound() : PhotoResult(m, paths);
         });
 
+        // Lichtbild durch Verwaltung (Admin/Benutzer) setzen - gleiche Pruefung wie beim Mitglied.
+        staff.MapPost("/members/{id:int}/photo", async (int id, MemberRepository members, DataPathService paths, PhotoUpload body) =>
+        {
+            var m = await members.GetByIdAsync(id);
+            if (m == null) return Results.NotFound();
+            var error = await SavePhotoAsync(m, body.DataUrl, members, paths);
+            return error == null ? Results.Json(new { ok = true }) : Results.Json(new { ok = false, error });
+        });
+
         staff.MapDelete("/members/{id:int}/photo", async (int id, MemberRepository members, DataPathService paths) =>
         {
             var m = await members.GetByIdAsync(id);
