@@ -1,6 +1,6 @@
 <Project>
   <!-- Versionsnummer der App (Server + Client). Regeln: VERSIONING.md -->
   <PropertyGroup>
-    <Version>3.12.2</Version>
+    <Version>3.12.3</Version>
   </PropertyGroup>
 </Project>

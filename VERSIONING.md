@@ -54,3 +54,4 @@ Beim Erhöhen von MAJOR/MINOR wird der rechte Teil auf 0 gesetzt.
 * **3.12.0** – Statistik: alle Mitglieder sichtbar, Mitglied anklickbar mit Einsätzen, Stichworten und Dienstabend-Teilnahme
 * **3.12.1** – Kalender: mit Benutzer/Admin verknüpfte Mitglieder sehen Termine aller Einheiten
 * **3.12.2** – Logo und PWA-Icon liegen im Datenordner und überleben Updates; manifest.json wird dynamisch erzeugt
+* **3.12.3** – Buttons: einheitliche Farben für Hover/aktiv/gedrückt (kein weißer Text auf hellem Grund mehr)
