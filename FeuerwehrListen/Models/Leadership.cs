@@ -74,7 +74,13 @@ public class LeadershipItem
     [Column("Decision")] public string Decision { get; set; } = string.Empty;
     [Column("Status")] public LeadershipItemStatus Status { get; set; } = LeadershipItemStatus.Offen;
     [Column("SourceTaskId")] public int? SourceTaskId { get; set; }
+    /// <summary>0 = Tagesordnung, 1 = Informationen (vorab, ohne Beschluss), 2 = Aus den Bereichen (danach).</summary>
+    [Column("Section")] public int Section { get; set; }
     [Column("CreatedAt")] public DateTime CreatedAt { get; set; }
+
+    public const int SectionAgenda = 0, SectionInfo = 1, SectionAreas = 2;
+    /// <summary>Reihenfolge im Protokoll: Informationen, Tagesordnung, Bereiche.</summary>
+    public int SectionOrder => Section == SectionInfo ? 0 : Section == SectionAgenda ? 1 : 2;
 }
 
 [Table("LeadershipTask")]

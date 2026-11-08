@@ -37,3 +37,4 @@ Beim Erhöhen von MAJOR/MINOR wird der rechte Teil auf 0 gesetzt.
 * **3.2.1** – Abwesenheiten landen nur auf der Liste der eigenen Einheit
 * **3.2.2** – Mitgliederbereich: Tab-Leiste fest unten (nicht hinter Android-Navigation), kein Scrollen ohne Inhalt, nächste 4 Termine
 * **3.2.3** – Mitgliederbereich: kein seitliches/leeres Scrollen, keine graue Fläche unter dem Inhalt
+* **3.3.0** – Protokoll: Abschnitte „Informationen“ (vorab) und „Aus den Bereichen“ (danach), Admin kann Protokolle endgültig löschen
