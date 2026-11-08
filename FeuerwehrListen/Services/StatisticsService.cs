@@ -477,6 +477,52 @@ public class StatisticsService
         return result;
     }
 
+    public sealed record KeywordColumn(string Name, int Operations);
+    public sealed record MemberKeywordRow(string MemberName, string MemberNumber, int Total, Dictionary<string, int> Counts);
+    public sealed record MemberKeywordMatrix(List<KeywordColumn> Keywords, List<MemberKeywordRow> Rows);
+
+    /// <summary>
+    /// Wer war bei welchem Stichwort wie oft dabei - je Mitglied und Stichwort die Zahl der Einsaetze,
+    /// je Stichwort die Gesamtzahl der Einsaetze. So faellt auf, wer nur bei "grossen" Lagen kommt.
+    /// </summary>
+    public async Task<MemberKeywordMatrix> GetMemberKeywordMatrixAsync(StatsFilter? filter = null)
+    {
+        filter ??= new StatsFilter { ListType = StatListType.All };
+        if (!filter.IncludeOperations) return new MemberKeywordMatrix(new(), new());
+
+        var ops = await FilteredOperationListsAsync(filter);
+        if (ops.Count == 0) return new MemberKeywordMatrix(new(), new());
+        var keywordNames = (await _db.Keywords.ToListAsync()).ToDictionary(k => k.Id, k => k.Name);
+        string KeywordOf(OperationList o) =>
+            o.KeywordId is int kid && keywordNames.TryGetValue(kid, out var n) && !string.IsNullOrWhiteSpace(n) ? n.Trim()
+            : !string.IsNullOrWhiteSpace(o.Keyword) ? o.Keyword.Trim() : "Ohne Stichwort";
+        var keywordByOp = ops.ToDictionary(o => o.Id, KeywordOf);
+
+        var columns = keywordByOp.Values.GroupBy(k => k, StringComparer.OrdinalIgnoreCase)
+            .Select(g => new KeywordColumn(g.Key, g.Count()))
+            .OrderByDescending(c => c.Operations).ThenBy(c => c.Name).ToList();
+
+        var opIds = ops.Select(o => o.Id).ToList();
+        var entries = await _db.OperationEntries.Where(e => opIds.Contains(e.OperationListId)).ToListAsync();
+        // Je Mitglied jeden Einsatz nur einmal zaehlen.
+        var opsByMember = entries.GroupBy(e => ExtractMemberNumber(e.NameOrId))
+            .ToDictionary(g => g.Key, g => g.Select(e => e.OperationListId).Distinct().ToList());
+
+        var members = await _db.Members.Where(x => x.IsActive).ToListAsync();
+        var allowed = await AllowedMemberNumbersAsync(filter.Unit);
+        if (allowed != null) members = members.Where(m => allowed.Contains(m.MemberNumber)).ToList();
+
+        var rows = members.Select(m =>
+        {
+            var mine = opsByMember.GetValueOrDefault(m.MemberNumber, new List<int>());
+            var counts = mine.GroupBy(id => keywordByOp[id], StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => columns.First(c => string.Equals(c.Name, g.Key, StringComparison.OrdinalIgnoreCase)).Name, g => g.Count());
+            return new MemberKeywordRow($"{m.FirstName} {m.LastName}", m.MemberNumber, mine.Count, counts);
+        }).OrderByDescending(r => r.Total).ThenBy(r => r.MemberName).ToList();
+
+        return new MemberKeywordMatrix(columns, rows);
+    }
+
     public async Task<List<KeywordStatistics>> GetKeywordStatisticsAsync(StatsFilter? filter = null)
     {
         filter ??= new StatsFilter { ListType = StatListType.All };
