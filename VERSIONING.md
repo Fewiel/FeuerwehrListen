@@ -30,3 +30,4 @@ Beim Erhöhen von MAJOR/MINOR wird der rechte Teil auf 0 gesetzt.
 * **3.0.0** – Login-Pflicht mit IP-Whitelist, SSO-Provider, Mitgliederbereich mit Dienstausweis,
   Führungskreis, Gerätekonten, Login-Bremse, Einsätze zusammenlegen, Benutzer-Mitglied-
   Verknüpfung, Abwesenheiten im Voraus (November 2026)
+* **3.1.0** – Eintragen in Anwesenheits-, Einsatz- und Wachenlisten mit dem Dienstausweis-QR

@@ -1920,7 +1920,9 @@ app.MapPost("/client-api/attendance/{id:int}/add", async (int id, HttpContext ht
             var inside = input.Substring(o + 1, c - o - 1).Trim();
             if (inside.Length > 0 && await memberRepo.GetByMemberNumberAsync(inside) != null) input = inside;
         }
-        if (int.TryParse(input, out _)) member = await memberRepo.GetByMemberNumberAsync(input);
+        // Dienstausweis-QR (Mitgliederbereich) wie ein Mitglieds-Code akzeptieren.
+        member ??= await memberRepo.GetByCardCodeAsync(input);
+        if (member == null && int.TryParse(input, out _)) member = await memberRepo.GetByMemberNumberAsync(input);
         if (member == null)
         {
             var found = await memberRepo.SearchAsync(input);
@@ -2192,7 +2194,9 @@ app.MapPost("/client-api/operation/{id:int}/resolve", async (int id, MemberRepos
         if (inside.Length > 0 && await memberRepo.GetByMemberNumberAsync(inside) != null) input = inside;
     }
     Member? member = null;
-    if (int.TryParse(input, out _)) member = await memberRepo.GetByMemberNumberAsync(input);
+    // Dienstausweis-QR (Mitgliederbereich) wie ein Mitglieds-Code akzeptieren.
+        member ??= await memberRepo.GetByCardCodeAsync(input);
+        if (member == null && int.TryParse(input, out _)) member = await memberRepo.GetByMemberNumberAsync(input);
     if (member == null)
     {
         var found = await memberRepo.SearchAsync(input);
@@ -3199,7 +3203,9 @@ static async Task<IResult> FswRegisterAsync(FireSafetyWatch? watch, HttpContext 
     else if (!string.IsNullOrWhiteSpace(req.Code))
     {
         var input = req.Code.Trim();
-        if (int.TryParse(input, out _)) member = await memberRepo.GetByMemberNumberAsync(input);
+        // Dienstausweis-QR (Mitgliederbereich) wie ein Mitglieds-Code akzeptieren.
+        member ??= await memberRepo.GetByCardCodeAsync(input);
+        if (member == null && int.TryParse(input, out _)) member = await memberRepo.GetByMemberNumberAsync(input);
         if (member == null)
         {
             var found = await memberRepo.SearchAsync(input);

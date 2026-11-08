@@ -40,6 +40,18 @@ public class MemberRepository
         return await _db.Members.FirstOrDefaultAsync(x => x.CardPublicId == publicId);
     }
 
+    /// <summary>Gescannter Dienstausweis-QR (".../ausweis/{id}") -> Mitglied. Nur aktive Mitglieder mit
+    /// nicht gesperrtem Ausweis; sonst null (dann greift die normale Nummer/Namen-Suche).</summary>
+    public async Task<Member?> GetByCardCodeAsync(string? input)
+    {
+        if (string.IsNullOrWhiteSpace(input)) return null;
+        var i = input.IndexOf("/ausweis/", StringComparison.OrdinalIgnoreCase);
+        if (i < 0) return null;
+        var id = input[(i + "/ausweis/".Length)..].Split('?', '#', '/')[0].Trim();
+        var m = await GetByCardPublicIdAsync(id);
+        return m != null && m.IsActive && m.CardRevokedAt == null ? m : null;
+    }
+
     /// <summary>Aktive Mitglieder mit mindestens dieser Fuehrungskreis-Stufe.</summary>
     public async Task<List<Member>> GetLeadershipMembersAsync(int minCircle)
     {
