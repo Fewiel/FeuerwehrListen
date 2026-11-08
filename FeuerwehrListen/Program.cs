@@ -1629,10 +1629,16 @@ staff.MapGet("/statistics", async (StatisticsService stats, int? listType, DateT
     var requirements = await stats.GetPersonalRequirementsStatisticsAsync(filter);
     var typeTrends = await stats.GetParticipationTrendByTypeAsync(filter);
     var opComposition = await stats.GetOperationCompositionAsync(filter, 100);
+    var memberKeywords = await stats.GetMemberKeywordMatrixAsync(filter);
 
     return Results.Json(new
     {
         includeOperations = filter.IncludeOperations,
+        memberKeywords = new
+        {
+            keywords = memberKeywords.Keywords.Select(k => new { k.Name, k.Operations }),
+            rows = memberKeywords.Rows.Select(r => new { r.MemberName, r.MemberNumber, r.Total, r.Counts })
+        },
         list = new
         {
             list.TotalLists, list.OpenLists, list.ClosedLists, list.ArchivedLists,

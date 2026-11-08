@@ -50,3 +50,4 @@ Beim Erhöhen von MAJOR/MINOR wird der rechte Teil auf 0 gesetzt.
 * **3.9.0** – Kalender für alle Mitglieder freigegeben (Migration 44); einfache Mitglieder können nur noch ansehen (Ausnahme: Führungskreis-Sitzungen)
 * **3.10.0** – Statistiken auch für Benutzer (nicht nur Admins)
 * **3.10.1** – Statistik: Standardfilter „Gesamt“ (Anwesenheit war bei „Einsatzlisten“ immer 0), Entschuldigte zählen nicht als Anwesenheit
+* **3.11.0** – Statistik: Teilnahme je Mitglied und Stichwort (sortierbare Matrix)

@@ -678,6 +678,61 @@
                     </div>
                 </div>
             </div>
+
+            @if (_d.MemberKeywords is { } mk && mk.Keywords.Count > 0)
+            {
+                <div class="row mt-4">
+                    <div class="col-12">
+                        <div class="card">
+                            <div class="card-header d-flex flex-wrap align-items-center gap-2">
+                                <h5 class="mb-0 me-auto">🚒 Teilnahme je Stichwort</h5>
+                                <div class="form-check form-switch mb-0">
+                                    <input class="form-check-input" type="checkbox" id="kwAll" @bind="_kwShowAll" />
+                                    <label class="form-check-label small" for="kwAll">Auch Mitglieder ohne Einsatz</label>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <p class="small text-muted mb-2">
+                                    Zahl = Einsätze, bei denen das Mitglied dabei war; je dunkler, desto größer der Anteil an allen Einsätzen
+                                    dieses Stichworts (Zahl in Klammern). Spaltenkopf anklicken zum Sortieren.
+                                </p>
+                                <div class="table-responsive" style="max-height:70vh;">
+                                    <table class="table table-sm table-bordered align-middle text-center mb-0" style="font-size:.85rem;">
+                                        <thead class="table-light" style="position:sticky;top:0;z-index:1;">
+                                            <tr>
+                                                <th class="text-start" style="min-width:160px;">Mitglied</th>
+                                                <th role="button" @onclick="() => _kwSort = null" class="@(_kwSort == null ? "text-danger" : "")">
+                                                    Gesamt<br /><span class="text-muted fw-normal">(@mk.Keywords.Sum(k => k.Operations))</span>
+                                                </th>
+                                                @foreach (var k in mk.Keywords)
+                                                {
+                                                    <th role="button" @onclick="() => _kwSort = k.Name" class="@(_kwSort == k.Name ? "text-danger" : "")" style="white-space:nowrap;">
+                                                        @k.Name<br /><span class="text-muted fw-normal">(@k.Operations)</span>
+                                                    </th>
+                                                }
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var r in KwRows())
+                                            {
+                                                <tr>
+                                                    <td class="text-start"><strong>@r.MemberName</strong> <span class="text-muted small">@r.MemberNumber</span></td>
+                                                    <td style="@KwCellStyle(r.Total, mk.Keywords.Sum(k => k.Operations))">@r.Total</td>
+                                                    @foreach (var k in mk.Keywords)
+                                                    {
+                                                        var n = KwCount(r, k.Name);
+                                                        <td style="@KwCellStyle(n, k.Operations)" title="@($"{n} von {k.Operations} Einsätzen")">@(n == 0 ? "–" : n.ToString())</td>
+                                                    }
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
         }
     </div>
 </AuthGuard>
@@ -931,5 +986,29 @@
         List<KeywordStat> Keywords,
         RequirementsStat Requirements,
         List<TypeTrendDto> TypeTrends,
-        List<OpCompositionDto> OperationComposition);
+        List<OpCompositionDto> OperationComposition,
+        MemberKeywordsDto? MemberKeywords = null);
+    private record KwColumn(string Name, int Operations);
+    private record KwRow(string MemberName, string MemberNumber, int Total, Dictionary<string, int>? Counts);
+    private record MemberKeywordsDto(List<KwColumn> Keywords, List<KwRow> Rows);
+
+    // Matrix Mitglied x Stichwort: Sortierung per Klick auf die Spaltenkoepfe, Nullzeilen ausblendbar.
+    private string? _kwSort;          // null = Gesamt
+    private bool _kwShowAll;
+    private int KwCount(KwRow r, string kw) => r.Counts != null && r.Counts.TryGetValue(kw, out var n) ? n : 0;
+    private IEnumerable<KwRow> KwRows()
+    {
+        var rows = _d?.MemberKeywords?.Rows ?? new List<KwRow>();
+        IEnumerable<KwRow> q = _kwShowAll ? rows : rows.Where(r => r.Total > 0);
+        return _kwSort == null
+            ? q.OrderByDescending(r => r.Total).ThenBy(r => r.MemberName)
+            : q.OrderByDescending(r => KwCount(r, _kwSort)).ThenByDescending(r => r.Total).ThenBy(r => r.MemberName);
+    }
+    // Hintergrund nach Anteil der Einsaetze dieses Stichworts, an denen das Mitglied teilnahm.
+    private static string KwCellStyle(int n, int total)
+    {
+        if (n == 0 || total == 0) return "color:#bbb;";
+        var a = Math.Round(0.12 + 0.6 * n / (double)total, 2).ToString(CultureInfo.InvariantCulture);
+        return $"background:rgba(200,16,46,{a});" + (n / (double)total > 0.55 ? "color:#fff;font-weight:600;" : "");
+    }
 }
