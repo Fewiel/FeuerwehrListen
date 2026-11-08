@@ -6,19 +6,19 @@
 <PageTitle>Mängelliste</PageTitle>
 
 <div class="container mt-4">
-    <div class="row mb-3">
-        <div class="col"><h1>Mängelliste</h1></div>
-        <div class="col-auto"><button class="btn btn-primary" @onclick="ShowReport"><i class="bi bi-plus-circle"></i> Neuer Mangel</button></div>
+    <div class="d-flex align-items-center mb-3" style="gap:10px;">
+        <h1 class="mb-0 flex-grow-1">Mängelliste</h1>
+        <button class="btn btn-primary" @onclick="ShowReport"><i class="bi bi-plus-circle"></i><span class="d-none d-sm-inline ms-1">Neuer Mangel</span></button>
+    </div>
+    @* Filter als gleich breite Leiste - passt auch auf schmale Handys ohne Umbruch. *@
+    <div class="d-flex mb-3" style="gap:6px;">
+        <button class="btn btn-sm flex-fill @(_filter is null ? "btn-dark" : "btn-outline-secondary")" style="min-height:40px;" @onclick="() => _filter = null">Alle</button>
+        <button class="btn btn-sm flex-fill @(_filter == "Open" ? "btn-danger" : "btn-outline-danger")" style="min-height:40px;" @onclick="@(() => _filter = "Open")">Offen</button>
+        <button class="btn btn-sm flex-fill @(_filter == "InProgress" ? "btn-warning" : "btn-outline-warning")" style="min-height:40px;" @onclick="@(() => _filter = "InProgress")">In Arbeit</button>
+        <button class="btn btn-sm flex-fill @(_filter == "Done" ? "btn-success" : "btn-outline-success")" style="min-height:40px;@(_filter == "Done" ? "" : "border-color:#198754;color:#198754;")" @onclick="@(() => _filter = "Done")">Erledigt</button>
     </div>
 
-    <div class="btn-group mb-3">
-        <button class="btn @(_filter is null ? "btn-primary" : "btn-outline-primary")" @onclick="() => _filter = null">Alle</button>
-        <button class="btn @(_filter == "Open" ? "btn-danger" : "btn-outline-danger")" @onclick="@(() => _filter = "Open")">Offen</button>
-        <button class="btn @(_filter == "InProgress" ? "btn-warning" : "btn-outline-warning")" @onclick="@(() => _filter = "InProgress")">In Arbeit</button>
-        <button class="btn @(_filter == "Done" ? "btn-success" : "btn-outline-success")" @onclick="@(() => _filter = "Done")">Erledigt</button>
-    </div>
-
-    <div class="card"><div class="card-body">
+    <div class="card"><div class="card-body p-0 p-sm-3">
         @if (_loadError is not null)
         {
             <div class="alert alert-danger">@_loadError</div>
@@ -31,19 +31,20 @@
             @if (list.Count == 0) { <p class="text-muted">Keine Mängel.</p> }
             else
             {
-                <div class="table-responsive"><table class="table table-hover">
-                    <thead><tr><th>Eingetragen</th><th>Durch</th><th>Fahrzeug</th><th>Beschreibung</th><th>Status</th></tr></thead>
-                    <tbody>
-                        @foreach (var d in list)
-                        {
-                            <tr style="cursor:pointer" @onclick="() => OpenDetail(d)">
-                                <td class="text-nowrap">@d.ReportedAt.ToString("dd.MM.yyyy HH:mm")</td>
-                                <td>@d.ReportedByName</td><td>@d.Vehicle</td><td>@d.Description</td>
-                                <td>@Badge(d.Status)</td>
-                            </tr>
-                        }
-                    </tbody>
-                </table></div>
+                @* Karten-Liste statt Tabelle: auf dem Handy kein Quer-Scrollen, Beschreibung bricht um. *@
+                <div class="list-group list-group-flush">
+                    @foreach (var d in list)
+                    {
+                        <button type="button" class="list-group-item list-group-item-action py-3" @onclick="() => OpenDetail(d)">
+                            <div class="d-flex align-items-center mb-1" style="gap:8px;">
+                                <strong class="flex-grow-1 text-truncate">@d.Vehicle</strong>
+                                @Badge(d.Status)
+                            </div>
+                            <div style="white-space:pre-line;overflow-wrap:anywhere;">@d.Description</div>
+                            <div class="small text-muted mt-1">@d.ReportedAt.ToString("dd.MM.yyyy HH:mm") · @d.ReportedByName</div>
+                        </button>
+                    }
+                </div>
             }
         }
     </div></div>
@@ -51,7 +52,7 @@
 
 @if (_showReport)
 {
-    <div class="modal fade show d-block" style="background:rgba(0,0,0,.5)"><div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+    <div class="modal fade show d-block" style="background:rgba(0,0,0,.5)"><div class="modal-dialog modal-dialog-centered modal-fullscreen-sm-down modal-dialog-scrollable"><div class="modal-content">
         <div class="modal-header"><h5 class="modal-title">Neuer Mangel</h5><button class="btn-close" @onclick="() => _showReport = false"></button></div>
         <div class="modal-body">
             <div class="mb-3"><label class="form-label">Beschreibung</label><textarea class="form-control" rows="3" @bind="_rDesc"></textarea></div>
@@ -82,7 +83,7 @@
 
 @if (_detail is not null)
 {
-    <div class="modal fade show d-block" style="background:rgba(0,0,0,.5)"><div class="modal-dialog modal-lg modal-dialog-centered"><div class="modal-content">
+    <div class="modal fade show d-block" style="background:rgba(0,0,0,.5)"><div class="modal-dialog modal-lg modal-dialog-centered modal-fullscreen-sm-down modal-dialog-scrollable"><div class="modal-content">
         <div class="modal-header"><h5 class="modal-title">Mangel-Detail</h5><button class="btn-close" @onclick="() => _detail = null"></button></div>
         <div class="modal-body">
             <p><strong>@_detail.Vehicle</strong> — @Badge(_detail.Status)</p>
@@ -97,21 +98,16 @@
             @if (_history.Count == 0) { <p class="text-muted small">Keine Statusänderungen.</p> }
             else
             {
-                <div class="table-responsive"><table class="table table-sm">
-                    <thead><tr><th>Datum</th><th>Von</th><th>Nach</th><th>Durch</th><th>Kommentar</th></tr></thead>
-                    <tbody>
-                        @foreach (var h in _history)
-                        {
-                            <tr>
-                                <td class="text-nowrap small">@h.ChangedAt.ToString("dd.MM.yyyy HH:mm")</td>
-                                <td>@Badge(h.OldStatus)</td>
-                                <td>@Badge(h.NewStatus)</td>
-                                <td class="small">@h.ChangedByName</td>
-                                <td class="small">@(string.IsNullOrEmpty(h.Comment) ? "-" : h.Comment)</td>
-                            </tr>
-                        }
-                    </tbody>
-                </table></div>
+                <ul class="list-unstyled mb-0">
+                    @foreach (var h in _history)
+                    {
+                        <li class="border-top py-2">
+                            <div class="d-flex align-items-center flex-wrap" style="gap:6px;">@Badge(h.OldStatus) <i class="bi bi-arrow-right"></i> @Badge(h.NewStatus)</div>
+                            <div class="small text-muted">@h.ChangedAt.ToString("dd.MM.yyyy HH:mm") · @h.ChangedByName</div>
+                            @if (!string.IsNullOrEmpty(h.Comment)) { <div class="small" style="overflow-wrap:anywhere;">@h.Comment</div> }
+                        </li>
+                    }
+                </ul>
             }
             @{
                 <hr />
