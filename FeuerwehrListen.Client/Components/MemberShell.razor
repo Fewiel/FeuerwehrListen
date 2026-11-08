@@ -50,11 +50,18 @@
     .fwm-head-right { display: flex; }
     .fwm-iconbtn { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 1.35rem; text-decoration: none; }
     .fwm-iconbtn:hover { color: #fff; opacity: .85; }
-    .fwm-scroll { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; }
-    .fwm-main { width: 100%; max-width: 640px; margin-left: auto; margin-right: auto; padding: 16px; box-sizing: border-box; }
+    /* Nur senkrecht scrollen; nichts darf seitlich ueberstehen (Bootstrap-Raster mit negativen Raendern). */
+    .fwm-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; background: #F4F2EF; }
+    /* "main" erbt aus app.css flex:1 + einen kuehleren Grauton -> sichtbare graue Flaeche unter dem Inhalt. */
+    .fwm-main { flex: none; background: transparent; width: 100%; max-width: 640px; margin-left: auto; margin-right: auto; padding: 16px; box-sizing: border-box; }
+    .fwm-main > :last-child { margin-bottom: 0; }
     /* Listen-Seiten (Wachen, Kalender, Fuehrungskreis) brauchen die volle Breite. */
     .fwm-main-wide { max-width: 1280px; padding-left: 0; padding-right: 0; }
-    .fwm-main-wide .content { padding-top: 0; }
+    /* Standard-Seiten im Mitgliedsrahmen: kein Extra-Leerraum unten (sonst Scrollen ohne Inhalt). */
+    .fwm-main-wide .content { padding-top: 0; padding-bottom: 0; }
+    .fwm-main-wide .container, .fwm-main-wide .container-fluid { max-width: 100%; padding-left: 0; padding-right: 0; }
+    .fwm-main-wide .container.mt-4, .fwm-main-wide .container-fluid.mt-4, .fwm-main-wide .container.mt-3, .fwm-main-wide .container-fluid.mt-3 { margin-top: 0 !important; }
+    .fwm-main-wide img, .fwm-main-wide table { max-width: 100%; }
     .fwm-tabs { flex-shrink: 0; height: 64px; background: #fff; border-top: 1px solid #E5E1DB; display: flex; z-index: 20; padding-bottom: env(safe-area-inset-bottom, 0px); box-sizing: content-box; }
     .fwm-tabs a { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #5C5853; text-decoration: none; font-size: .75rem; }
     .fwm-tabs a i { font-size: 1.3rem; margin-bottom: 2px; }
