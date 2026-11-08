@@ -382,6 +382,19 @@ textarea.form-control { min-height: unset; }
     background: rgba(0,0,0,.7); color: #cdd3da; border-radius: var(--tw-radius); z-index: 2;
 }
 
+/* ---------- Tabellen mobil als Liste (keine Querscroll-Tabellen) ---------- */
+@media (max-width: 768px) {
+    .fw-mtable thead { display: none; }
+    .fw-mtable, .fw-mtable tbody, .fw-mtable tr, .fw-mtable td { display: block; width: 100%; }
+    .fw-mtable tr { display: flex; flex-wrap: wrap; align-items: center; padding: 10px 4px; border-bottom: 1px solid #E5E1DB; }
+    .fw-mtable td { border: 0 !important; padding: 0 6px 0 0 !important; width: auto; }
+    .fw-mtable td:first-child { color: #6c757d; min-width: 26px; }
+    .fw-mtable td:nth-child(2) { flex: 1; min-width: 0; }
+    .fw-mtable td:nth-child(3) { color: #6c757d; font-size: .85rem; }
+    .fw-mtable td:last-child .btn { min-height: 40px; }
+    .table-responsive { overflow-x: visible; }
+}
+
 /* ---------- Kalender ---------- */
 .cal-dots { display: none; }
 @media (max-width: 768px) {

@@ -444,8 +444,9 @@ app.Use(async (ctx, next) =>
     // Export-Token ...), auch wenn das Modul fuer sie sichtbar ist.
     if ((path.StartsWithSegments("/client-api") || path.StartsWithSegments("/token"))
         && FeuerwehrListen.Services.NetworkAccessService.IsMemberForbiddenPath(path, ctx.Request.Method)
+        && !ctx.User.IsInRole("User") && !ctx.User.IsInRole("Admin")
         && (ctx.User.IsInRole("Member")
-            || ctx.RequestServices.GetRequiredService<FeuerwehrListen.Services.UserAccessService>().Get(ctx)?.IsMember == true))
+            || ctx.RequestServices.GetRequiredService<FeuerwehrListen.Services.UserAccessService>().Get(ctx) is { IsMember: true, IsStaff: false }))
     {
         ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
         await ctx.Response.WriteAsJsonAsync(new { error = "member_forbidden", message = "Diese Aktion ist Verwaltungskonten vorbehalten." });
@@ -938,6 +939,7 @@ app.MapGet("/client-api/auth/me", (HttpContext ctx) =>
         isAdmin = ctx.User.IsInRole("Admin"),
         // Rolle fuer den Client (Admin/User/Member) - AuthorizeView Roles="Admin,User" braucht sie.
         role = ctx.User.FindFirst(ClaimTypes.Role)?.Value,
+        roles = ctx.User.FindAll(ClaimTypes.Role).Select(c => c.Value).ToArray(),
         firstName = ctx.User.FindFirst("FirstName")?.Value,
         lastName = ctx.User.FindFirst("LastName")?.Value,
         // Admins haben implizit Listen-Zugriff; sonst entscheidet das ListAccess-Claim.
@@ -1404,7 +1406,7 @@ admin.MapGet("/users", async (UserRepository repo, PermissionKeyRepository keys,
     var result = new List<object>(users.Count);
     foreach (var u in users)
         result.Add(new { id = u.Id, username = u.Username, firstName = u.FirstName, lastName = u.LastName, email = u.Email, role = u.Role.ToString(), hasQr = !string.IsNullOrEmpty(u.QrAuthCode), hasPin = !string.IsNullOrEmpty(u.AdminPin), hasListAccess = u.HasListAccess,
-            allowEnrollment = u.AllowEnrollment,
+            allowEnrollment = u.AllowEnrollment, memberId = u.MemberId,
             deviceCount = devices.TryGetValue(u.Id, out var ds) ? ds.Count : 0, deviceLastSeen = devices.TryGetValue(u.Id, out var ds2) ? ds2.LastSeen : null, deviceLastIp = devices.TryGetValue(u.Id, out var ds3) ? ds3.LastIp : null, fullAccess = u.ModuleAccess == UserAccessService.FullAccess, modules = UserAccessService.ParseModules(u.ModuleAccess)?.OrderBy(x => Array.IndexOf(UserAccessService.SelectableModules, x)).ToArray() ?? UserAccessService.SelectableModules, keyIds = await keys.GetKeyIdsForUserAsync(u.Id), createdAt = u.CreatedAt });
     return Results.Json(result);
 });
@@ -1423,6 +1425,7 @@ admin.MapPost("/users", async (UserRepository repo, PermissionKeyRepository keys
         // Neue Benutzer: Vollzugang oder gezielt ausgewaehlte Module.
         ModuleAccess = UserAccessService.SerializeModules(r.FullAccess, r.Modules),
         AllowEnrollment = r.AllowEnrollment,
+        MemberId = r.MemberId,
         CreatedAt = DateTime.Now
     };
     // Geraetekonten: nie Vollzugang, kein Listen-Tool als Benutzer, kein QR/PIN.
@@ -1456,7 +1459,7 @@ admin.MapPost("/users", async (UserRepository repo, PermissionKeyRepository keys
     }
     return Results.Json(new { id });
 });
-admin.MapPut("/users/{id:int}", async (int id, UserRepository repo, PermissionKeyRepository keys, UserAccessService userAccess, DeviceSessionService devices, UserReq r) =>
+admin.MapPut("/users/{id:int}", async (int id, UserRepository repo, PermissionKeyRepository keys, UserAccessService userAccess, DeviceSessionService devices, MemberRepository members, UserReq r) =>
 {
     var u = await repo.GetByIdAsync(id); if (u == null) return Results.NotFound();
     userAccess.Invalidate(u.Username);
@@ -1470,6 +1473,11 @@ admin.MapPut("/users/{id:int}", async (int id, UserRepository repo, PermissionKe
     u.HasListAccess = r.HasListAccess;
     u.ModuleAccess = UserAccessService.SerializeModules(r.FullAccess, r.Modules);
     u.AllowEnrollment = r.AllowEnrollment;
+    if (u.MemberId != r.MemberId && u.MemberId is int oldMid && await members.GetByIdAsync(oldMid) is Member oldM)
+        userAccess.Invalidate(UserAccessService.MemberPrincipalName(oldM.MemberNumber));
+    u.MemberId = u.Role == UserRole.Device ? null : r.MemberId;
+    if (u.MemberId is int newMid && await members.GetByIdAsync(newMid) is Member newM)
+        userAccess.Invalidate(UserAccessService.MemberPrincipalName(newM.MemberNumber));
     if (u.Role == UserRole.Device)
     {
         u.ModuleAccess = UserAccessService.SerializeModules(false, r.Modules);
@@ -3189,6 +3197,7 @@ static bool CanEditCalendarEvent(UserAccessService.AccessInfo? viewer, CalendarE
 // Mitglieder-Konto: Name "member:{Nummer}" - darueber loest UserAccessService die Rechte auf.
 static async Task SignInMember(HttpContext ctx, Member member)
 {
+    var linked = await ctx.RequestServices.GetRequiredService<UserRepository>().GetByMemberIdAsync(member.Id);
     var claims = new List<Claim>
     {
         new(ClaimTypes.Name, UserAccessService.MemberPrincipalName(member.MemberNumber)),
@@ -3198,6 +3207,8 @@ static async Task SignInMember(HttpContext ctx, Member member)
         new("ListAccess", "true"),
         new("MemberId", member.Id.ToString())
     };
+    // Verknuepfter Benutzer (Admin/User): dessen Rolle zusaetzlich - Listen bearbeiten, abschliessen ...
+    if (linked is { Role: UserRole.User or UserRole.Admin }) claims.Add(new(ClaimTypes.Role, linked.Role.ToString()));
     var identity = new ClaimsIdentity(claims, "FwCookie", ClaimTypes.Name, ClaimTypes.Role);
     await ctx.SignInAsync("FwCookie", new ClaimsPrincipal(identity),
         new AuthenticationProperties { IsPersistent = true });
@@ -3252,7 +3263,7 @@ public record ApiKeyReq(string? Description);
 // (Password) und zeigt es einmalig an; ist SendWelcomeMail=true und Email gesetzt, versendet der
 // POST die Zugangsdaten (Benutzername + Klartext-Passwort) per Mail.
 public record UserReq(string Username, string? FirstName, string? LastName, string Role, string? Password, string? QrAuthCode, string? AdminPin, string? Email = null, bool SendWelcomeMail = false, bool HasListAccess = true, List<int>? KeyIds = null,
-    bool FullAccess = true, List<string>? Modules = null, bool AllowEnrollment = false);
+    bool FullAccess = true, List<string>? Modules = null, bool AllowEnrollment = false, int? MemberId = null);
 public record PermissionKeyReq(string? Name, string? Description);
 // RedirectUris zeilenweise, RequiredKeys kommagetrennt. RegenerateSecret nur bei PUT relevant.
 public record SsoClientReq(string? Name, string? RedirectUris, string? RequiredKeys, bool IsActive = true, bool RegenerateSecret = false);

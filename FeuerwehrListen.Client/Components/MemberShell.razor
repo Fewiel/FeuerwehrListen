@@ -27,7 +27,8 @@
 
     <nav class="fwm-tabs" aria-label="Mitgliederbereich">
         <a href="/mein" class="@Tab("mein", true)"><i class="bi bi-house"></i><span>Start</span></a>
-        <a href="/mein/ausweis" class="@Tab("mein/ausweis")"><i class="bi bi-person-vcard"></i><span>Ausweis</span></a>
+        @if (TabCount <= 5) { <a href="/mein/ausweis" class="@Tab("mein/ausweis")"><i class="bi bi-person-vcard"></i><span>Ausweis</span></a> }
+        @if (HasLists) { <a href="/mein/listen" class="@ListTab()"><i class="bi bi-clipboard-check"></i><span>Listen</span></a> }
         @if (M.FireSafety) { <a href="/firesafetywatches" class="@Tab("firesafetywatches")"><i class="bi bi-shield-check"></i><span>Wachen</span></a> }
         @if (M.Defects) { <a href="/defects" class="@Tab("defects")"><i class="bi bi-tools"></i><span>Mängel</span></a> }
         @if (M.Calendar) { <a href="/kalender" class="@Tab("kalender")"><i class="bi bi-calendar3"></i><span>Kalender</span></a> }
@@ -68,7 +69,14 @@
 
     private AppContextDto? _ctx;
     private ModuleFlags M => _ctx?.Modules ?? new ModuleFlags(false, false, false, false, false, false, false, false);
-    private bool HasListModules => M.Attendance || M.Operations || M.Defects;
+    private bool HasLists => M.Attendance || M.Operations;
+    private int TabCount => 2 + (HasLists ? 1 : 0) + (M.FireSafety ? 1 : 0) + (M.Defects ? 1 : 0) + (M.Calendar ? 1 : 0) + (M.Leadership ? 1 : 0);
+    // "Listen" auch auf den Listen-Detailseiten markieren.
+    private string ListTab()
+    {
+        var rel = Nav.ToBaseRelativePath(Nav.Uri).Split('?', '#')[0].Trim('/').ToLowerInvariant();
+        return rel == "mein/listen" || rel.StartsWith("attendance/") || rel.StartsWith("operation/") || rel is "create-attendance" or "create-operation" ? "active" : "";
+    }
 
     protected override async Task OnInitializedAsync()
     {

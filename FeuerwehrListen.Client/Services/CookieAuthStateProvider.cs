@@ -32,6 +32,9 @@ public class CookieAuthStateProvider : AuthenticationStateProvider
                 var claims = new List<Claim> { new(ClaimTypes.Name, me.Username ?? "") };
                 if (me.IsAdmin) claims.Add(new(ClaimTypes.Role, "Admin"));
                 else if (!string.IsNullOrWhiteSpace(me.Role)) claims.Add(new(ClaimTypes.Role, me.Role));
+                // Mitglied mit verknuepftem Benutzer hat mehrere Rollen (Member + User/Admin).
+                foreach (var r in me.Roles ?? Array.Empty<string>())
+                    if (!claims.Any(c => c.Type == ClaimTypes.Role && c.Value == r)) claims.Add(new(ClaimTypes.Role, r));
                 claims.Add(new("FirstName", me.FirstName ?? ""));
                 claims.Add(new("LastName", me.LastName ?? ""));
                 claims.Add(new("ListAccess", me.HasListAccess ? "true" : "false"));
@@ -63,5 +66,5 @@ public class CookieAuthStateProvider : AuthenticationStateProvider
         NotifyAuthenticationStateChanged(GetAuthenticationStateAsync());
     }
 
-    private record MeDto(bool Authenticated, string? Username, bool IsAdmin, string? FirstName, string? LastName, bool HasListAccess = true, bool IsMember = false, string? Role = null);
+    private record MeDto(bool Authenticated, string? Username, bool IsAdmin, string? FirstName, string? LastName, bool HasListAccess = true, bool IsMember = false, string? Role = null, string[]? Roles = null);
 }

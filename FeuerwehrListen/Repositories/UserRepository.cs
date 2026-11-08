@@ -28,6 +28,8 @@ public class UserRepository
         return await _db.Users.FirstOrDefaultAsync(x => x.Username == username);
     }
 
+    public Task<User?> GetByMemberIdAsync(int memberId) => _db.Users.FirstOrDefaultAsync(x => x.MemberId == memberId);
+
     public async Task<User?> GetByQrAuthCodeAsync(string code)
     {
         if (string.IsNullOrWhiteSpace(code)) return null;

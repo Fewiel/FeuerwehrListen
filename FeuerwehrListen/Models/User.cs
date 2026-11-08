@@ -45,6 +45,11 @@ public class User
     public string ModuleAccess { get; set; } = UserAccessService.FullAccess;
 
     /// <summary>Nur Geraetekonten: darf die Passwort-Vergabe fuer Mitglieder hosten (Geraetehaus-Tablet).</summary>
+    /// <summary>Verknuepftes Mitglied: meldet sich das Mitglied mit Nummer + Mitgliedspasswort an,
+    /// erhaelt es zusaetzlich die Rolle dieses Benutzers (Listen bearbeiten, abschliessen ...).</summary>
+    [Column("MemberId")]
+    public int? MemberId { get; set; }
+
     [Column("AllowEnrollment")]
     public bool AllowEnrollment { get; set; }
 
