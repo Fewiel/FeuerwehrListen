@@ -1,0 +1,57 @@
+@page "/mein/listen"
+@layout MemberLayout
+@using System.Net.Http.Json
+@using FeuerwehrListen.Client.Models
+@inject HttpClient Http
+
+<PageTitle>Listen</PageTitle>
+
+@* Mitgliedsmodus: alle offenen Anwesenheits- und Einsatzlisten als Karten (mobil, ohne Tabellen). *@
+<AuthGuard>
+    <h1 style="font-size:1.4rem;font-weight:700;margin:4px 0 14px;">Listen</h1>
+
+    <div style="display:flex;gap:10px;margin-bottom:14px;">
+        @if (_ctx?.Modules.Attendance == true) { <a href="/create-attendance" class="fwm-btn" style="flex:1;"><i class="bi bi-plus-lg"></i>Anwesenheit</a> }
+        @if (_ctx?.Modules.Operations == true) { <a href="/create-operation" class="fwm-btn" style="flex:1;"><i class="bi bi-plus-lg"></i>Einsatz</a> }
+    </div>
+
+    @if (_error) { <div class="alert alert-danger">Listen konnten nicht geladen werden.</div> }
+    else if (_data is null) { <p><em>Lade…</em></p> }
+    else
+    {
+        @if (_ctx?.Modules.Operations == true) { @Section("Einsätze", "bi-truck", _data.Operations, "Keine offenen Einsätze") }
+        @if (_ctx?.Modules.Attendance == true) { @Section("Anwesenheitslisten", "bi-clipboard-check", _data.Attendance, "Keine offenen Anwesenheitslisten") }
+    }
+</AuthGuard>
+
+@code {
+    [Inject] private FeuerwehrListen.Client.Services.AppContextService AppCtx { get; set; } = default!;
+    private AppContextDto? _ctx;
+    private OpenListsResponse? _data;
+    private bool _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _ctx = await AppCtx.GetAsync();
+        try { _data = await Http.GetFromJsonAsync<OpenListsResponse>("client-api/open-lists"); }
+        catch { _error = true; }
+    }
+
+    private RenderFragment Section(string title, string icon, List<ListItem> items, string empty) => __builder =>
+    {
+        <section class="fwm-card">
+            <h2 style="font-size:1rem;margin:0 0 6px;"><i class="bi @icon me-1" style="color:#C8102E;"></i>@title <span style="color:#5C5853;font-weight:400;">(@items.Count)</span></h2>
+            @if (items.Count == 0) { <div style="color:#5C5853;">@empty</div> }
+            @foreach (var it in items)
+            {
+                <a href="@it.Href" style="display:flex;align-items:center;padding:10px 0;border-top:1px solid #F0EEEB;text-decoration:none;color:inherit;min-height:52px;">
+                    <div style="flex:1;min-width:0;">
+                        <div style="font-weight:600;">@it.Title</div>
+                        <div style="font-size:.85rem;color:#5C5853;">@it.Time.ToString("dd.MM. HH:mm")@(string.IsNullOrWhiteSpace(it.Sub) ? "" : " · " + it.Sub)</div>
+                    </div>
+                    <i class="bi bi-chevron-right" style="color:#5C5853;"></i>
+                </a>
+            }
+        </section>
+    };
+}

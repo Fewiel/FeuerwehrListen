@@ -57,6 +57,14 @@
                     @if (_role != "Device")
                     {
                     <div class="col-md-6 mb-3">
+                        <label class="form-label">Verknüpftes Mitglied (optional)</label>
+                        <select class="form-select" @bind="_memberId">
+                            <option value="0">– keins –</option>
+                            @foreach (var m in _members) { <option value="@m.Id">@m.LastName, @m.FirstName (@m.MemberNumber)</option> }
+                        </select>
+                        <small class="text-muted">Das Mitglied kann sich dann mit Mitgliedsnummer + Mitgliedspasswort anmelden und bekommt zusätzlich die Rechte dieses Benutzers.</small>
+                    </div>
+                    <div class="col-md-6 mb-3">
                         <label class="form-label">QR-Code (optional)</label>
                         <div class="input-group">
                             <input class="form-control" @bind="_qr" placeholder="scannen oder manuell eintragen" />
@@ -264,6 +272,9 @@
     private bool _hasListAccess = true;
     private bool _fullAccess = true;
     private bool _allowEnrollment;
+    private int _memberId;
+    private List<MemberMini> _members = new();
+    private record MemberMini(int Id, string MemberNumber, string FirstName, string LastName);
     private HashSet<string> _modules = new();
 
     // Muss zu UserAccessService.SelectableModules auf dem Server passen.
@@ -301,6 +312,7 @@
 
     private async Task Load()
     {
+        try { _members = await Http.GetFromJsonAsync<List<MemberMini>>("client-api/admin/members") ?? new(); } catch { }
         try
         {
             _items = await Http.GetFromJsonAsync<List<UserDto>>("client-api/admin/users");
@@ -314,7 +326,7 @@
         _editId = null; _username = ""; _firstName = ""; _lastName = ""; _email = ""; _role = "User"; _password = ""; _qr = ""; _pin = "";
         _hasListAccess = true; _keyIds = new();
         // Neue Benutzer: Bereiche bewusst auswaehlen (Bestandsnutzer haben per Migration Vollzugang).
-        _fullAccess = false; _modules = new(); _allowEnrollment = false;
+        _fullAccess = false; _modules = new(); _allowEnrollment = false; _memberId = 0;
         _sendWelcomeMail = false; _showGeneratedPassword = false; _error = null; _showForm = true;
     }
 
@@ -324,7 +336,7 @@
         _role = u.Role; _password = ""; _qr = ""; _pin = ""; _sendWelcomeMail = false; _error = null; _showForm = true;
         _hasListAccess = u.HasListAccess;
         // Bei Vollzugang liefert der Server alle Bereiche -> beim Umschalten auf "ausgewaehlt" vorbelegt.
-        _fullAccess = u.FullAccess; _modules = new HashSet<string>(u.Modules ?? new()); _allowEnrollment = u.AllowEnrollment;
+        _fullAccess = u.FullAccess; _modules = new HashSet<string>(u.Modules ?? new()); _allowEnrollment = u.AllowEnrollment; _memberId = u.MemberId ?? 0;
         _keyIds = u.KeyIds is null ? new() : new HashSet<int>(u.KeyIds);
     }
 
@@ -382,6 +394,7 @@
                 FullAccess = _role == "Admin" || (_role != "Device" && _fullAccess),
                 Modules = _modules.ToList(),
                 AllowEnrollment = _role == "Device" && _allowEnrollment,
+                MemberId = _role == "Device" || _memberId == 0 ? (int?)null : _memberId,
                 KeyIds = _keyIds.ToList()
             };
             var resp = _editId is int id ? await Http.PutAsJsonAsync($"client-api/admin/users/{id}", body) : await Http.PostAsJsonAsync("client-api/admin/users", body);
@@ -417,6 +430,6 @@
 
     private record UserDto(int Id, string Username, string FirstName, string LastName, string? Email, string Role, bool HasQr, bool HasPin, bool HasListAccess, List<int>? KeyIds, DateTime? CreatedAt,
         bool FullAccess = true, List<string>? Modules = null, bool AllowEnrollment = false,
-        int DeviceCount = 0, DateTime? DeviceLastSeen = null, string? DeviceLastIp = null);
+        int DeviceCount = 0, DateTime? DeviceLastSeen = null, string? DeviceLastIp = null, int? MemberId = null);
     private record KeyDto(int Id, string Name, string Description);
 }

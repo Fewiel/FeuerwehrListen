@@ -51,7 +51,7 @@ public sealed class UserAccessService
     /// <summary>Kurzinfo zum Konto; null = existiert nicht (mehr) bzw. kein Zugang.</summary>
     /// <param name="LeadershipCircle">0 kein, 1 grosser, 2 kleiner Fuehrungskreis. Admins: 2 (sehen alles).</param>
     public sealed record AccessInfo(bool IsAdmin, bool HasListAccess, HashSet<string>? Modules,
-        bool IsMember = false, int? MemberId = null, int LeadershipCircle = 0)
+        bool IsMember = false, int? MemberId = null, int LeadershipCircle = 0, bool IsStaff = false)
     {
         /// <summary>Vollzugang: Admin oder Modulrecht "*" (Mitglieder nie).</summary>
         public bool IsFull => IsAdmin || (!IsMember && Modules == null);
@@ -77,6 +77,19 @@ public sealed class UserAccessService
                 ? null
                 : new AccessInfo(false, true, ParseModules(m.ModuleAccess) ?? new HashSet<string>(),
                     IsMember: true, MemberId: m.Id, LeadershipCircle: m.LeadershipCircle);
+            // Verknuepfter Benutzer: Rechte des Benutzers kommen dazu (immer Anwesenheit + Einsatz).
+            var linked = info == null ? null : await scope.ServiceProvider.GetRequiredService<UserRepository>().GetByMemberIdAsync(m!.Id);
+            if (info != null && linked != null && linked.Role is UserRole.User or UserRole.Admin)
+            {
+                var mods = new HashSet<string>(info.Modules!, StringComparer.OrdinalIgnoreCase)
+                    { NetworkAccessService.ModuleAttendance, NetworkAccessService.ModuleOperations };
+                mods.UnionWith(ParseModules(linked.ModuleAccess) ?? new HashSet<string>(SelectableModules));
+                info = info with
+                {
+                    IsAdmin = linked.Role == UserRole.Admin, Modules = mods, IsStaff = true,
+                    LeadershipCircle = linked.Role == UserRole.Admin ? LeadershipCircles.Small : info.LeadershipCircle
+                };
+            }
         }
         else
         {
