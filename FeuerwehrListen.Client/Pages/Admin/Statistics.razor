@@ -650,10 +650,10 @@
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            @foreach (var member in _d.Members.Take(20))
+                                            @foreach (var member in _d.Members)
                                             {
-                                                <tr>
-                                                    <td><strong>@member.MemberName</strong></td>
+                                                <tr role="button" @onclick="() => OpenMember(member.MemberNumber)">
+                                                    <td><strong class="text-danger">@member.MemberName</strong></td>
                                                     <td>@member.MemberNumber</td>
                                                     <td>@member.TotalAttendance</td>
                                                     <td>@member.TotalOperations</td>
@@ -693,7 +693,7 @@
                             </div>
                             <div class="card-body">
                                 <p class="small text-muted mb-2">
-                                    Zahl = Einsätze, bei denen das Mitglied dabei war; je dunkler, desto größer der Anteil an allen Einsätzen
+                                    Name anklicken für Details. Zahl = Einsätze, bei denen das Mitglied dabei war; je dunkler, desto größer der Anteil an allen Einsätzen
                                     dieses Stichworts (Zahl in Klammern). Spaltenkopf anklicken zum Sortieren.
                                 </p>
                                 <div class="table-responsive" style="max-height:70vh;">
@@ -715,8 +715,8 @@
                                         <tbody>
                                             @foreach (var r in KwRows())
                                             {
-                                                <tr>
-                                                    <td class="text-start"><strong>@r.MemberName</strong> <span class="text-muted small">@r.MemberNumber</span></td>
+                                                <tr role="button" @onclick="() => OpenMember(r.MemberNumber)">
+                                                    <td class="text-start"><strong class="text-danger">@r.MemberName</strong> <span class="text-muted small">@r.MemberNumber</span></td>
                                                     <td style="@KwCellStyle(r.Total, mk.Keywords.Sum(k => k.Operations))">@r.Total</td>
                                                     @foreach (var k in mk.Keywords)
                                                     {
@@ -733,6 +733,89 @@
                     </div>
                 </div>
             }
+        }
+
+        @if (_md != null || _mdLoading)
+        {
+            <div class="modal d-block" tabindex="-1" style="background:rgba(0,0,0,.45);" @onclick="CloseMember">
+                <div class="modal-dialog modal-lg modal-dialog-scrollable modal-fullscreen-sm-down" @onclick:stopPropagation="true">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">@(_md?.MemberName ?? "Lade …") <span class="text-muted small">@_md?.MemberNumber</span></h5>
+                            <button type="button" class="btn-close" @onclick="CloseMember"></button>
+                        </div>
+                        <div class="modal-body">
+                            @if (_md == null)
+                            {
+                                <div class="text-center p-4"><div class="spinner-border text-danger"></div></div>
+                            }
+                            else
+                            {
+                                var dutyTotal = _md.Duties.Count;
+                                var quote = dutyTotal == 0 ? 0 : (int)Math.Round(100.0 * _md.DutiesPresent / dutyTotal);
+                                <p class="small text-muted mb-3">Zeitraum: @(_from?.ToString("dd.MM.yyyy") ?? "Anfang") – @(_to?.ToString("dd.MM.yyyy") ?? "heute")</p>
+                                <div class="row g-2 mb-3 text-center">
+                                    <div class="col-6 col-md-3"><div class="border rounded p-2"><div class="fs-4 fw-bold">@_md.Operations.Count</div><div class="small text-muted">Einsätze (von @_md.TotalOperationsInPeriod)</div></div></div>
+                                    <div class="col-6 col-md-3"><div class="border rounded p-2"><div class="fs-4 fw-bold">@_md.DutiesPresent / @dutyTotal</div><div class="small text-muted">Dienste anwesend (@quote %)</div></div></div>
+                                    <div class="col-6 col-md-3"><div class="border rounded p-2"><div class="fs-4 fw-bold">@_md.DutiesExcused</div><div class="small text-muted">entschuldigt</div></div></div>
+                                    <div class="col-6 col-md-3"><div class="border rounded p-2"><div class="fs-4 fw-bold">@_md.DutiesMissed</div><div class="small text-muted">gefehlt</div></div></div>
+                                </div>
+
+                                <h6 class="mt-3">Einsätze je Stichwort</h6>
+                                @if (_md.Keywords.Count == 0) { <p class="text-muted small">Keine Einsätze im Zeitraum.</p> }
+                                else
+                                {
+                                    <div class="d-flex flex-wrap gap-2 mb-2">
+                                        @foreach (var k in _md.Keywords) { <span class="badge bg-danger-subtle text-danger-emphasis border">@k.Name: @k.Operations</span> }
+                                    </div>
+                                    <div class="table-responsive">
+                                        <table class="table table-sm align-middle">
+                                            <thead><tr><th>Datum</th><th>Stichwort</th><th>Einsatz-Nr.</th><th>Fahrzeug / Funktion</th></tr></thead>
+                                            <tbody>
+                                                @foreach (var o in _md.Operations)
+                                                {
+                                                    <tr>
+                                                        <td style="white-space:nowrap;">@o.AlertTime.ToString("dd.MM.yy HH:mm")</td>
+                                                        <td>@o.Keyword<div class="small text-muted">@o.Address</div></td>
+                                                        <td>@o.OperationNumber</td>
+                                                        <td>@o.Vehicle @(o.Function is null ? "" : $"· {o.Function}") @(o.BreathingApparatus ? "· AGT" : "")</td>
+                                                    </tr>
+                                                }
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                }
+
+                                <h6 class="mt-3">Dienstabende</h6>
+                                @if (dutyTotal == 0) { <p class="text-muted small">Keine Dienste im Zeitraum.</p> }
+                                else
+                                {
+                                    <ul class="list-group list-group-flush">
+                                        @foreach (var d in _md.Duties)
+                                        {
+                                            <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+                                                <span><span class="text-muted me-2">@d.Date.ToString("dd.MM.yy")</span>@d.Title</span>
+                                                <span class="badge @(d.Status == "anwesend" ? "bg-success" : d.Status == "entschuldigt" ? "bg-warning text-dark" : "bg-secondary")">@d.Status</span>
+                                            </li>
+                                        }
+                                    </ul>
+                                }
+
+                                @if (_md.Watches.Count > 0)
+                                {
+                                    <h6 class="mt-3">Brandsicherheitswachen (@_md.Watches.Count)</h6>
+                                    <ul class="list-group list-group-flush">
+                                        @foreach (var w in _md.Watches)
+                                        {
+                                            <li class="list-group-item px-0"><span class="text-muted me-2">@w.Date.ToString("dd.MM.yy")</span>@w.Name</li>
+                                        }
+                                    </ul>
+                                }
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
         }
     </div>
 </AuthGuard>
@@ -992,9 +1075,35 @@
     private record KwRow(string MemberName, string MemberNumber, int Total, Dictionary<string, int>? Counts);
     private record MemberKeywordsDto(List<KwColumn> Keywords, List<KwRow> Rows);
 
+    // Einzelansicht Mitglied
+    private record MdOperation(int Id, DateTime AlertTime, string OperationNumber, string Keyword, string? Address, string? Vehicle, string? Function, bool BreathingApparatus);
+    private record MdDuty(int Id, DateTime Date, string Title, string Status);
+    private record MdWatch(int Id, DateTime Date, string Name);
+    private record MemberDetailDto(string MemberName, string MemberNumber, List<MdOperation> Operations, List<KwColumn> Keywords,
+        List<MdDuty> Duties, int DutiesPresent, int DutiesExcused, int DutiesMissed, List<MdWatch> Watches, int TotalOperationsInPeriod);
+    private MemberDetailDto? _md;
+    private bool _mdLoading;
+
+    private async Task OpenMember(string number)
+    {
+        _md = null; _mdLoading = true; StateHasChanged();
+        try
+        {
+            var url = $"client-api/admin/statistics/member/{Uri.EscapeDataString(number)}?x=1";
+            if (_from.HasValue) url += $"&from={Uri.EscapeDataString(_from.Value.ToString("s"))}";
+            if (_to.HasValue) url += $"&to={Uri.EscapeDataString(_to.Value.ToString("s"))}";
+            _md = await Http.GetFromJsonAsync<MemberDetailDto>(url);
+        }
+        catch { _md = null; }
+        _mdLoading = _md != null;
+        if (_md == null) _mdLoading = false;
+    }
+
+    private void CloseMember() { _md = null; _mdLoading = false; }
+
     // Matrix Mitglied x Stichwort: Sortierung per Klick auf die Spaltenkoepfe, Nullzeilen ausblendbar.
     private string? _kwSort;          // null = Gesamt
-    private bool _kwShowAll;
+    private bool _kwShowAll = true;
     private int KwCount(KwRow r, string kw) => r.Counts != null && r.Counts.TryGetValue(kw, out var n) ? n : 0;
     private IEnumerable<KwRow> KwRows()
     {
