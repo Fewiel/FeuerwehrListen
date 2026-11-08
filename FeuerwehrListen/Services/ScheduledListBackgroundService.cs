@@ -193,6 +193,17 @@ public class ScheduledListBackgroundService : BackgroundService
             }
         }
 
+        // Abgelaufene Brandsicherheitswachen abschliessen (Ende bzw. Beginn + Standarddauer vorbei).
+        var watchHours = int.TryParse(_settingsService.GetSetting(SettingKeys.CalendarFireSafetyWatchDefaultHours), out var wh) && wh > 0 ? wh : 4;
+        var openFsw = await db.FireSafetyWatches.Where(w => w.Status == ListStatus.Open).ToListAsync();
+        foreach (var w in openFsw.Where(w => (w.EndDateTime ?? w.EventDateTime.AddHours(watchHours)) < now))
+        {
+            w.Status = ListStatus.Closed;
+            w.ClosedAt = now;
+            await db.UpdateAsync(w);
+            _logger.LogInformation("Abgelaufene Brandsicherheitswache abgeschlossen: {Name} (ID: {Id})", w.Name, w.Id);
+        }
+
         // Auto-close operation lists
         var operationMinutes = _settingsService.GetAutoCloseMinutes(SettingKeys.AutoCloseOperations);
         if (operationMinutes > 0)

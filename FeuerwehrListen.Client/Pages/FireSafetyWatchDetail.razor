@@ -42,6 +42,7 @@
                         <a class="btn btn-outline-primary" href="/firesafetywatches/@_w.Id/edit">
                             <i class="bi bi-pencil me-1"></i>Bearbeiten
                         </a>
+                        <button class="btn btn-outline-danger" @onclick="Delete" disabled="@_busy"><i class="bi bi-trash me-1"></i>Löschen</button>
                     </AuthorizeView>
                     <a href="/firesafetywatches" class="btn btn-secondary">Zurück</a>
                 </div>
@@ -257,6 +258,20 @@
             await Load();
         }
         catch { _error = "Abschließen fehlgeschlagen."; }
+        finally { _busy = false; }
+    }
+
+    private async Task Delete()
+    {
+        if (_w is null || !await JS.InvokeAsync<bool>("confirm", $"Brandsicherheitswache „{_w.Name}“ wirklich löschen? Alle Eintragungen gehen verloren.")) return;
+        _busy = true;
+        try
+        {
+            var resp = await Http.DeleteAsync($"client-api/list/firesafety/{_w.Id}");
+            if (resp.IsSuccessStatusCode) { Nav.NavigateTo("/firesafetywatches"); return; }
+            _error = "Löschen fehlgeschlagen.";
+        }
+        catch { _error = "Löschen fehlgeschlagen."; }
         finally { _busy = false; }
     }
 

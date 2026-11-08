@@ -2267,13 +2267,13 @@ app.MapGet("/client-api/members/search", async (MemberRepository repo, string? q
 }).DisableAntiforgery();
 
 // Brandsicherheitswache: Detail (öffentlich) + Registrieren/Austragen/Abschließen
-app.MapGet("/client-api/firesafetywatch/{id:int}", async (int id, FireSafetyWatchRepository repo, FireSafetyWatchRequirementRepository reqRepo, FireSafetyWatchEntryRepository entryRepo) =>
-    await FswDetailAsync(await repo.GetByIdAsync(id), reqRepo, entryRepo));
+app.MapGet("/client-api/firesafetywatch/{id:int}", async (int id, HttpContext http, FireSafetyWatchRepository repo, FireSafetyWatchRequirementRepository reqRepo, FireSafetyWatchEntryRepository entryRepo) =>
+    await FswDetailAsync(await VisibleWatchAsync(http, await repo.GetByIdAsync(id)), reqRepo, entryRepo));
 
 // Direktlink /wache/{guid}: gleiche Daten, aber ueber die nicht erratbare PublicId. Eigenes
 // Modul (firesafety-link), damit Konten NUR per Link an Wachen kommen - nicht per Id/Liste.
-app.MapGet("/client-api/firesafetywatch-link/{publicId}", async (string publicId, FireSafetyWatchRepository repo, FireSafetyWatchRequirementRepository reqRepo, FireSafetyWatchEntryRepository entryRepo) =>
-    await FswDetailAsync(await repo.GetByPublicIdAsync(publicId), reqRepo, entryRepo));
+app.MapGet("/client-api/firesafetywatch-link/{publicId}", async (string publicId, HttpContext http, FireSafetyWatchRepository repo, FireSafetyWatchRequirementRepository reqRepo, FireSafetyWatchEntryRepository entryRepo) =>
+    await FswDetailAsync(await VisibleWatchAsync(http, await repo.GetByPublicIdAsync(publicId)), reqRepo, entryRepo));
 
 app.MapPost("/client-api/firesafetywatch-link/{publicId}/register", async (string publicId, HttpContext http, FireSafetyWatchRepository watchRepo, FireSafetyWatchRequirementRepository reqRepo, FireSafetyWatchEntryRepository entryRepo, MemberRepository memberRepo, FswRegisterRequest req) =>
     await FswRegisterAsync(await watchRepo.GetByPublicIdAsync(publicId), http, reqRepo, entryRepo, memberRepo, req)).DisableAntiforgery();
@@ -2999,9 +2999,11 @@ app.MapPost("/client-api/operation/{id:int}/address", async (int id, OperationLi
 }).RequireAuthorization().DisableAntiforgery();
 
 // Brandsicherheitswachen-Liste
-app.MapGet("/client-api/firesafetywatches", async (FireSafetyWatchRepository repo) =>
+// Abgeschlossene/abgelaufene Wachen sehen nur Admins (die Wachen anlegen duerfen).
+app.MapGet("/client-api/firesafetywatches", async (HttpContext http, FireSafetyWatchRepository repo) =>
     Results.Json((await repo.GetAllWithStatusAsync())
         .Where(w => !w.IsArchived)
+        .Where(w => http.User.IsInRole("Admin") || w.Status == ListStatus.Open)
         .OrderBy(w => w.EventDateTime)
         .Select(w => new { id = w.Id, name = w.Name, location = w.Location, time = w.EventDateTime, required = w.TotalRequired, assigned = w.TotalAssigned })));
 
@@ -3114,6 +3116,10 @@ static string AppendQuery(string url, params (string Key, string? Value)[] pairs
     }
     return url;
 }
+
+// Abgeschlossene Wachen nur fuer Admins sichtbar (andere bekommen 404).
+static Task<FireSafetyWatch?> VisibleWatchAsync(HttpContext http, FireSafetyWatch? w) =>
+    Task.FromResult(w != null && (w.Status == ListStatus.Open || http.User.IsInRole("Admin")) ? w : null);
 
 // Brandsicherheitswache: Detaildaten - gemeinsam fuer Aufruf per Id und per Direktlink.
 static async Task<IResult> FswDetailAsync(FireSafetyWatch? w, FireSafetyWatchRequirementRepository reqRepo, FireSafetyWatchEntryRepository entryRepo)
