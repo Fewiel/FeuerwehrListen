@@ -49,6 +49,13 @@ public class NextcloudService
     private static string EncodePath(string relative)
         => string.Join("/", relative.Split('/', StringSplitOptions.RemoveEmptyEntries).Select(Uri.EscapeDataString));
 
+    /// <summary>Ordner fuer Maengelbilder: {Basis Maengel}/{JJJJ}/{MangelID}. Wird beim Upload angelegt.</summary>
+    public string BuildDefectFolder(int year, int defectId)
+    {
+        var basePath = (_settings.GetSetting(SettingKeys.NextcloudDefectPath) is { Length: > 0 } b ? b : "/Feuerwehr Billerbeck/Maengelbilder").Trim('/');
+        return $"{basePath}/{year}/{defectId}";
+    }
+
     /// <summary>Baut den relativen Ordnerpfad: {Basis}/{JJJJ}/{JJ}{Einsatznummer}.</summary>
     public string BuildOperationFolder(int year, string operationNumber)
     {

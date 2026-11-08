@@ -2177,6 +2177,56 @@ app.MapPost("/client-api/operation/{id:int}/merge", async (int id, OperationMerg
     return result.Error != null ? Results.BadRequest(result.Error) : Results.Json(result);
 }).RequireAuthorization().DisableAntiforgery();
 
+// Maengel-Bilder (Nextcloud: <Basis Maengel>/JJJJ/<MangelID>/). Ansehen/Hochladen wie das Melden
+// (Modul "defects"), Loeschen nur Verwaltungskonten.
+app.MapGet("/client-api/defects/{id:int}/images", async (int id, DefectRepository repo, NextcloudService nc) =>
+{
+    var d = await repo.GetByIdAsync(id);
+    if (d == null || !nc.IsConfigured) return Results.Json(Array.Empty<object>());
+    var files = await nc.ListFilesAsync(nc.BuildDefectFolder(d.ReportedAt.Year, d.Id));
+    return Results.Json(files.Select(f => new { name = f.Name, size = f.Size }));
+}).DisableAntiforgery();
+
+app.MapGet("/client-api/defects/{id:int}/images/{name}", async (int id, string name, bool? thumb, HttpContext http, DefectRepository repo, NextcloudService nc) =>
+{
+    var d = await repo.GetByIdAsync(id);
+    if (d == null || !nc.IsConfigured || !IsSafeFileName(name)) return Results.NotFound();
+    var folder = nc.BuildDefectFolder(d.ReportedAt.Year, d.Id);
+    var file = thumb == true ? await nc.PreviewAsync(folder, name, 320) : await nc.DownloadAsync(folder, name);
+    if (file == null) return Results.NotFound();
+    http.Response.Headers.CacheControl = "private, max-age=3600";
+    return Results.File(file.Value.Data, file.Value.ContentType);
+}).DisableAntiforgery();
+
+app.MapPost("/client-api/defects/{id:int}/images", async (int id, HttpRequest http, DefectRepository repo, NextcloudService nc) =>
+{
+    var d = await repo.GetByIdAsync(id);
+    if (d == null || !nc.IsConfigured) return Results.BadRequest("Nextcloud ist nicht eingerichtet.");
+    var folder = nc.BuildDefectFolder(d.ReportedAt.Year, d.Id);
+    var existing = await nc.GetExistingFileNamesAsync(folder);
+    var form = await http.ReadFormAsync();
+    int ok = 0; var errors = new List<string>();
+    foreach (var f in form.Files)
+    {
+        if (!(f.ContentType ?? "").StartsWith("image/")) { errors.Add($"{f.FileName}: kein Bild"); continue; }
+        var name = string.Join("_", f.FileName.Split(Path.GetInvalidFileNameChars()));
+        // Gleicher Name schon vorhanden (z. B. "image.jpg" vom Handy) -> eindeutig machen statt ueberspringen.
+        if (existing.Contains(name)) name = $"{Path.GetFileNameWithoutExtension(name)}-{DateTime.Now:HHmmss}{ok}{Path.GetExtension(name)}";
+        try { using var ms = new MemoryStream(); await f.CopyToAsync(ms); await nc.UploadAsync(folder, name, ms.ToArray(), f.ContentType!); ok++; existing.Add(name); }
+        catch (Exception ex) { errors.Add($"{f.FileName}: {ex.Message}"); }
+    }
+    return Results.Json(new { ok, errors });
+}).DisableAntiforgery();
+
+app.MapDelete("/client-api/defects/{id:int}/images/{name}", async (int id, string name, DefectRepository repo, NextcloudService nc) =>
+{
+    var d = await repo.GetByIdAsync(id);
+    if (d == null || !nc.IsConfigured || !IsSafeFileName(name)) return Results.NotFound();
+    var folder = nc.BuildDefectFolder(d.ReportedAt.Year, d.Id);
+    if (!(await nc.GetExistingFileNamesAsync(folder)).Contains(name)) return Results.NotFound();
+    return await nc.DeleteAsync(folder, name) ? Results.Ok() : Results.Problem("Löschen in Nextcloud fehlgeschlagen.");
+}).RequireAuthorization("Staff").DisableAntiforgery();
+
 // Einsatz-Eintrag loeschen (Bearbeiten-Seite, angemeldet)
 app.MapDelete("/client-api/operation/{id:int}/entry/{entryId:int}", async (int entryId, OperationEntryRepository repo) =>
 { await repo.DeleteAsync(entryId); return Results.Ok(); }).RequireAuthorization().DisableAntiforgery();
@@ -2281,7 +2331,7 @@ app.MapPost("/client-api/defects", async (DefectRepository repo, VehicleReposito
         }
     }
     catch { }
-    return Results.Json(new { status = "ok" });
+    return Results.Json(new { status = "ok", id = defect.Id });
 }).DisableAntiforgery();
 app.MapGet("/client-api/defects/{id:int}/history", async (int id, DefectRepository repo) =>
     Results.Json((await repo.GetStatusChangesAsync(id)).Select(c => new { oldStatus = c.OldStatus.ToString(), newStatus = c.NewStatus.ToString(), changedByName = c.ChangedByName, changedAt = c.ChangedAt, comment = c.Comment })));

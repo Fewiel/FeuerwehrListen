@@ -112,6 +112,8 @@ public static class SettingKeys
     public const string NextcloudUsername = "Nextcloud.Username";
     public const string NextcloudAppPassword = "Nextcloud.AppPassword";
     public const string NextcloudBasePath = "Nextcloud.BasePath";
+    /// <summary>Basisordner fuer Maengelbilder: &lt;Basis&gt;/JJJJ/&lt;MangelID&gt;/</summary>
+    public const string NextcloudDefectPath = "Nextcloud.DefectBasePath";
 
     // Optionaler Alias/Name je Einheit 1-9 (z. B. "3" -> "Jugendfeuerwehr")
     public const string UnitAliasPrefix = "Unit.Alias.";

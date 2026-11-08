@@ -301,6 +301,11 @@
                     <input class="form-control" placeholder="/Feuerwehr Billerbeck/Einsatzbilder" @bind:get='Get("Nextcloud.BasePath")' @bind:set='(string v) => Set("Nextcloud.BasePath", v)' />
                     <small class="text-muted">Zielordner je Einsatz: <code>&lt;Basis&gt;/JJJJ/JJ&lt;Einsatznummer&gt;</code> &ndash; z.&nbsp;B. <code>&hellip;/2026/2629999</code></small>
                 </div>
+                <div class="mb-3">
+                    <label class="form-label">Basis-Ordner Mängelbilder</label>
+                    <input class="form-control" placeholder="/Feuerwehr Billerbeck/Maengelbilder" @bind:get='Get("Nextcloud.DefectBasePath")' @bind:set='(string v) => Set("Nextcloud.DefectBasePath", v)' />
+                    <small class="text-muted">Zielordner je Mangel: <code>&lt;Basis&gt;/JJJJ/&lt;MangelID&gt;</code> &ndash; wird automatisch angelegt. Leer = <code>/Feuerwehr Billerbeck/Maengelbilder</code></small>
+                </div>
 
                 <div class="d-flex align-items-center gap-2 flex-wrap">
                     <button type="button" class="btn btn-outline-primary" @onclick="TestNextcloud" disabled="@_ncTesting">

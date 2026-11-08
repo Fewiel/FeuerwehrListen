@@ -2,6 +2,8 @@
 @layout MainLayout
 @using System.Net.Http.Json
 @inject HttpClient Http
+@inject IJSRuntime JS
+@using System.Net.Http.Headers
 
 <PageTitle>Mängelliste</PageTitle>
 
@@ -76,6 +78,10 @@
                     </div>
                 }
             </div>
+            <div class="mb-3">
+                <label class="form-label">Fotos (optional)</label>
+                <InputFile OnChange="e => _rImages = e.GetMultipleFiles(10).ToList()" multiple accept="image/*" class="form-control" />
+            </div>
             @if (_rError is not null) { <div class="alert alert-danger py-2">@_rError</div> }
         </div>
         <div class="modal-footer"><button class="btn btn-secondary" @onclick="() => _showReport = false">Abbrechen</button><button class="btn btn-primary" @onclick="Report" disabled="@_saving">Melden</button></div>
@@ -94,6 +100,25 @@
             {
                 <p class="text-muted small">Erledigt am @_detail.ResolvedAt.Value.ToString("dd.MM.yyyy HH:mm")@(string.IsNullOrEmpty(_detail.ResolvedByName) ? "" : " durch " + _detail.ResolvedByName)</p>
             }
+            <hr />
+            <h6>Fotos</h6>
+            @if (_images.Count > 0)
+            {
+                <div class="d-flex flex-wrap mb-2" style="gap:8px;">
+                    @foreach (var img in _images)
+                    {
+                        <div style="position:relative;width:100px;">
+                            <a href="@ImgUrl(img.Name, false)" target="_blank" rel="noopener"><img src="@ImgUrl(img.Name, true)" alt="@img.Name" loading="lazy" style="width:100px;height:100px;object-fit:cover;border-radius:8px;background:#E3E0DB;" /></a>
+                            <AuthorizeView Roles="Admin,User" Context="imgctx">
+                                <button type="button" class="btn btn-sm btn-danger" style="position:absolute;top:4px;right:4px;width:30px;height:30px;padding:0;border-radius:15px;" aria-label="Foto löschen" @onclick="() => DeleteImage(img)"><i class="bi bi-trash"></i></button>
+                            </AuthorizeView>
+                        </div>
+                    }
+                </div>
+            }
+            else { <p class="text-muted small">Noch keine Fotos.</p> }
+            <InputFile OnChange="UploadDetailImages" multiple accept="image/*" class="form-control mb-1" />
+            @if (_imgMsg is not null) { <div class="small @(_imgErr ? "text-danger" : "text-success")">@_imgMsg</div> }
             <hr />
             <h6>Verlauf</h6>
             @if (_history.Count == 0) { <p class="text-muted small">Keine Statusänderungen.</p> }
@@ -214,15 +239,70 @@
         {
             var resp = await Http.PostAsJsonAsync("client-api/defects", new { Description = _rDesc, VehicleId = _rVehicleId, CustomVehicle = _rCustom, ReporterNumber = _rNumber });
             var r = await resp.Content.ReadFromJsonAsync<StatusDto>();
-            if (r?.Status == "ok") { _showReport = false; await Load(); }
+            if (r?.Status == "ok")
+            {
+                if (_rImages.Count > 0 && r.Id is int newId) await UploadImages(newId, _rImages);
+                _rImages = new(); _showReport = false; await Load();
+            }
             else _rError = "Mitglied nicht gefunden.";
         }
         catch { _rError = "Melden fehlgeschlagen."; }
         finally { _saving = false; }
     }
 
+    // --- Fotos (Nextcloud) ---
+    private List<IBrowserFile> _rImages = new();
+    private List<ImgDto> _images = new();
+    private string? _imgMsg; private bool _imgErr;
+    private string ImgUrl(string name, bool thumb) => $"client-api/defects/{_detail!.Id}/images/{Uri.EscapeDataString(name)}{(thumb ? "?thumb=1" : "")}";
+
+    private async Task LoadImages(int id)
+    {
+        try { _images = await Http.GetFromJsonAsync<List<ImgDto>>($"client-api/defects/{id}/images") ?? new(); } catch { _images = new(); }
+    }
+
+    private async Task<bool> UploadImages(int id, IReadOnlyList<IBrowserFile> files)
+    {
+        try
+        {
+            using var content = new MultipartFormDataContent();
+            foreach (var f in files)
+            {
+                var sc = new StreamContent(f.OpenReadStream(20 * 1024 * 1024));
+                sc.Headers.ContentType = new MediaTypeHeaderValue(string.IsNullOrEmpty(f.ContentType) ? "image/jpeg" : f.ContentType);
+                content.Add(sc, "files", f.Name);
+            }
+            var resp = await Http.PostAsync($"client-api/defects/{id}/images", content);
+            var r = resp.IsSuccessStatusCode ? await resp.Content.ReadFromJsonAsync<UploadDto>() : null;
+            _imgErr = r is null || r.Errors.Count > 0;
+            _imgMsg = r is null ? "Upload fehlgeschlagen (Nextcloud eingerichtet?)." : $"{r.Ok} Foto(s) hochgeladen" + (r.Errors.Count > 0 ? $", {r.Errors.Count} fehlgeschlagen" : "") + ".";
+            return !_imgErr;
+        }
+        catch { _imgErr = true; _imgMsg = "Upload fehlgeschlagen."; return false; }
+    }
+
+    private async Task UploadDetailImages(InputFileChangeEventArgs e)
+    {
+        if (_detail is null) return;
+        await UploadImages(_detail.Id, e.GetMultipleFiles(10));
+        await LoadImages(_detail.Id);
+    }
+
+    private async Task DeleteImage(ImgDto img)
+    {
+        if (_detail is null || !await JS.InvokeAsync<bool>("confirm", $"Foto „{img.Name}“ wirklich löschen?")) return;
+        var resp = await Http.DeleteAsync(ImgUrl(img.Name, false));
+        _imgErr = !resp.IsSuccessStatusCode; _imgMsg = _imgErr ? "Löschen fehlgeschlagen." : "Foto gelöscht.";
+        await LoadImages(_detail.Id);
+    }
+
+    private record ImgDto(string Name, long Size);
+    private record UploadDto(int Ok, List<string> Errors);
+
     private async Task OpenDetail(DefectDto d)
     {
+        _imgMsg = null; _images = new();
+        _ = LoadImages(d.Id).ContinueWith(_ => InvokeAsync(StateHasChanged));
         _detail = d; _newStatus = d.Status switch { "Open" => "InProgress", "InProgress" => "Done", _ => "InProgress" }; _comment = ""; _scNumber = ""; _scError = null; _statusResults = new();
         try { _history = await Http.GetFromJsonAsync<List<HistDto>>($"client-api/defects/{d.Id}/history") ?? new(); } catch { _history = new(); }
     }
@@ -279,6 +359,6 @@
     private record DefectDto(int Id, string Description, string Vehicle, string Status, string ReportedByName, DateTime ReportedAt, string? ResolvedByName, DateTime? ResolvedAt);
     private record VehDto(int Id, string Name);
     private record HistDto(string OldStatus, string NewStatus, string ChangedByName, DateTime ChangedAt, string? Comment);
-    private record StatusDto(string Status);
+    private record StatusDto(string Status, int? Id = null);
     private record MemberDto(int Id, string Name, string Number);
 }
