@@ -214,7 +214,7 @@ public static class LeadershipEndpoints
                 items = items.Select(i => new
                 {
                     id = i.Id, title = i.Title, ownerId = i.OwnerMemberId, owner = Name(i.OwnerMemberId),
-                    notes = i.Notes, decision = i.Decision, status = i.Status.ToString(),
+                    notes = i.Notes, decision = i.Decision, status = i.Status.ToString(), section = i.Section,
                     fromTask = i.SourceTaskId != null,
                     fixedItem = i.SortOrder == 10 || i.SortOrder == 10000,
                     tasks = tasks.Where(t => t.SourceItemId == i.Id).Select(t => new
@@ -227,6 +227,17 @@ public static class LeadershipEndpoints
                     overdue = t.DueDate is DateTime d && d.Date < DateTime.Today }),
                 attendance
             });
+        });
+
+        // Admin: Protokoll endgueltig loeschen - samt Kalendertermin (sonst wuerde es neu angelegt).
+        g.MapDelete("/protocols/{id:int}", async (int id, HttpContext http, UserAccessService ua, LeadershipRepository repo, CalendarRepository calendar) =>
+        {
+            if (!http.User.IsInRole("Admin")) return Results.Forbid();
+            var p = await repo.GetProtocolAsync(id);
+            if (p == null) return Results.NotFound();
+            await repo.DeleteProtocolAsync(p);
+            await calendar.DeleteEventAsync(p.CalendarEventId);
+            return Results.Ok();
         });
 
         g.MapPut("/protocols/{id:int}/keeper", async (int id, HttpContext http, UserAccessService ua, LeadershipRepository repo, KeeperRequest r) =>
@@ -254,10 +265,15 @@ public static class LeadershipEndpoints
             var p = await EditableProtocolAsync(id, http, ua, repo);
             if (p == null) return Results.NotFound();
             if (string.IsNullOrWhiteSpace(r.Title)) return Results.BadRequest();
+            var section = r.Section is LeadershipItem.SectionInfo or LeadershipItem.SectionAreas ? r.Section.Value : LeadershipItem.SectionAgenda;
+            // Infos/Bereiche: ohne Angabe ist der Einreichende verantwortlich.
+            var owner = r.OwnerMemberId ?? (section != LeadershipItem.SectionAgenda ? ua.Get(http)!.MemberId : null);
             var item = new LeadershipItem
             {
-                ProtocolId = p.Id, Circle = p.Circle, Title = r.Title.Trim(), OwnerMemberId = r.OwnerMemberId,
-                SortOrder = await svc.SortOrderBeforeMiscAsync(p.Id), CreatedAt = DateTime.Now
+                ProtocolId = p.Id, Circle = p.Circle, Title = r.Title.Trim(), OwnerMemberId = owner, Section = section,
+                Notes = r.Notes?.Trim() ?? "",
+                SortOrder = section == LeadershipItem.SectionAgenda ? await svc.SortOrderBeforeMiscAsync(p.Id) : 0,
+                CreatedAt = DateTime.Now
             };
             await repo.InsertItemAsync(item);
             return Results.Json(new { id = item.Id });
@@ -407,7 +423,7 @@ public static class LeadershipEndpoints
 }
 
 public record TaskRequest(string? Title, string? Description, int? Circle, int? AssigneeMemberId, DateTime? DueDate, int? SourceItemId = null);
-public record ItemRequest(string? Title, int? OwnerMemberId, string? Notes = null, string? Decision = null, string? Status = null);
+public record ItemRequest(string? Title, int? OwnerMemberId, string? Notes = null, string? Decision = null, string? Status = null, int? Section = null);
 public record ReorderRequest(List<int>? Ids);
 public record AttendanceRequest(int MemberId, int State);
 public record KeeperRequest(int? MemberId);

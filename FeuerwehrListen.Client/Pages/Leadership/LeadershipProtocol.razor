@@ -3,6 +3,7 @@
 @using System.Net.Http.Json
 @inject HttpClient Http
 @inject IJSRuntime JS
+@inject NavigationManager Nav
 @implements IDisposable
 
 <PageTitle>Führungskreis – Protokoll</PageTitle>
@@ -43,6 +44,7 @@
                     </div>
                 </div>
                 <a href="/fuehrungskreis" class="btn btn-outline-secondary">Übersicht</a>
+                <AuthorizeView Roles="Admin" Context="delctx"><button class="btn btn-outline-danger" @onclick="DeleteProtocol"><i class="bi bi-trash me-1"></i>Löschen</button></AuthorizeView>
                 @if (Preparing) { <button class="btn btn-outline-secondary" @onclick="SendAgenda" disabled="@_busy"><i class="bi bi-envelope me-1"></i>Tagesordnung versenden</button> }
                 @if (Preparing) { <button class="btn btn-success" @onclick="Start" disabled="@_busy"><i class="bi bi-play-fill me-1"></i>Sitzung starten</button> }
                 @if (Running && _p.CanManage) { <button class="btn btn-danger" @onclick="Close" disabled="@_busy"><i class="bi bi-flag me-1"></i>Sitzung beenden</button> }
@@ -55,12 +57,13 @@
                 @* ---------- Vorbereitung (F2) ---------- *@
                 <div class="row g-3">
                     <div class="col-lg-8">
-                        <div class="card"><div class="card-body">
+                        @SectionCard("Informationen", "Vorab ohne Beschluss: Infos aus verschiedenen Quellen, Einladungen anderer Feuerwehren …", 1)
+                        <div class="card mb-3"><div class="card-body">
                             <h2 class="h5">Tagesordnung</h2>
                             <ul class="list-group list-group-flush">
-                                @for (var i = 0; i < _p.Items.Count; i++)
+                                @for (var i = 0; i < Agenda.Count; i++)
                                 {
-                                    var it = _p.Items[i];
+                                    var it = Agenda[i];
                                     var idx = i;
                                     <li class="list-group-item d-flex align-items-center px-0" style="gap:10px;">
                                         <span style="width:58px;font-weight:700;color:#C8102E;">TOP @(i + 1)</span>
@@ -108,6 +111,7 @@
                                 <button class="btn btn-outline-primary" @onclick="AddItem" disabled="@string.IsNullOrWhiteSpace(_newTitle)">+ Punkt</button>
                             </div>
                         </div></div>
+                        @SectionCard("Aus den Bereichen", "Nach der Tagesordnung: jedes Mitglied des Kreises kann Punkte mit Notizen einbringen.", 2)
                     </div>
                     <div class="col-lg-4">
                         <div class="card"><div class="card-body">
@@ -155,7 +159,7 @@
                                 var no = i + 1;
                                 if (it.Status == "Abgelehnt") continue;
                                 <button class="btn w-100 d-flex align-items-center text-start" style="min-height:44px;gap:8px;@(it.Id == _currentId ? "background:#FCEBEE;color:#8A0017;font-weight:600;" : "")" @onclick="() => Select(it.Id)">
-                                    <span style="width:24px;font-weight:700;">@no</span>
+                                    <span style="min-width:24px;font-weight:700;font-size:.8rem;">@ShortLabel(it)</span>
                                     <span class="flex-grow-1">@it.Title</span>
                                     <span class="small">@(it.Status == "Besprochen" ? "✓" : it.Status == "Vertagt" ? "↷" : "")</span>
                                 </button>
@@ -168,7 +172,7 @@
                         {
                             <div class="card"><div class="card-body">
                                 <div class="d-flex flex-wrap align-items-center mb-3" style="gap:10px;">
-                                    <span style="font-weight:800;font-size:1.3rem;color:#C8102E;">TOP @(_p.Items.IndexOf(cur) + 1)</span>
+                                    <span style="font-weight:800;font-size:1.3rem;color:#C8102E;">@Label(cur)</span>
                                     <h2 class="h4 mb-0 flex-grow-1">@cur.Title</h2>
                                     @if (cur.FromTask) { <span class="badge" style="background:#E5EEF9;color:#1D4E89;">aus Aufgabe</span> }
                                     @if (cur.Owner is not null) { <span class="small text-muted">@cur.Owner</span> }
@@ -178,8 +182,11 @@
                                 <textarea id="notes" class="form-control mb-1" rows="6" readonly="@(!_p.CanEdit)" value="@_notes" @oninput="OnNotes"></textarea>
                                 <div class="small text-muted mb-3" style="min-height:1.2em;">@_saveState</div>
 
-                                <label class="form-label fw-semibold small" for="decision">Beschluss (optional)</label>
-                                <input id="decision" class="form-control mb-3" readonly="@(!_p.CanEdit)" value="@_decision" @oninput="OnDecision" />
+                                @if (cur.Section == 0)
+                                {
+                                    <label class="form-label fw-semibold small" for="decision">Beschluss (optional)</label>
+                                    <input id="decision" class="form-control mb-3" readonly="@(!_p.CanEdit)" value="@_decision" @oninput="OnDecision" />
+                                }
 
                                 <div class="border-top pt-3">
                                     <div class="d-flex justify-content-between align-items-center mb-2">
@@ -313,13 +320,13 @@
     private bool CanMove(int idx, int dir)
     {
         var target = idx + dir;
-        return _p is not null && target >= 0 && target < _p.Items.Count && !_p.Items[target].FixedItem;
+        return _p is not null && target >= 0 && target < Agenda.Count && !Agenda[target].FixedItem;
     }
 
     private async Task Move(int idx, int dir)
     {
         if (_p is null || !CanMove(idx, dir)) return;
-        var list = _p.Items.ToList();
+        var list = Agenda.ToList();
         (list[idx], list[idx + dir]) = (list[idx + dir], list[idx]);
         try { await Http.PostAsJsonAsync($"client-api/leadership/protocols/{Id}/reorder", new { Ids = list.Select(i => i.Id).ToList() }); } catch { }
         await Load();
@@ -332,6 +339,58 @@
         await PutItem(it with { Title = _editTitle, OwnerId = _editOwner == 0 ? null : _editOwner });
         _editItemId = null;
         await Load();
+    }
+
+    // --- Abschnitte: Informationen (1, vorab) / Tagesordnung (0) / Aus den Bereichen (2) ---
+    private List<ItemDto> Agenda => _p?.Items.Where(i => i.Section == 0).ToList() ?? new();
+    private readonly Dictionary<int, string> _secTitle = new() { [1] = "", [2] = "" }, _secNote = new() { [1] = "", [2] = "" };
+
+    private string Label(ItemDto it) => it.Section switch
+    {
+        1 => "Info",
+        2 => "Bereich",
+        _ => $"TOP {Agenda.FindIndex(a => a.Id == it.Id) + 1}"
+    };
+    private string ShortLabel(ItemDto it) => it.Section switch { 1 => "i", 2 => "B", _ => (Agenda.FindIndex(a => a.Id == it.Id) + 1).ToString() };
+
+    private RenderFragment SectionCard(string title, string hint, int section) => __builder =>
+    {
+        var list = _p!.Items.Where(i => i.Section == section).ToList();
+        <div class="card mb-3"><div class="card-body">
+            <h2 class="h5 mb-1">@title</h2>
+            <div class="small text-muted mb-2">@hint</div>
+            @if (list.Count == 0) { <div class="small text-muted">Noch nichts eingetragen.</div> }
+            @foreach (var it in list)
+            {
+                <div class="border-top py-2 d-flex" style="gap:8px;">
+                    <div class="flex-grow-1" style="min-width:0;">
+                        <div class="fw-semibold" style="@(it.Status == "Abgelehnt" ? "text-decoration:line-through;color:#8A857F;" : "")">@it.Title @if (it.Owner is not null) { <span class="small text-muted fw-normal">· @it.Owner</span> }</div>
+                        @if (!string.IsNullOrWhiteSpace(it.Notes)) { <div class="small" style="white-space:pre-line;">@it.Notes</div> }
+                    </div>
+                    @if (_p.CanManage) { <button class="btn btn-sm btn-outline-danger" style="align-self:flex-start;" aria-label="Entfernen" @onclick="() => DeleteItem(it)"><i class="bi bi-trash"></i></button> }
+                </div>
+            }
+            <div class="mt-2">
+                <input class="form-control mb-1" placeholder="Titel…" value="@_secTitle[section]" @oninput="e => _secTitle[section] = e.Value?.ToString() ?? string.Empty" />
+                <textarea class="form-control mb-1" rows="2" placeholder="Notizen (optional)" value="@_secNote[section]" @oninput="e => _secNote[section] = e.Value?.ToString() ?? string.Empty"></textarea>
+                <button class="btn btn-outline-primary btn-sm" @onclick="() => AddSectionItem(section)" disabled="@string.IsNullOrWhiteSpace(_secTitle[section])">+ Eintragen</button>
+            </div>
+        </div></div>
+    };
+
+    private async Task AddSectionItem(int section)
+    {
+        if (string.IsNullOrWhiteSpace(_secTitle[section])) return;
+        try { await Http.PostAsJsonAsync($"client-api/leadership/protocols/{Id}/items", new { Title = _secTitle[section], Notes = _secNote[section], Section = section }); } catch { }
+        _secTitle[section] = ""; _secNote[section] = "";
+        await Load();
+    }
+
+    private async Task DeleteProtocol()
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", "Protokoll ENDGÜLTIG löschen? Alle Punkte, Notizen und die Anwesenheit werden gelöscht, der Kalendertermin ebenfalls. Aufgaben bleiben bestehen.")) return;
+        var r = await Http.DeleteAsync($"client-api/leadership/protocols/{Id}");
+        if (r.IsSuccessStatusCode) Nav.NavigateTo("/fuehrungskreis"); else _error = "Löschen fehlgeschlagen.";
     }
 
     private async Task AddItem()
@@ -483,7 +542,7 @@
 
     private record MemberDto(int Id, string Name, int Circle);
     private record TaskMini(int Id, string Title, string? Assignee, DateTime? Due, bool Done);
-    private record ItemDto(int Id, string Title, int? OwnerId, string? Owner, string Notes, string Decision, string Status, bool FromTask, bool FixedItem, List<TaskMini> Tasks);
+    private record ItemDto(int Id, string Title, int? OwnerId, string? Owner, string Notes, string Decision, string Status, bool FromTask, bool FixedItem, List<TaskMini> Tasks, int Section = 0);
     private record OpenTaskDto(int Id, string Title, string? Assignee, DateTime? Due, bool Overdue);
     private record AttendanceDto(int MemberId, string Name, int State);
     private record ProtocolDto(int Id, int EventId, string? Title, DateTime? Start, string? Location, int? MinutesBefore, int Circle, string CircleLabel,

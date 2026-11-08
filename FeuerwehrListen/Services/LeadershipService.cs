@@ -246,6 +246,7 @@ public class LeadershipService
         foreach (var item in await _repo.GetItemsAsync(p.Id))
         {
             if (item.Status is LeadershipItemStatus.Besprochen or LeadershipItemStatus.Abgelehnt) continue;
+            if (item.Section != LeadershipItem.SectionAgenda) continue;   // Infos/Bereiche gelten nur fuer diese Sitzung
             if (item.SortOrder == 10 || item.SortOrder == 10000) continue;
             item.Status = LeadershipItemStatus.Vertagt;
             await _repo.UpdateItemAsync(item);
@@ -272,7 +273,7 @@ public class LeadershipService
     public async Task<(bool Mailed, int Recipients)> SendAgendaAsync(LeadershipProtocol p)
     {
         var e = await _calendar.GetEventAsync(p.CalendarEventId);
-        var items = (await _repo.GetItemsAsync(p.Id)).Where(i => i.Status != LeadershipItemStatus.Abgelehnt).ToList();
+        var items = (await _repo.GetItemsAsync(p.Id)).Where(i => i.Status != LeadershipItemStatus.Abgelehnt && i.Section == LeadershipItem.SectionAgenda).ToList();
         var recipients = (await _members.GetLeadershipMembersAsync(p.Circle))
             .Select(m => m.Email).Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x!).Distinct().ToList();
         if (recipients.Count == 0) return (false, 0);
@@ -338,9 +339,24 @@ public class LeadershipService
         if (excused.Count > 0) Text($"Entschuldigt ({excused.Count}): {string.Join(", ", excused)}", F(10));
         if (absent.Count > 0) Text($"Fehlend ({absent.Count}): {string.Join(", ", absent)}", F(10), after: 12);
 
+        void Plain(string heading, int section)
+        {
+            var list = items.Where(i => i.Section == section && i.Status != LeadershipItemStatus.Abgelehnt).ToList();
+            if (list.Count == 0) return;
+            Text(heading, F(13, true));
+            foreach (var it in list)
+            {
+                var owner = it.OwnerMemberId is int oid && memberNames.TryGetValue(oid, out var on) ? $" ({on})" : "";
+                Text($"• {it.Title}{owner}", F(11, true), after: 2);
+                Text(it.Notes, F(10), indent: 14);
+            }
+            y += 6;
+        }
+        Plain("Informationen", LeadershipItem.SectionInfo);
+
         Text("Tagesordnung", F(13, true));
         var no = 0;
-        foreach (var it in items.Where(i => i.Status != LeadershipItemStatus.Abgelehnt))
+        foreach (var it in items.Where(i => i.Section == LeadershipItem.SectionAgenda && i.Status != LeadershipItemStatus.Abgelehnt))
         {
             no++;
             var owner = it.OwnerMemberId is int oid && memberNames.TryGetValue(oid, out var on) ? $" ({on})" : "";
@@ -355,6 +371,7 @@ public class LeadershipService
             }
             y += 6;
         }
+        Plain("Aus den Bereichen", LeadershipItem.SectionAreas);
 
         gfx.Dispose();
         using var ms = new MemoryStream();

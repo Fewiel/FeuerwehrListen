@@ -24,8 +24,21 @@ public class LeadershipRepository
     public Task UpdateProtocolAsync(LeadershipProtocol p) => _db.UpdateAsync(p);
 
     // --- Tagesordnungspunkte ---
-    public Task<List<LeadershipItem>> GetItemsAsync(int protocolId) =>
-        _db.LeadershipItems.Where(x => x.ProtocolId == protocolId).OrderBy(x => x.SortOrder).ThenBy(x => x.Id).ToListAsync();
+    public async Task<List<LeadershipItem>> GetItemsAsync(int protocolId) =>
+        (await _db.LeadershipItems.Where(x => x.ProtocolId == protocolId).ToListAsync())
+            .OrderBy(x => x.SectionOrder).ThenBy(x => x.SortOrder).ThenBy(x => x.Id).ToList();
+
+    /// <summary>Protokoll endgueltig loeschen (Punkte, Anwesenheit). Aufgaben bleiben bestehen.</summary>
+    public async Task DeleteProtocolAsync(LeadershipProtocol p)
+    {
+        await _db.LeadershipItems.Where(x => x.ProtocolId == p.Id).DeleteAsync();
+        if (p.AttendanceListId is int lid)
+        {
+            await _db.AttendanceEntries.Where(x => x.AttendanceListId == lid).DeleteAsync();
+            await _db.AttendanceLists.Where(x => x.Id == lid).DeleteAsync();
+        }
+        await _db.LeadershipProtocols.Where(x => x.Id == p.Id).DeleteAsync();
+    }
 
     /// <summary>Punkte, die auf die naechste Sitzung dieses Kreises warten.</summary>
     public Task<List<LeadershipItem>> GetBacklogAsync(int circle) =>
