@@ -2319,7 +2319,7 @@ app.MapPost("/client-api/defects", async (DefectRepository repo, VehicleReposito
     if (!string.IsNullOrWhiteSpace(r.CustomVehicle)) custom = r.CustomVehicle.Trim();
     else if (r.VehicleId is int vid && vid > 0) { var v = await vRepo.GetByIdAsync(vid); vehicleId = vid; vehicleName = v != null ? $"{v.Name} ({v.CallSign})" : "Unbekannt"; }
     var defect = new Defect { Description = r.Description.Trim(), VehicleId = vehicleId, VehicleName = vehicleName, CustomVehicle = custom, Status = DefectStatus.Open, ReportedByMemberId = member.Id, ReportedByName = $"{member.FirstName} {member.LastName} ({member.MemberNumber})", ReportedAt = DateTime.Now };
-    await repo.CreateAsync(defect);
+    defect.Id = await repo.CreateAsync(defect);
     try
     {
         var recipients = settings.GetSetting(SettingKeys.NotificationDefectRecipients);
