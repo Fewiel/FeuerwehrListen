@@ -5,6 +5,29 @@
 @inject NavigationManager Nav
 @implements IDisposable
 
+@if (_isMember)
+{
+    @* Angemeldete Mitglieder: gleiche Kopfzeile + Tab-Leiste wie in "Mein Bereich" - auch auf
+       Wachen, Kalender, Fuehrungskreis. Sonst spraenge die Navigation zwischen Tab-Leiste und
+       Burger-Menue hin und her. *@
+    <MemberShell Wide="true">
+        <article class="content px-3">
+            @if (_blocked)
+            {
+                <div class="container mt-5 text-center">
+                    <div class="alert alert-warning d-inline-block"><i class="bi bi-shield-lock me-1"></i> Kein Zugriff auf diesen Bereich.</div>
+                    <div><a class="btn btn-primary mt-2" href="/mein">Zu Mein Bereich</a></div>
+                </div>
+            }
+            else
+            {
+                @Body
+            }
+        </article>
+    </MemberShell>
+}
+else
+{
 <div class="tw-shell">
     <NavMenu />
 
@@ -32,6 +55,7 @@
         </article>
     </main>
 </div>
+}
 
 @code {
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }

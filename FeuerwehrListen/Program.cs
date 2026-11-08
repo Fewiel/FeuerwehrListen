@@ -2356,8 +2356,17 @@ app.MapGet("/client-api/calendar", async (DateTime? from, DateTime? to, HttpCont
     if (end <= start) end = start.AddMonths(1);
 
     // Fuehrungskreis-Sitzungen sieht nur, wer den Kreis sehen darf (klein sieht klein + gross).
+    // Mitglieder: Termine mit Einheitenzuordnung nur fuer die eigene Einheit (ohne Zuordnung: alle).
+    HashSet<int>? myUnits = null;
+    if (viewer is { IsMember: true, MemberId: int myId })
+    {
+        var memberRepo = http.RequestServices.GetRequiredService<MemberRepository>();
+        myUnits = (await memberRepo.GetUnitsForMemberAsync(myId)).ToHashSet();
+        if ((await memberRepo.GetByIdAsync(myId))?.UnitNumber is int pu) myUnits.Add(pu);
+    }
     var events = (await repo.GetEventsInRangeAsync(start, end))
         .Where(e => e.Type != CalendarEventType.Fuehrungskreis || (viewer?.CanSeeCircle(LeadershipService.CircleOf(e)) ?? false))
+        .Where(e => myUnits == null || e.UnitNumber is not int u || myUnits.Contains(u))
         .ToList();
     var resources = await repo.GetResourcesForEventsAsync(events.Select(e => e.Id).ToList());
 
