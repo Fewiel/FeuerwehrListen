@@ -523,6 +523,79 @@ public class StatisticsService
         return new MemberKeywordMatrix(columns, rows);
     }
 
+    public sealed record MemberOperationItem(int Id, DateTime AlertTime, string OperationNumber, string Keyword, string? Address, string? Vehicle, string? Function, bool BreathingApparatus);
+    public sealed record MemberDutyItem(int Id, DateTime Date, string Title, string Status);
+    public sealed record MemberWatchItem(int Id, DateTime Date, string Name);
+    public sealed record MemberDetail(string MemberName, string MemberNumber, List<MemberOperationItem> Operations,
+        List<KeywordColumn> Keywords, List<MemberDutyItem> Duties, int DutiesPresent, int DutiesExcused, int DutiesMissed,
+        List<MemberWatchItem> Watches, int TotalOperationsInPeriod);
+
+    /// <summary>
+    /// Einzelansicht eines Mitglieds im Zeitraum: Einsaetze (mit Stichwort/Fahrzeug/Funktion),
+    /// Haeufigkeit je Stichwort und Dienstabende (anwesend / entschuldigt / gefehlt). Gezaehlt werden
+    /// nur Dienste ohne Einheit oder der eigenen Einheit(en); Fuehrungskreis-Sitzungen nicht.
+    /// </summary>
+    public async Task<MemberDetail?> GetMemberDetailAsync(string memberNumber, StatsFilter filter)
+    {
+        var member = await _db.Members.FirstOrDefaultAsync(m => m.MemberNumber == memberNumber);
+        if (member == null) return null;
+
+        // --- Einsaetze ---
+        var ops = await FilteredOperationListsAsync(filter);
+        var opIds = ops.Select(o => o.Id).ToList();
+        var entries = opIds.Count == 0 ? new List<OperationEntry>()
+            : (await _db.OperationEntries.Where(e => opIds.Contains(e.OperationListId)).ToListAsync())
+                .Where(e => ExtractMemberNumber(e.NameOrId) == memberNumber).ToList();
+        var keywordNames = (await _db.Keywords.ToListAsync()).ToDictionary(k => k.Id, k => k.Name);
+        string KeywordOf(OperationList o) =>
+            o.KeywordId is int kid && keywordNames.TryGetValue(kid, out var n) && !string.IsNullOrWhiteSpace(n) ? n.Trim()
+            : !string.IsNullOrWhiteSpace(o.Keyword) ? o.Keyword.Trim() : "Ohne Stichwort";
+        var opById = ops.ToDictionary(o => o.Id);
+        var operations = entries.GroupBy(e => e.OperationListId).Select(g =>
+        {
+            var o = opById[g.Key]; var e = g.First();
+            return new MemberOperationItem(o.Id, o.AlertTime, o.OperationNumber, KeywordOf(o), o.Address,
+                string.IsNullOrWhiteSpace(e.Vehicle) ? null : e.Vehicle,
+                e.Function switch { OperationFunction.Maschinist => "Maschinist", OperationFunction.Gruppenfuehrer => "Führung", OperationFunction.Trupp => "Trupp", _ => null },
+                e.WithBreathingApparatus);
+        }).OrderByDescending(x => x.AlertTime).ToList();
+        var totalByKeyword = ops.GroupBy(KeywordOf, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
+        var keywords = operations.GroupBy(x => x.Keyword, StringComparer.OrdinalIgnoreCase)
+            .Select(g => new KeywordColumn(g.Key, g.Count()))
+            .OrderByDescending(k => k.Operations).ThenBy(k => k.Name).ToList();
+
+        // --- Dienstabende (Anwesenheitslisten) ---
+        var units = await _unitAssignment.ResolveAllUnitNumbersAsync(member);
+        var lists = (await FilteredAttendanceListsAsync(filter))
+            .Where(l => l.UnitNumber == null || units.Contains(l.UnitNumber.Value))
+            .Where(l => l.CreatedAt <= DateTime.Now)
+            .ToList();
+        var listIds = lists.Select(l => l.Id).ToList();
+        var attEntries = listIds.Count == 0 ? new List<AttendanceEntry>()
+            : (await _db.AttendanceEntries.Where(e => listIds.Contains(e.AttendanceListId)).ToListAsync())
+                .Where(e => ExtractMemberNumber(e.NameOrId) == memberNumber).ToList();
+        var byList = attEntries.GroupBy(e => e.AttendanceListId).ToDictionary(g => g.Key, g => g.Any(e => !e.IsExcused));
+        var duties = lists.OrderByDescending(l => l.CreatedAt).Select(l => new MemberDutyItem(l.Id, l.CreatedAt, l.Title,
+            byList.TryGetValue(l.Id, out var present) ? (present ? "anwesend" : "entschuldigt") : "gefehlt")).ToList();
+
+        // --- Brandsicherheitswachen ---
+        var watches = new List<MemberWatchItem>();
+        var fswIds = (await FilteredFswListsAsync(filter)).Select(w => w.Id).ToList();
+        if (fswIds.Count > 0)
+        {
+            var mine = await _db.FireSafetyWatchEntries.Where(e => e.MemberId == member.Id && fswIds.Contains(e.FireSafetyWatchId)).Select(e => e.FireSafetyWatchId).ToListAsync();
+            var ids = mine.Distinct().ToList();
+            if (ids.Count > 0)
+                watches = (await _db.FireSafetyWatches.Where(w => ids.Contains(w.Id)).ToListAsync())
+                    .OrderByDescending(w => w.EventDateTime).Select(w => new MemberWatchItem(w.Id, w.EventDateTime, w.Name)).ToList();
+        }
+
+        return new MemberDetail($"{member.FirstName} {member.LastName}", member.MemberNumber, operations,
+            keywords.Select(k => k with { Name = k.Name }).ToList(), duties,
+            duties.Count(d => d.Status == "anwesend"), duties.Count(d => d.Status == "entschuldigt"), duties.Count(d => d.Status == "gefehlt"),
+            watches, ops.Count);
+    }
+
     public async Task<List<KeywordStatistics>> GetKeywordStatisticsAsync(StatsFilter? filter = null)
     {
         filter ??= new StatsFilter { ListType = StatListType.All };

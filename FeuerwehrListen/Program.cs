@@ -1608,6 +1608,13 @@ admin.MapDelete("/sso-clients/{id:int}", async (int id, SsoClientRepository repo
 // Funktions-, Atemschutz-, Stichwort-, Requirements- und Trend-Sektionen gelten nur fuer
 // Einsatzlisten (filter.IncludeOperations); bei anderem ListType liefern die Service-
 // Methoden leere Listen/Nullwerte - die UI blendet sie dann aus.
+// Einzelansicht eines Mitglieds (Klick in der Statistik). Zeitraum wie die Uebersicht.
+staff.MapGet("/statistics/member/{number}", async (StatisticsService stats, string number, DateTime? from, DateTime? to) =>
+{
+    var d = await stats.GetMemberDetailAsync(number, new StatsFilter { ListType = StatListType.All, From = from, To = to });
+    return d == null ? Results.NotFound() : Results.Json(d);
+});
+
 staff.MapGet("/statistics", async (StatisticsService stats, int? listType, DateTime? from, DateTime? to, int? unit) =>
 {
     var lt = listType ?? 0;
