@@ -725,6 +725,8 @@ app.MapGet("/client-api/app-context", (HttpContext http, SettingsService setting
     return Results.Json(new
     {
         appName = branding(SettingKeys.BrandingAppName) ?? "Feuerwehr Listen",
+        // Server-Version (Directory.Build.props) - zeigt am Geraet, ob das Update schon durch ist.
+        version = AppVersion.Value,
         logoUrl = branding(SettingKeys.BrandingLogoUrl),
         modules = new
         {
@@ -3245,6 +3247,7 @@ static async Task SignInMember(HttpContext ctx, Member member)
 }
 
 // Dateiname aus der URL: nur ein einzelner Name, keine Pfade.
+
 static bool IsSafeFileName(string? name) =>
     !string.IsNullOrWhiteSpace(name) && name.Length <= 255 && name != "." && name != ".."
     && name.IndexOfAny(new[] { '/', '\\', '\0' }) < 0;
@@ -3331,3 +3334,12 @@ public record NextcloudTestReq(string? Url, string? User, string? Pass);
 public record ReportStrengthReq(List<ExtForceReq>? ExternalForces, List<VsReq>? VehicleStrengths);
 
 public partial class Program { }
+
+/// <summary>App-Version aus Directory.Build.props (ohne Git-Hash).</summary>
+public static class AppVersion
+{
+    public static readonly string Value =
+        (System.Reflection.Assembly.GetExecutingAssembly()
+            .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+            .FirstOrDefault() as System.Reflection.AssemblyInformationalVersionAttribute)?.InformationalVersion?.Split('+')[0] ?? "?";
+}
