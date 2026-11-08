@@ -52,3 +52,4 @@ Beim Erhöhen von MAJOR/MINOR wird der rechte Teil auf 0 gesetzt.
 * **3.10.1** – Statistik: Standardfilter „Gesamt“ (Anwesenheit war bei „Einsatzlisten“ immer 0), Entschuldigte zählen nicht als Anwesenheit
 * **3.11.0** – Statistik: Teilnahme je Mitglied und Stichwort (sortierbare Matrix)
 * **3.12.0** – Statistik: alle Mitglieder sichtbar, Mitglied anklickbar mit Einsätzen, Stichworten und Dienstabend-Teilnahme
+* **3.12.1** – Kalender: mit Benutzer/Admin verknüpfte Mitglieder sehen Termine aller Einheiten

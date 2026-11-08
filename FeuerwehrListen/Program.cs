@@ -2492,8 +2492,9 @@ app.MapGet("/client-api/calendar", async (DateTime? from, DateTime? to, HttpCont
 
     // Fuehrungskreis-Sitzungen sieht nur, wer den Kreis sehen darf (klein sieht klein + gross).
     // Mitglieder: Termine mit Einheitenzuordnung nur fuer die eigene Einheit (ohne Zuordnung: alle).
+    // Mit Benutzer/Admin verknuepfte Mitglieder sehen - wie im Benutzer-Login - alle Einheiten.
     HashSet<int>? myUnits = null;
-    if (viewer is { IsMember: true, MemberId: int myId })
+    if (viewer is { IsMember: true, IsStaff: false, MemberId: int myId })
     {
         var memberRepo = http.RequestServices.GetRequiredService<MemberRepository>();
         myUnits = (await memberRepo.GetUnitsForMemberAsync(myId)).ToHashSet();
