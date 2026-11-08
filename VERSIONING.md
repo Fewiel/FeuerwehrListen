@@ -34,3 +34,4 @@ Beim Erhöhen von MAJOR/MINOR wird der rechte Teil auf 0 gesetzt.
 * **3.2.0** – Führungskreis: Protokollführung (im Kalender wählbar), Punkte ablehnen, Tagesordnung
   versenden, Aufgaben an alle Mitglieder mit Notizen/Status im Mitgliedsbereich, Aufgabe → Tagespunkt,
   Protokollversand an die Anwesenden
+* **3.2.1** – Abwesenheiten landen nur auf der Liste der eigenen Einheit

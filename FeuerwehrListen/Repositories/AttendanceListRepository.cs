@@ -79,6 +79,16 @@ public class AttendanceListRepository
         return id;
     }
 
+    /// <summary>Einheiten eines Mitglieds wie UnitAssignmentService: Zuordnungstabelle, Haupteinheit,
+    /// sonst aus der Mitgliedsnummer (1xxx = Einheit 1).</summary>
+    private async Task<HashSet<int>> UnitsOfAsync(Member m)
+    {
+        var units = (await _db.MemberUnits.Where(x => x.MemberId == m.Id).Select(x => x.UnitNumber).ToListAsync()).ToHashSet();
+        if (m.UnitNumber is int u) units.Add(u);
+        if (units.Count == 0 && int.TryParse(m.MemberNumber, out var n) && n > 999 && n / 1000 is >= 1 and <= 9) units.Add(n / 1000);
+        return units;
+    }
+
     /// <summary>Angenommene Laufzeit einer Liste fuer den Abgleich mit Abwesenheiten:
     /// Oeffnung bis Oeffnung + 3 Stunden (eine Liste um 18:30 trifft so eine Meldung 19-21 Uhr).</summary>
     public static readonly TimeSpan AssumedDuration = TimeSpan.FromHours(3);
@@ -95,6 +105,9 @@ public class AttendanceListRepository
         {
             var m = await _db.Members.FirstOrDefaultAsync(x => x.Id == memberId);
             if (m == null || entries.Any(e => e.NameOrId.Contains($"({m.MemberNumber})"))) continue;
+            // Einheiten-Liste: nur Mitglieder dieser Einheit (sonst landet die Entschuldigung bei
+            // gleichzeitig offenen Listen von Einheit 1 und 2 doppelt). Listen ohne Einheit: alle.
+            if (list.UnitNumber is int unit && !(await UnitsOfAsync(m)).Contains(unit)) continue;
             await _db.InsertAsync(new AttendanceEntry
             {
                 AttendanceListId = list.Id, NameOrId = $"{m.FirstName} {m.LastName} ({m.MemberNumber})",
