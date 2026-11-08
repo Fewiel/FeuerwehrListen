@@ -43,7 +43,7 @@ public class Member
 
     /// <summary>Freigegebene Bereiche, kommagetrennt (wie User.ModuleAccess, aber nie "*").</summary>
     [Column("ModuleAccess")]
-    public string ModuleAccess { get; set; } = string.Empty;
+    public string ModuleAccess { get; set; } = "defects";   // Standard: Maengel freigegeben
 
     /// <summary>0 = kein, 1 = grosser, 2 = kleiner Fuehrungskreis (klein steht ueber gross).</summary>
     [Column("LeadershipCircle")]
