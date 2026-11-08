@@ -1509,6 +1509,32 @@ admin.MapPost("/users/{id:int}/unlock", async (int id, UserRepository repo, Logi
     return Results.Ok();
 });
 
+// Abwesenheiten im Voraus (Mitgliedsmodus mit verknuepftem Benutzer bzw. Admin/User).
+var absences = app.MapGroup("/client-api/absences").RequireAuthorization("Staff").DisableAntiforgery();
+absences.MapGet("", async (AppDbConnection db) =>
+{
+    var list = await db.MemberAbsences.Where(a => a.To >= DateTime.Now.AddDays(-1)).OrderBy(a => a.From).ToListAsync();
+    var ids = list.Select(a => a.MemberId).Distinct().ToList();
+    var names = (await db.Members.Where(m => ids.Contains(m.Id)).ToListAsync()).ToDictionary(m => m.Id, m => $"{m.FirstName} {m.LastName} ({m.MemberNumber})");
+    return Results.Json(list.Select(a => new { id = a.Id, memberId = a.MemberId, name = names.GetValueOrDefault(a.MemberId, "?"), from = a.From, to = a.To, note = a.Note, createdBy = a.CreatedBy }));
+});
+absences.MapPost("", async (HttpContext http, AppDbConnection db, AttendanceListRepository lists, AbsenceRequest r) =>
+{
+    if (r.To <= r.From || !await db.Members.AnyAsync(m => m.Id == r.MemberId)) return Results.BadRequest("Ungültige Angaben.");
+    var who = $"{http.User.FindFirst("FirstName")?.Value} {http.User.FindFirst("LastName")?.Value}".Trim();
+    await db.InsertAsync(new MemberAbsence { MemberId = r.MemberId, From = r.From, To = r.To, Note = r.Note?.Trim() ?? "",
+        CreatedBy = who.Length > 0 ? who : http.User.Identity?.Name ?? "", CreatedAt = DateTime.Now });
+    // Bereits offene Listen im Zeitraum sofort nachziehen.
+    var applied = 0;
+    foreach (var l in await lists.GetOpenAsync()) applied += await lists.ApplyAbsencesAsync(l);
+    return Results.Json(new { ok = true, applied });
+});
+absences.MapDelete("/{id:int}", async (int id, AppDbConnection db) =>
+{
+    await db.MemberAbsences.Where(a => a.Id == id).DeleteAsync();
+    return Results.Ok();
+});
+
 // Geraetekonto: alle angemeldeten Geraete abmelden (verlorenes iPad, Weitergabe des Passworts).
 admin.MapPost("/users/{id:int}/devices/logout-all", async (int id, DeviceSessionService devices) =>
 {
@@ -3281,6 +3307,7 @@ public record ExcuseToggleReq(int MemberId, bool Excused);
 public record OpCloseReq(string? Address);
 public record OperationAddRequest(int MemberId, int? VehicleId, bool NoVehicle, bool BreathingApparatus, List<int>? FunctionIds);
 public record MergeRequest(int SourceId);
+public record AbsenceRequest(int MemberId, DateTime From, DateTime To, string? Note);
 public record ReportSaveRequest(OperationReport Report, List<ExtForceReq>? ExternalForces, List<MittelReq>? Mittel, List<VsReq>? VehicleStrengths,
     bool ClearIukSignature = false, bool ClearElSignature = false);
 public record ExtForceReq(string? Rufname, string? Staerke);

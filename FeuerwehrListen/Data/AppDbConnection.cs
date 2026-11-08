@@ -15,6 +15,7 @@ public class AppDbConnection : DataConnection
     public ITable<AttendanceEntry> AttendanceEntries => this.GetTable<AttendanceEntry>();
     public ITable<OperationEntry> OperationEntries => this.GetTable<OperationEntry>();
     public ITable<User> Users => this.GetTable<User>();
+    public ITable<MemberAbsence> MemberAbsences => this.GetTable<MemberAbsence>();
     public ITable<DeviceSession> DeviceSessions => this.GetTable<DeviceSession>();
     public ITable<LeadershipProtocol> LeadershipProtocols => this.GetTable<LeadershipProtocol>();
     public ITable<LeadershipItem> LeadershipItems => this.GetTable<LeadershipItem>();

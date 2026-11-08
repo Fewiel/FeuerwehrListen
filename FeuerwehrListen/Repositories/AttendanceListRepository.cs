@@ -72,7 +72,37 @@ public class AttendanceListRepository
 
     public async Task<int> CreateAsync(AttendanceList list)
     {
-        return await _db.InsertWithInt32IdentityAsync(list);
+        var id = await _db.InsertWithInt32IdentityAsync(list);
+        list.Id = id;
+        // Im Voraus gemeldete Abwesenheiten gleich als "entschuldigt" uebernehmen (nicht Fuehrungskreis).
+        if (list.LeadershipProtocolId == null) await ApplyAbsencesAsync(list);
+        return id;
+    }
+
+    /// <summary>Angenommene Laufzeit einer Liste fuer den Abgleich mit Abwesenheiten:
+    /// Oeffnung bis Oeffnung + 3 Stunden (eine Liste um 18:30 trifft so eine Meldung 19-21 Uhr).</summary>
+    public static readonly TimeSpan AssumedDuration = TimeSpan.FromHours(3);
+
+    /// <summary>Alle Abwesenheiten, die den Zeitraum der Liste ueberschneiden, als entschuldigt eintragen.</summary>
+    public async Task<int> ApplyAbsencesAsync(AttendanceList list)
+    {
+        var start = list.CreatedAt; var end = start + AssumedDuration;
+        var absences = await _db.MemberAbsences.Where(a => a.From < end && a.To > start).ToListAsync();
+        if (absences.Count == 0) return 0;
+        var entries = await _db.AttendanceEntries.Where(e => e.AttendanceListId == list.Id).ToListAsync();
+        var added = 0;
+        foreach (var memberId in absences.Select(a => a.MemberId).Distinct())
+        {
+            var m = await _db.Members.FirstOrDefaultAsync(x => x.Id == memberId);
+            if (m == null || entries.Any(e => e.NameOrId.Contains($"({m.MemberNumber})"))) continue;
+            await _db.InsertAsync(new AttendanceEntry
+            {
+                AttendanceListId = list.Id, NameOrId = $"{m.FirstName} {m.LastName} ({m.MemberNumber})",
+                EnteredAt = DateTime.Now, IsExcused = true
+            });
+            added++;
+        }
+        return added;
     }
 
     public async Task UpdateAsync(AttendanceList list)
