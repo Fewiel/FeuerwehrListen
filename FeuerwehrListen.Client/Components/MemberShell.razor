@@ -16,10 +16,7 @@
             <span>@(_ctx?.AppName ?? "Feuerwehr")</span>
         </a>
         <div class="fwm-head-right">
-            @if (HasListModules)
-            {
-                <a href="/" class="fwm-iconbtn" aria-label="Zur Übersicht"><i class="bi bi-grid"></i></a>
-            }
+            <a href="/mein" class="fwm-iconbtn" aria-label="Start"><i class="bi bi-house"></i></a>
             <a href="/mein/profil" class="fwm-iconbtn" aria-label="Profil"><i class="bi bi-person-circle"></i></a>
         </div>
     </header>
@@ -32,6 +29,7 @@
         <a href="/mein" class="@Tab("mein", true)"><i class="bi bi-house"></i><span>Start</span></a>
         <a href="/mein/ausweis" class="@Tab("mein/ausweis")"><i class="bi bi-person-vcard"></i><span>Ausweis</span></a>
         @if (M.FireSafety) { <a href="/firesafetywatches" class="@Tab("firesafetywatches")"><i class="bi bi-shield-check"></i><span>Wachen</span></a> }
+        @if (M.Defects) { <a href="/defects" class="@Tab("defects")"><i class="bi bi-tools"></i><span>Mängel</span></a> }
         @if (M.Calendar) { <a href="/kalender" class="@Tab("kalender")"><i class="bi bi-calendar3"></i><span>Kalender</span></a> }
         @if (M.Leadership) { <a href="/fuehrungskreis" class="@Tab("fuehrungskreis")"><i class="bi bi-people"></i><span>Führung</span></a> }
     </nav>

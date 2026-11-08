@@ -522,6 +522,8 @@
     private DateTime _serverToday = DateTime.Now;
     private DateTime? _selected;
     private string _view = "grid";
+    [SupplyParameterFromQuery(Name = "event")] public int? QEvent { get; set; }
+    [SupplyParameterFromQuery(Name = "d")] public string? QDate { get; set; }
 
     // Tage des angezeigten Monats mit mindestens einem Termin (Listenansicht).
     private List<DateTime> MonthDays()
@@ -677,7 +679,10 @@
             _leadership = ctx?.Modules.Leadership == true;
         }
         catch { }
+        if (DateTime.TryParse(QDate, out var qd)) { _month = new DateTime(qd.Year, qd.Month, 1); _selected = qd.Date; }
         await Load();
+        // Aus dem Dashboard: Termin direkt im Detail oeffnen.
+        if (QEvent is int qe && _items.FirstOrDefault(x => x.Id == qe && IsCalendarEvent(x.Kind)) is CalItem hit) await OpenDetail(hit);
     }
 
     private async Task Load()

@@ -101,8 +101,7 @@ else
         }
 
         // Mitglieder ohne Listen-Bereiche haben auf der Uebersicht nichts - Start ist "Mein Bereich".
-        if (_isMember && page.Length == 0 && _ctx != null
-            && !(_ctx.Modules.Attendance || _ctx.Modules.Operations || _ctx.Modules.Defects))
+        if (_isMember && page.Length == 0)
         {
             Nav.NavigateTo("mein");
             return;
