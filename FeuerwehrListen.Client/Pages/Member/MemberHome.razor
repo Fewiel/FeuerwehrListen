@@ -19,32 +19,6 @@
     {
         <h1 style="font-size:1.4rem;font-weight:700;margin:4px 0 14px;">Hallo, @_me.FirstName</h1>
 
-        <section class="fwm-card" style="padding-top:12px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-                <h2 style="font-size:1rem;margin:0;">Termine</h2>
-                @if (_ctx?.Modules.Calendar == true) { <a href="/kalender" style="font-size:.9rem;">Kalender</a> }
-            </div>
-            @if (_overview is null) { <div class="text-muted small">Lade…</div> }
-            else if (_overview.Events.Count == 0) { <div style="color:#5C5853;">Keine Termine</div> }
-            else
-            {
-                @foreach (var e in _overview.Events)
-                {
-                    <a href="@(e.Leadership ? $"/fuehrungskreis/termin/{e.Id}" : "/kalender")" style="display:flex;align-items:center;padding:8px 0;border-top:1px solid #F0EEEB;text-decoration:none;color:inherit;">
-                        <div style="width:46px;text-align:center;border-radius:8px;background:#F4F2EF;padding:4px 0;margin-right:12px;">
-                            <div style="font-size:.7rem;color:#5C5853;">@e.Start.ToString("ddd", De).ToUpperInvariant()</div>
-                            <div style="font-size:1.1rem;font-weight:700;">@e.Start.Day</div>
-                        </div>
-                        <div style="flex:1;min-width:0;">
-                            <div style="font-weight:600;">@e.Title</div>
-                            <div style="font-size:.85rem;color:#5C5853;">@DayLabel(e.Start) · @e.Start.ToString("HH:mm") Uhr@(string.IsNullOrWhiteSpace(e.Location) ? "" : " · " + e.Location)</div>
-                        </div>
-                        @if (e.Leadership) { <span style="font-size:.7rem;font-weight:700;color:#6B3FA0;background:#F1EAFA;border-radius:6px;padding:3px 6px;">FK</span> }
-                    </a>
-                }
-            }
-        </section>
-
         <a href="/mein/ausweis" class="fwm-card" style="display:flex;align-items:center;text-decoration:none;color:inherit;border-left:6px solid #C8102E;">
             <img src="@PhotoUrl" alt="" style="width:52px;height:65px;object-fit:cover;border-radius:6px;background:#E3E0DB;margin-right:14px;" />
             <div style="flex:1;min-width:0;">
@@ -61,6 +35,32 @@
             </div>
             <i class="bi bi-chevron-right" style="color:#5C5853;"></i>
         </a>
+
+        <section class="fwm-card" style="padding-top:12px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                <h2 style="font-size:1rem;margin:0;">Termine</h2>
+                @if (_ctx?.Modules.Calendar == true) { <a href="/kalender" style="font-size:.9rem;">Kalender</a> }
+            </div>
+            @if (_overview is null) { <div class="text-muted small">Lade…</div> }
+            else if (_overview.Events.Count == 0) { <div style="color:#5C5853;">Keine Termine</div> }
+            else
+            {
+                @foreach (var e in _overview.Events)
+                {
+                    <a href="@(e.Leadership ? $"/fuehrungskreis/termin/{e.Id}" : $"/kalender?event={e.Id}&d={e.Start:yyyy-MM-dd}")" style="display:flex;align-items:center;padding:8px 0;border-top:1px solid #F0EEEB;text-decoration:none;color:inherit;">
+                        <div style="width:46px;text-align:center;border-radius:8px;background:#F4F2EF;padding:4px 0;margin-right:12px;">
+                            <div style="font-size:.7rem;color:#5C5853;">@e.Start.ToString("ddd", De).ToUpperInvariant()</div>
+                            <div style="font-size:1.1rem;font-weight:700;">@e.Start.Day</div>
+                        </div>
+                        <div style="flex:1;min-width:0;">
+                            <div style="font-weight:600;">@e.Title</div>
+                            <div style="font-size:.85rem;color:#5C5853;">@DayLabel(e.Start) · @e.Start.ToString("HH:mm") Uhr@(string.IsNullOrWhiteSpace(e.Location) ? "" : " · " + e.Location)</div>
+                        </div>
+                        @if (e.Leadership) { <span style="font-size:.7rem;font-weight:700;color:#6B3FA0;background:#F1EAFA;border-radius:6px;padding:3px 6px;">FK</span> }
+                    </a>
+                }
+            }
+        </section>
 
         @if (_overview is not null)
         {
