@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 420" width="300" height="420"
+     role="img" aria-label="Feuerwehr Billerbeck">
+  <title>Feuerwehr Billerbeck</title>
+
+  <!-- Hauptlogo: flaechiges Wappen mit ausgesparter Dom-Silhouette,
+       Schildfuss mit den drei Wellenbalken des Billerbecker Wappens. -->
+  <defs>
+    <style>
+      .txt { fill: #1F2328; font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif; text-anchor: middle; }
+    </style>
+    <clipPath id="wappen">
+      <path d="M56 24 H244 A16 16 0 0 1 260 40 V182
+               C260 242 208 278 150 302
+               C92 278 40 242 40 182 V40
+               A16 16 0 0 1 56 24 Z" />
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#wappen)">
+    <!-- Wappen in Feuerwehrrot -->
+    <rect x="20" y="10" width="260" height="310" fill="#E4002B" />
+
+    <!-- Dom als ausgesparte Silhouette: die Tuerme bilden die aeussere Breite,
+         das Langhaus liegt dahinter und ragt nicht darueber hinaus -->
+    <path fill="#FFFFFF"
+          d="M94 208 V122 L111 46 L128 122
+             V158 L145 138 L150 88 L155 138 L172 158
+             V122 L189 46 L206 122 V208 Z" />
+
+    <!-- Schildfuss: weisse Wellenbalken auf Blau, gleich breit wie die
+         blauen Zwischenraeume, schraeg gestellt wie im Original -->
+    <g transform="rotate(-20 150 256)">
+      <rect x="-140" y="238" width="600" height="220" fill="#1A34C8" />
+      <g fill="none" stroke="#FFFFFF" stroke-width="12">
+        <path d="M-140 250 q26 -9 52 0 t52 0 t52 0 t52 0 t52 0 t52 0 t52 0 t52 0 t52 0 t52 0 t52 0 t52 0" />
+        <path d="M-140 274 q26 -9 52 0 t52 0 t52 0 t52 0 t52 0 t52 0 t52 0 t52 0 t52 0 t52 0 t52 0 t52 0" />
+        <path d="M-140 298 q26 -9 52 0 t52 0 t52 0 t52 0 t52 0 t52 0 t52 0 t52 0 t52 0 t52 0 t52 0 t52 0" />
+      </g>
+    </g>
+  </g>
+
+  <!-- Schriftzug. x leicht versetzt, weil letter-spacing hinter dem letzten
+       Zeichen mitzaehlt und die optische Mitte sonst nach links wandert. -->
+  <text class="txt" x="151.3" y="352" font-size="38" font-weight="700" letter-spacing="2.5">FEUERWEHR</text>
+  <text class="txt" x="153" y="392" font-size="27" font-weight="500" letter-spacing="6">BILLERBECK</text>
+</svg>

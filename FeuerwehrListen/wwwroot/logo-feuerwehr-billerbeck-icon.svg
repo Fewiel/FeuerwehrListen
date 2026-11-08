@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-10 3 320 320" width="320" height="320"
+     role="img" aria-label="Feuerwehr Billerbeck">
+  <title>Feuerwehr Billerbeck</title>
+
+  <!-- Bildmarke, flaechig.
+       Silhouette statt Umrisszeichnung: bleibt in kleinen Groessen lesbar und
+       behauptet kein Masswerk - die Westfassade hat ein grosses Spitzbogen-
+       fenster, keine Fensterrose.
+       Schildfuss: weisse Wellenbalken auf Blau, gleich breit wie die blauen
+       Zwischenraeume, schraeg gestellt wie im Billerbecker Wappen. -->
+  <defs>
+    <clipPath id="wappenI">
+      <path d="M56 24 H244 A16 16 0 0 1 260 40 V182
+               C260 242 208 278 150 302
+               C92 278 40 242 40 182 V40
+               A16 16 0 0 1 56 24 Z" />
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#wappenI)">
+    <!-- Wappen in Feuerwehrrot -->
+    <rect x="20" y="10" width="260" height="310" fill="#E4002B" />
+
+    <!-- Dom als ausgesparte Silhouette: die Tuerme bilden die aeussere Breite,
+         das Langhaus liegt dahinter und ragt nicht darueber hinaus -->
+    <path fill="#FFFFFF"
+          d="M94 208 V122 L111 46 L128 122
+             V158 L145 138 L150 88 L155 138 L172 158
+             V122 L189 46 L206 122 V208 Z" />
+
+    <!-- Schildfuss -->
+    <g transform="rotate(-20 150 256)">
+      <rect x="-140" y="238" width="600" height="220" fill="#1A34C8" />
+      <g fill="none" stroke="#FFFFFF" stroke-width="12">
+        <path d="M-140 250 q26 -9 52 0 t52 0 t52 0 t52 0 t52 0 t52 0 t52 0 t52 0 t52 0 t52 0 t52 0 t52 0" />
+        <path d="M-140 274 q26 -9 52 0 t52 0 t52 0 t52 0 t52 0 t52 0 t52 0 t52 0 t52 0 t52 0 t52 0 t52 0" />
+        <path d="M-140 298 q26 -9 52 0 t52 0 t52 0 t52 0 t52 0 t52 0 t52 0 t52 0 t52 0 t52 0 t52 0 t52 0" />
+      </g>
+    </g>
+  </g>
+</svg>
