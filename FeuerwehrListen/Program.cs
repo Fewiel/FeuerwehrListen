@@ -2650,7 +2650,14 @@ app.MapPost("/client-api/calendar/events", async (HttpContext http, CalendarEven
     // Sitzung -> Protokoll gleich anlegen, damit es vorbereitet werden kann.
     if (result.Outcome == CalendarBookingOutcome.Created && type == CalendarEventType.Fuehrungskreis
         && result.EventId is int newId && await calRepo.GetEventAsync(newId) is CalendarEvent created)
-        await leadership.EnsureProtocolAsync(created);
+    {
+        var protocol = await leadership.EnsureProtocolAsync(created);
+        if (r.KeeperMemberId is int keeper)
+        {
+            protocol.KeeperMemberId = keeper;
+            await http.RequestServices.GetRequiredService<LeadershipRepository>().UpdateProtocolAsync(protocol);
+        }
+    }
     return result.Outcome switch
     {
         CalendarBookingOutcome.Created => Results.Json(new
@@ -3286,7 +3293,7 @@ public record CalendarEventRequest(
     string? Type, string? Title, string? Description, string? Location,
     DateTime Start, DateTime End, bool AllDay, int? UnitNumber,
     string? RequestedBy, string? RequestedByEmail,
-    List<int>? VehicleIds, List<int>? RoomIds, int? MinutesBeforeEvent, int? LeadershipCircle = null);
+    List<int>? VehicleIds, List<int>? RoomIds, int? MinutesBeforeEvent, int? LeadershipCircle = null, int? KeeperMemberId = null);
 public record CalendarSeriesRequest(
     string? Type, string? Title, string? Description, string? Location, int? UnitNumber,
     string? Frequency, int WeekdayMask, int? DayOfMonth, int StartMinuteOfDay, int DurationMinutes,

@@ -245,7 +245,7 @@ public class LeadershipService
         // Offene und vertagte Punkte (ausser den Standardpunkten) in die naechste Sitzung.
         foreach (var item in await _repo.GetItemsAsync(p.Id))
         {
-            if (item.Status == LeadershipItemStatus.Besprochen) continue;
+            if (item.Status is LeadershipItemStatus.Besprochen or LeadershipItemStatus.Abgelehnt) continue;
             if (item.SortOrder == 10 || item.SortOrder == 10000) continue;
             item.Status = LeadershipItemStatus.Vertagt;
             await _repo.UpdateItemAsync(item);
@@ -254,8 +254,9 @@ public class LeadershipService
         }
 
         var pdf = await BuildPdfAsync(p);
-        var recipients = (await _members.GetLeadershipMembersAsync(p.Circle))
-            .Select(m => m.Email).Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x!).Distinct().ToList();
+        // Versand an die ANWESENDEN (Mail aus dem Mitgliedsprofil).
+        var recipients = (await GetAttendanceAsync(p)).Where(a => a.State == AttendanceState.Present)
+            .Select(a => a.Member.Email).Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x!).Distinct().ToList();
         if (recipients.Count == 0) return (false, 0);
 
         var e = await _calendar.GetEventAsync(p.CalendarEventId);
@@ -264,6 +265,21 @@ public class LeadershipService
             $"Protokoll {LeadershipCircles.Label(p.Circle)} vom {date}",
             $"Hallo,\n\nanbei das Protokoll der Sitzung \"{e?.Title}\" vom {date}.\n\nAbgeschlossen von {closedBy}.",
             pdf, $"Protokoll-{date}.pdf");
+        return (ok, recipients.Count);
+    }
+
+    /// <summary>Tagesordnung vorab an alle Mitglieder des Kreises mit E-Mail schicken.</summary>
+    public async Task<(bool Mailed, int Recipients)> SendAgendaAsync(LeadershipProtocol p)
+    {
+        var e = await _calendar.GetEventAsync(p.CalendarEventId);
+        var items = (await _repo.GetItemsAsync(p.Id)).Where(i => i.Status != LeadershipItemStatus.Abgelehnt).ToList();
+        var recipients = (await _members.GetLeadershipMembersAsync(p.Circle))
+            .Select(m => m.Email).Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x!).Distinct().ToList();
+        if (recipients.Count == 0) return (false, 0);
+        var body = new System.Text.StringBuilder();
+        body.AppendLine($"Hallo,\n\nTagesordnung fuer \"{e?.Title}\" am {e?.StartTime:dd.MM.yyyy} um {e?.StartTime:HH:mm} Uhr{(string.IsNullOrWhiteSpace(e?.Location) ? "" : ", " + e!.Location)}:\n");
+        for (var i = 0; i < items.Count; i++) body.AppendLine($"TOP {i + 1}: {items[i].Title}");
+        var ok = await _email.SendAsync(recipients, $"Tagesordnung {LeadershipCircles.Label(p.Circle)} am {e?.StartTime:dd.MM.yyyy}", body.ToString());
         return (ok, recipients.Count);
     }
 
@@ -324,7 +340,7 @@ public class LeadershipService
 
         Text("Tagesordnung", F(13, true));
         var no = 0;
-        foreach (var it in items)
+        foreach (var it in items.Where(i => i.Status != LeadershipItemStatus.Abgelehnt))
         {
             no++;
             var owner = it.OwnerMemberId is int oid && memberNames.TryGetValue(oid, out var on) ? $" ({on})" : "";

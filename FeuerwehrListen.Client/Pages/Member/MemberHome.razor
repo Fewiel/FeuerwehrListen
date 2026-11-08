@@ -84,13 +84,14 @@
                 </section>
             }
 
-            @if (_ctx?.Modules.Leadership == true)
+            @* Aufgaben: fuer Fuehrungskreis immer, sonst nur wenn es welche gibt. *@
+            @if (_ctx?.Modules.Leadership == true || _overview.OpenTasks > 0)
             {
-                <a href="/fuehrungskreis/aufgaben" class="fwm-card" style="display:flex;align-items:center;text-decoration:none;color:inherit;">
+                <a href="/mein/aufgaben" class="fwm-card" style="display:flex;align-items:center;text-decoration:none;color:inherit;">
                     <i class="bi bi-check2-square" style="font-size:1.4rem;color:#6B3FA0;margin-right:12px;"></i>
                     <div style="flex:1;">
-                        <div style="font-weight:600;">Führungskreis</div>
-                        <div style="font-size:.85rem;color:#5C5853;">@(_overview.OpenTasks == 0 ? "Keine offenen Aufgaben für dich" : $"{_overview.OpenTasks} offene Aufgabe{(_overview.OpenTasks == 1 ? "" : "n")} für dich")</div>
+                        <div style="font-weight:600;">Meine Aufgaben</div>
+                        <div style="font-size:.85rem;color:#5C5853;">@(_overview.OpenTasks == 0 ? "Keine offenen Aufgaben" : $"{_overview.OpenTasks} offene Aufgabe{(_overview.OpenTasks == 1 ? "" : "n")}")</div>
                     </div>
                     <i class="bi bi-chevron-right" style="color:#5C5853;"></i>
                 </a>

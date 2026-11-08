@@ -16,8 +16,10 @@ public static class LeadershipEndpoints
         var g = app.MapGroup("/client-api/leadership").RequireAuthorization().DisableAntiforgery();
 
         // Wer darf Aufgaben/Punkte uebernehmen? Mitglieder, die den Kreis sehen.
-        g.MapGet("/members", async (int? circle, MemberRepository members) =>
-            Results.Json((await members.GetLeadershipMembersAsync(LeadershipCircles.IsValid(circle ?? 0) ? circle!.Value : LeadershipCircles.Large))
+        g.MapGet("/members", async (int? circle, bool? all, MemberRepository members) =>
+            Results.Json((all == true
+                    ? (await members.GetActiveAsync()).OrderBy(m => m.LastName).ThenBy(m => m.FirstName).ToList()
+                    : await members.GetLeadershipMembersAsync(LeadershipCircles.IsValid(circle ?? 0) ? circle!.Value : LeadershipCircles.Large))
                 .Select(m => new { id = m.Id, name = $"{m.FirstName} {m.LastName}", circle = m.LeadershipCircle })));
 
         // ------------------------------------------------------------ Aufgaben
@@ -51,6 +53,8 @@ public static class LeadershipEndpoints
                     due = t.DueDate,
                     overdue = t.Status == LeadershipTaskStatus.Offen && t.DueDate is DateTime d && d.Date < DateTime.Today,
                     done = t.Status == LeadershipTaskStatus.Erledigt,
+                    status = t.Status.ToString(),
+                    notes = t.Notes,
                     completedAt = t.CompletedAt,
                     origin = src == null ? "manuell angelegt"
                         : $"{src.Title}{(src.ProtocolId is int pid && protocolDates.TryGetValue(pid, out var pd) ? $" · Sitzung {pd:dd.MM.}" : "")}",
@@ -102,6 +106,15 @@ public static class LeadershipEndpoints
             if (t == null || !ua.Get(http)!.CanSeeCircle(t.Circle)) return Results.NotFound();
             await svc.CompleteTaskAsync(t);
             return Results.Ok();
+        });
+
+        // Aus einer laufenden Aufgabe einen Tagespunkt fuer die naechste Sitzung des Kreises machen.
+        g.MapPost("/tasks/{id:int}/to-agenda", async (int id, HttpContext http, UserAccessService ua, LeadershipRepository repo, LeadershipService svc, NoteRequest r) =>
+        {
+            var t = await repo.GetTaskAsync(id);
+            if (t == null || !ua.Get(http)!.CanSeeCircle(t.Circle)) return Results.NotFound();
+            var item = await svc.ScheduleForNextMeetingAsync(t.Circle, t.Title, t.AssigneeMemberId, t.Id, r.Note?.Trim() ?? t.Notes);
+            return Results.Json(new { ok = true, scheduled = item.ProtocolId != null });
         });
 
         g.MapPost("/tasks/{id:int}/reopen", async (int id, HttpContext http, UserAccessService ua, LeadershipRepository repo) =>
@@ -179,10 +192,14 @@ public static class LeadershipEndpoints
                     memberId = a.Member.Id, name = $"{a.Member.FirstName} {a.Member.LastName}", state = (int)a.State
                 });
 
+            var canManage = viewer.IsAdmin || (viewer.MemberId != null && viewer.MemberId == p.KeeperMemberId);
             return Results.Json(new
             {
                 id = p.Id,
                 eventId = p.CalendarEventId,
+                keeperId = p.KeeperMemberId,
+                keeper = Name(p.KeeperMemberId),
+                canManage = canManage && p.Status != LeadershipProtocolStatus.Abgeschlossen,
                 title = e?.Title,
                 start = e?.StartTime,
                 location = e?.Location,
@@ -210,6 +227,26 @@ public static class LeadershipEndpoints
                     overdue = t.DueDate is DateTime d && d.Date < DateTime.Today }),
                 attendance
             });
+        });
+
+        g.MapPut("/protocols/{id:int}/keeper", async (int id, HttpContext http, UserAccessService ua, LeadershipRepository repo, KeeperRequest r) =>
+        {
+            var p = await EditableProtocolAsync(id, http, ua, repo);
+            if (p == null) return Results.NotFound();
+            var viewer = ua.Get(http)!;
+            // Erstmals setzen darf jeder im Kreis, aendern nur Protokollfuehrung/Admin.
+            if (p.KeeperMemberId != null && !viewer.IsAdmin && viewer.MemberId != p.KeeperMemberId) return Results.Forbid();
+            p.KeeperMemberId = r.MemberId;
+            await repo.UpdateProtocolAsync(p);
+            return Results.Ok();
+        });
+
+        g.MapPost("/protocols/{id:int}/send-agenda", async (int id, HttpContext http, UserAccessService ua, LeadershipRepository repo, LeadershipService svc) =>
+        {
+            var p = await EditableProtocolAsync(id, http, ua, repo);
+            if (p == null) return Results.NotFound();
+            var (mailed, recipients) = await svc.SendAgendaAsync(p);
+            return Results.Json(new { mailed, recipients });
         });
 
         g.MapPost("/protocols/{id:int}/items", async (int id, HttpContext http, UserAccessService ua, LeadershipRepository repo, LeadershipService svc, ItemRequest r) =>
@@ -249,7 +286,13 @@ public static class LeadershipEndpoints
             item.OwnerMemberId = r.OwnerMemberId;
             if (r.Notes != null) item.Notes = r.Notes;
             if (r.Decision != null) item.Decision = r.Decision.Trim();
-            if (Enum.TryParse<LeadershipItemStatus>(r.Status, true, out var st)) item.Status = st;
+            if (Enum.TryParse<LeadershipItemStatus>(r.Status, true, out var st))
+            {
+                // Ablehnen (und wieder zulassen) nur durch die Protokollfuehrung bzw. Admin.
+                var involvesReject = st == LeadershipItemStatus.Abgelehnt || item.Status == LeadershipItemStatus.Abgelehnt;
+                if (involvesReject && st != item.Status && !await IsManagerAsync(pid, http, ua, repo)) return Results.Forbid();
+                item.Status = st;
+            }
             await repo.UpdateItemAsync(item);
             return Results.Ok();
         });
@@ -259,6 +302,7 @@ public static class LeadershipEndpoints
             var item = await repo.GetItemAsync(id);
             if (item?.ProtocolId is not int pid || await EditableProtocolAsync(pid, http, ua, repo) is not LeadershipProtocol p) return Results.NotFound();
             if (p.Status != LeadershipProtocolStatus.Vorbereitung) return Results.BadRequest();
+            if (!await IsManagerAsync(p.Id, http, ua, repo)) return Results.Forbid();
             await repo.DeleteItemAsync(id);
             return Results.Ok();
         });
@@ -267,6 +311,7 @@ public static class LeadershipEndpoints
         {
             var p = await EditableProtocolAsync(id, http, ua, repo);
             if (p == null) return Results.NotFound();
+            if (!await IsManagerAsync(p.Id, http, ua, repo)) return Results.Forbid();
             var items = (await repo.GetItemsAsync(p.Id)).ToDictionary(i => i.Id);
             var order = 20;
             foreach (var itemId in r.Ids ?? new())
@@ -301,6 +346,8 @@ public static class LeadershipEndpoints
             var p = await repo.GetProtocolAsync(id);
             if (p == null || !ua.Get(http)!.CanSeeCircle(p.Circle)) return Results.NotFound();
             if (p.Status == LeadershipProtocolStatus.Abgeschlossen) return Results.BadRequest();
+            // Beenden durch die Protokollfuehrung (ohne gesetzte Protokollfuehrung: jeder im Kreis).
+            if (p.KeeperMemberId != null && !await IsManagerAsync(p.Id, http, ua, repo)) return Results.Forbid();
             var (mailed, recipients) = await svc.CloseAsync(p, DisplayName(http));
             return Results.Json(new { ok = true, mailed, recipients });
         });
@@ -323,6 +370,14 @@ public static class LeadershipEndpoints
         if (p == null || viewer == null || !viewer.CanSeeCircle(p.Circle)) return null;
         if (p.Status == LeadershipProtocolStatus.Abgeschlossen && !viewer.IsAdmin) return null;
         return p;
+    }
+
+    /// <summary>Protokollfuehrung dieser Sitzung oder Admin. Ohne gesetzte Protokollfuehrung: jeder im Kreis.</summary>
+    private static async Task<bool> IsManagerAsync(int protocolId, HttpContext http, UserAccessService ua, LeadershipRepository repo)
+    {
+        var viewer = ua.Get(http); var p = await repo.GetProtocolAsync(protocolId);
+        if (viewer == null || p == null) return false;
+        return viewer.IsAdmin || p.KeeperMemberId == null || viewer.MemberId == p.KeeperMemberId;
     }
 
     private static async Task<int> ResolveCircleAsync(LeadershipRepository repo, int? requested, int? sourceItemId)
@@ -355,3 +410,5 @@ public record TaskRequest(string? Title, string? Description, int? Circle, int? 
 public record ItemRequest(string? Title, int? OwnerMemberId, string? Notes = null, string? Decision = null, string? Status = null);
 public record ReorderRequest(List<int>? Ids);
 public record AttendanceRequest(int MemberId, int State);
+public record KeeperRequest(int? MemberId);
+public record NoteRequest(string? Note);
