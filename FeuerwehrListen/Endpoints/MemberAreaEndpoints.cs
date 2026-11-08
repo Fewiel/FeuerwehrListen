@@ -159,8 +159,10 @@ public static class MemberAreaEndpoints
 
         // ------------------------------------------------------------ Verwaltung
         var admin = app.MapGroup("/client-api/admin").RequireAuthorization("Admin").DisableAntiforgery();
+        // Zugang/Ausweis eines Mitglieds: Admins und einfache Benutzer (Passwort-Vergabe bleibt Admin).
+        var staff = app.MapGroup("/client-api/admin").RequireAuthorization("Staff").DisableAntiforgery();
 
-        admin.MapGet("/members/{id:int}/account", async (int id, MemberRepository members, AppUrlService urls) =>
+        staff.MapGet("/members/{id:int}/account", async (int id, MemberRepository members, AppUrlService urls) =>
         {
             var m = await members.GetByIdAsync(id);
             if (m == null) return Results.NotFound();
@@ -182,7 +184,7 @@ public static class MemberAreaEndpoints
             });
         });
 
-        admin.MapPut("/members/{id:int}/account", async (int id, MemberRepository members, UserAccessService ua, LoginThrottle throttle, MemberAccountUpdate r) =>
+        staff.MapPut("/members/{id:int}/account", async (int id, MemberRepository members, UserAccessService ua, LoginThrottle throttle, MemberAccountUpdate r) =>
         {
             var m = await members.GetByIdAsync(id);
             if (m == null) return Results.NotFound();
@@ -198,7 +200,7 @@ public static class MemberAreaEndpoints
         });
 
         // Neu ausstellen: neue Kennung -> alter QR-Code/Link sofort ungueltig.
-        admin.MapPost("/members/{id:int}/card/reissue", async (int id, MemberRepository members) =>
+        staff.MapPost("/members/{id:int}/card/reissue", async (int id, MemberRepository members) =>
         {
             var m = await members.GetByIdAsync(id);
             if (m == null) return Results.NotFound();
@@ -208,7 +210,7 @@ public static class MemberAreaEndpoints
             return Results.Ok();
         });
 
-        admin.MapPost("/members/{id:int}/card/revoke", async (int id, MemberRepository members) =>
+        staff.MapPost("/members/{id:int}/card/revoke", async (int id, MemberRepository members) =>
         {
             var m = await members.GetByIdAsync(id);
             if (m == null) return Results.NotFound();
@@ -218,7 +220,7 @@ public static class MemberAreaEndpoints
         });
 
         // Zugang entziehen: Passwort weg, laufende Sitzungen enden ueber UserAccessService.
-        admin.MapDelete("/members/{id:int}/password", async (int id, MemberRepository members, UserAccessService ua) =>
+        staff.MapDelete("/members/{id:int}/password", async (int id, MemberRepository members, UserAccessService ua) =>
         {
             var m = await members.GetByIdAsync(id);
             if (m == null) return Results.NotFound();
@@ -229,13 +231,13 @@ public static class MemberAreaEndpoints
             return Results.Ok();
         });
 
-        admin.MapGet("/members/{id:int}/photo", async (int id, MemberRepository members, DataPathService paths) =>
+        staff.MapGet("/members/{id:int}/photo", async (int id, MemberRepository members, DataPathService paths) =>
         {
             var m = await members.GetByIdAsync(id);
             return m == null ? Results.NotFound() : PhotoResult(m, paths);
         });
 
-        admin.MapDelete("/members/{id:int}/photo", async (int id, MemberRepository members, DataPathService paths) =>
+        staff.MapDelete("/members/{id:int}/photo", async (int id, MemberRepository members, DataPathService paths) =>
         {
             var m = await members.GetByIdAsync(id);
             if (m == null) return Results.NotFound();
