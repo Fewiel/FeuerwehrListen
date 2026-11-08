@@ -353,35 +353,68 @@
     };
     private string ShortLabel(ItemDto it) => it.Section switch { 1 => "i", 2 => "B", _ => (Agenda.FindIndex(a => a.Id == it.Id) + 1).ToString() };
 
+    private readonly Dictionary<int, int> _secTopic = new() { [1] = 0, [2] = 0 }, _secArea = new() { [1] = 0, [2] = 0 };
+
     private RenderFragment SectionCard(string title, string hint, int section) => __builder =>
     {
         var list = _p!.Items.Where(i => i.Section == section).ToList();
+        // Gruppen: Bereich -> Themenbereich -> lose
+        var groups = list.GroupBy(i => (i.Area, i.Topic)).OrderBy(g => g.Key.Area is null ? 1 : 0).ThenBy(g => g.Key.Area).ThenBy(g => g.Key.Topic is null ? 1 : 0).ThenBy(g => g.Key.Topic).ToList();
         <div class="card mb-3"><div class="card-body">
-            <h2 class="h5 mb-1">@title</h2>
+            <div class="d-flex align-items-center"><h2 class="h5 mb-1 flex-grow-1">@title</h2><a href="/fuehrungskreis/themen" class="small">Themen verwalten</a></div>
             <div class="small text-muted mb-2">@hint</div>
             @if (list.Count == 0) { <div class="small text-muted">Noch nichts eingetragen.</div> }
-            @foreach (var it in list)
+            @foreach (var g in groups)
             {
-                <div class="border-top py-2 d-flex" style="gap:8px;">
-                    <div class="flex-grow-1" style="min-width:0;">
-                        <div class="fw-semibold" style="@(it.Status == "Abgelehnt" ? "text-decoration:line-through;color:#8A857F;" : "")">@it.Title @if (it.Owner is not null) { <span class="small text-muted fw-normal">· @it.Owner</span> }</div>
-                        @if (!string.IsNullOrWhiteSpace(it.Notes)) { <div class="small" style="white-space:pre-line;">@it.Notes</div> }
+                var label = string.Join(" › ", new[] { g.Key.Area, g.Key.Topic }.Where(x => x is not null));
+                @if (label.Length > 0) { <div class="fw-bold small text-uppercase mt-2" style="color:#6B3FA0;">@label</div> }
+                @foreach (var it in g)
+                {
+                    <div class="border-top py-2 d-flex" style="gap:8px;">
+                        <div class="flex-grow-1" style="min-width:0;">
+                            <div class="fw-semibold" style="@(it.Status == "Abgelehnt" ? "text-decoration:line-through;color:#8A857F;" : "")">@it.Title @if (it.Owner is not null) { <span class="small text-muted fw-normal">· @it.Owner</span> }</div>
+                            @if (!string.IsNullOrWhiteSpace(it.Notes)) { <div class="small" style="white-space:pre-line;">@it.Notes</div> }
+                        </div>
+                        @if (_p.Circle == 2) { <button class="btn btn-sm btn-outline-secondary" style="align-self:flex-start;" title="In die nächste Sitzung des großen Führungskreises mitnehmen" @onclick="() => Forward(it)"><i class="bi bi-box-arrow-up-right"></i><span class="d-none d-md-inline ms-1">Großer FK</span></button> }
+                        @if (_p.CanManage) { <button class="btn btn-sm btn-outline-danger" style="align-self:flex-start;" aria-label="Entfernen" @onclick="() => DeleteItem(it)"><i class="bi bi-trash"></i></button> }
                     </div>
-                    @if (_p.CanManage) { <button class="btn btn-sm btn-outline-danger" style="align-self:flex-start;" aria-label="Entfernen" @onclick="() => DeleteItem(it)"><i class="bi bi-trash"></i></button> }
-                </div>
+                }
             }
             <div class="mt-2">
                 <input class="form-control mb-1" placeholder="Titel…" value="@_secTitle[section]" @oninput="e => _secTitle[section] = e.Value?.ToString() ?? string.Empty" />
                 <textarea class="form-control mb-1" rows="2" placeholder="Notizen (optional)" value="@_secNote[section]" @oninput="e => _secNote[section] = e.Value?.ToString() ?? string.Empty"></textarea>
+                <div class="d-flex flex-wrap mb-1" style="gap:6px;">
+                    @if (section == 2)
+                    {
+                        <select class="form-select form-select-sm" style="flex:1 1 140px;" value="@_secArea[section]" @onchange="e => _secArea[section] = ToInt(e.Value)">
+                            <option value="0">– ohne Bereich –</option>
+                            @foreach (var t in (_p.Topics ?? new()).Where(t => t.Kind == 2)) { <option value="@t.Id">@t.Title</option> }
+                        </select>
+                    }
+                    <select class="form-select form-select-sm" style="flex:1 1 140px;" value="@_secTopic[section]" @onchange="e => _secTopic[section] = ToInt(e.Value)">
+                        <option value="0">– lose (ohne Themenbereich) –</option>
+                        @foreach (var t in (_p.Topics ?? new()).Where(t => t.Kind == 1)) { <option value="@t.Id">@t.Title</option> }
+                    </select>
+                </div>
                 <button class="btn btn-outline-primary btn-sm" @onclick="() => AddSectionItem(section)" disabled="@string.IsNullOrWhiteSpace(_secTitle[section])">+ Eintragen</button>
             </div>
         </div></div>
     };
 
+    private static int ToInt(object? v) => int.TryParse(v?.ToString(), out var i) ? i : 0;
+
+    private async Task Forward(ItemDto it)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", $"„{it.Title}“ in die nächste Sitzung des großen Führungskreises mitnehmen?")) return;
+        var r = await Http.PostAsync($"client-api/leadership/items/{it.Id}/forward", null);
+        _info = r.IsSuccessStatusCode ? $"„{it.Title}“ für den großen Führungskreis vorgemerkt." : "Weitergabe fehlgeschlagen.";
+    }
+
     private async Task AddSectionItem(int section)
     {
         if (string.IsNullOrWhiteSpace(_secTitle[section])) return;
-        try { await Http.PostAsJsonAsync($"client-api/leadership/protocols/{Id}/items", new { Title = _secTitle[section], Notes = _secNote[section], Section = section }); } catch { }
+        try { await Http.PostAsJsonAsync($"client-api/leadership/protocols/{Id}/items", new { Title = _secTitle[section], Notes = _secNote[section], Section = section,
+            TopicId = _secTopic[section] == 0 ? (int?)null : _secTopic[section], AreaId = _secArea[section] == 0 ? (int?)null : _secArea[section] }); } catch { }
         _secTitle[section] = ""; _secNote[section] = "";
         await Load();
     }
@@ -542,10 +575,11 @@
 
     private record MemberDto(int Id, string Name, int Circle);
     private record TaskMini(int Id, string Title, string? Assignee, DateTime? Due, bool Done);
-    private record ItemDto(int Id, string Title, int? OwnerId, string? Owner, string Notes, string Decision, string Status, bool FromTask, bool FixedItem, List<TaskMini> Tasks, int Section = 0);
+    private record ItemDto(int Id, string Title, int? OwnerId, string? Owner, string Notes, string Decision, string Status, bool FromTask, bool FixedItem, List<TaskMini> Tasks, int Section = 0, string? Topic = null, string? Area = null);
+    private record TopicMini(int Id, string Title, int Kind, int Circle);
     private record OpenTaskDto(int Id, string Title, string? Assignee, DateTime? Due, bool Overdue);
     private record AttendanceDto(int MemberId, string Name, int State);
     private record ProtocolDto(int Id, int EventId, string? Title, DateTime? Start, string? Location, int? MinutesBefore, int Circle, string CircleLabel,
-        string Status, DateTime? StartedAt, DateTime? ClosedAt, string? ClosedBy, bool CanEdit, int? KeeperId, string? Keeper, bool CanManage, List<ItemDto> Items, List<OpenTaskDto> OpenTasks, List<AttendanceDto>? Attendance);
+        string Status, DateTime? StartedAt, DateTime? ClosedAt, string? ClosedBy, bool CanEdit, int? KeeperId, string? Keeper, bool CanManage, List<ItemDto> Items, List<OpenTaskDto> OpenTasks, List<AttendanceDto>? Attendance, List<TopicMini>? Topics = null);
     private record CloseDto(bool Ok, bool Mailed, int Recipients);
 }

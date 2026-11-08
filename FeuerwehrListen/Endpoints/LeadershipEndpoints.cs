@@ -193,6 +193,9 @@ public static class LeadershipEndpoints
                 });
 
             var canManage = viewer.IsAdmin || (viewer.MemberId != null && viewer.MemberId == p.KeeperMemberId);
+            // Themen/Bereiche, die in dieser Sitzung nutzbar sind: Kreis <= Sitzungskreis (klein sieht auch gross).
+            var allTopics = await repo.GetTopicsAsync();
+            var topicTitle = allTopics.ToDictionary(t => t.Id, t => t.Title);
             return Results.Json(new
             {
                 id = p.Id,
@@ -215,6 +218,8 @@ public static class LeadershipEndpoints
                 {
                     id = i.Id, title = i.Title, ownerId = i.OwnerMemberId, owner = Name(i.OwnerMemberId),
                     notes = i.Notes, decision = i.Decision, status = i.Status.ToString(), section = i.Section,
+                    topicId = i.TopicId, topic = i.TopicId is int ti ? topicTitle.GetValueOrDefault(ti) : null,
+                    areaId = i.AreaId, area = i.AreaId is int ai ? topicTitle.GetValueOrDefault(ai) : null,
                     fromTask = i.SourceTaskId != null,
                     fixedItem = i.SortOrder == 10 || i.SortOrder == 10000,
                     tasks = tasks.Where(t => t.SourceItemId == i.Id).Select(t => new
@@ -223,6 +228,8 @@ public static class LeadershipEndpoints
                         done = t.Status == LeadershipTaskStatus.Erledigt
                     })
                 }),
+                topics = allTopics.Where(t => !t.IsArchived && t.Circle <= p.Circle && viewer.CanSeeCircle(t.Circle))
+                    .Select(t => new { id = t.Id, title = t.Title, kind = t.Kind, circle = t.Circle }),
                 openTasks = openTasks.Select(t => new { id = t.Id, title = t.Title, assignee = Name(t.AssigneeMemberId), due = t.DueDate,
                     overdue = t.DueDate is DateTime d && d.Date < DateTime.Today }),
                 attendance
@@ -238,6 +245,76 @@ public static class LeadershipEndpoints
             await repo.DeleteProtocolAsync(p);
             await calendar.DeleteEventAsync(p.CalendarEventId);
             return Results.Ok();
+        });
+
+        // ------------------------------------------------ Themenbereiche / Bereiche
+        g.MapGet("/topics", async (HttpContext http, UserAccessService ua, LeadershipRepository repo, CalendarRepository calendar) =>
+        {
+            var viewer = ua.Get(http)!;
+            var protocolDates = await ProtocolDatesAsync(repo, calendar);
+            var result = new List<object>();
+            foreach (var t in (await repo.GetTopicsAsync()).Where(t => viewer.CanSeeCircle(t.Circle)))
+            {
+                var entries = await repo.GetItemsForTopicAsync(t.Id);
+                result.Add(new
+                {
+                    id = t.Id, title = t.Title, kind = t.Kind, circle = t.Circle, circleLabel = LeadershipCircles.Label(t.Circle), isArchived = t.IsArchived,
+                    entries = entries.Where(e => e.Status != LeadershipItemStatus.Abgelehnt).Select(e => new
+                    {
+                        id = e.Id, title = e.Title, notes = e.Notes, createdAt = e.CreatedAt,
+                        topic = e.TopicId is int ti && ti != t.Id ? (int?)ti : null,
+                        meeting = e.ProtocolId is int pid && protocolDates.TryGetValue(pid, out var d) ? d : (DateTime?)null
+                    })
+                });
+            }
+            return Results.Json(result);
+        });
+
+        g.MapPost("/topics", async (HttpContext http, UserAccessService ua, LeadershipRepository repo, TopicRequest r) =>
+        {
+            var circle = LeadershipCircles.IsValid(r.Circle ?? 0) ? r.Circle!.Value : LeadershipCircles.Large;
+            if (string.IsNullOrWhiteSpace(r.Title) || !ua.Get(http)!.CanSeeCircle(circle)) return Results.BadRequest();
+            var t = new LeadershipTopic { Title = r.Title.Trim(), Circle = circle, Kind = r.Kind == LeadershipTopic.KindArea ? LeadershipTopic.KindArea : LeadershipTopic.KindTopic, CreatedAt = DateTime.Now };
+            await repo.InsertTopicAsync(t);
+            return Results.Json(new { id = t.Id });
+        });
+
+        g.MapPut("/topics/{id:int}", async (int id, HttpContext http, UserAccessService ua, LeadershipRepository repo, TopicRequest r) =>
+        {
+            var t = await repo.GetTopicAsync(id);
+            if (t == null || !ua.Get(http)!.CanSeeCircle(t.Circle)) return Results.NotFound();
+            if (!string.IsNullOrWhiteSpace(r.Title)) t.Title = r.Title.Trim();
+            if (r.IsArchived is bool a) t.IsArchived = a;
+            await repo.UpdateTopicAsync(t);
+            return Results.Ok();
+        });
+
+        // In ein Thema/einen Bereich schreiben: landet als Punkt in der naechsten Sitzung des Kreises.
+        g.MapPost("/topics/{id:int}/entries", async (int id, HttpContext http, UserAccessService ua, LeadershipRepository repo, LeadershipService svc, TopicEntryRequest r) =>
+        {
+            var viewer = ua.Get(http)!;
+            var t = await repo.GetTopicAsync(id);
+            if (t == null || !viewer.CanSeeCircle(t.Circle) || string.IsNullOrWhiteSpace(r.Title)) return Results.BadRequest();
+            var isArea = t.Kind == LeadershipTopic.KindArea;
+            var item = await svc.ScheduleForNextMeetingAsync(t.Circle, r.Title.Trim(), viewer.MemberId, null, r.Notes?.Trim() ?? "",
+                isArea ? LeadershipItem.SectionAreas : LeadershipItem.SectionInfo, isArea ? r.TopicId : t.Id, isArea ? t.Id : null);
+            return Results.Json(new { ok = true, scheduled = item.ProtocolId != null });
+        });
+
+        // Kleiner -> grosser Kreis: ausgewaehlte Info in die naechste Sitzung des grossen Kreises mitnehmen.
+        g.MapPost("/items/{id:int}/forward", async (int id, HttpContext http, UserAccessService ua, LeadershipRepository repo, LeadershipService svc) =>
+        {
+            var viewer = ua.Get(http)!;
+            var it = await repo.GetItemAsync(id);
+            if (it == null || it.Circle != LeadershipCircles.Small || !viewer.CanSeeCircle(LeadershipCircles.Small)) return Results.NotFound();
+            // Themen des kleinen Kreises sieht der grosse nicht -> Thema in den Titel, Verknuepfung nur bei grossen Themen.
+            var topic = it.TopicId is int ti ? await repo.GetTopicAsync(ti) : null;
+            var keepTopic = topic != null && topic.Circle == LeadershipCircles.Large;
+            var title = topic != null && !keepTopic ? $"{topic.Title}: {it.Title}" : it.Title;
+            var section = it.Section == LeadershipItem.SectionAgenda ? LeadershipItem.SectionInfo : it.Section;
+            var item = await svc.ScheduleForNextMeetingAsync(LeadershipCircles.Large, title, it.OwnerMemberId, null,
+                (it.Notes ?? "") + "\n(aus dem kleinen Führungskreis)", section, keepTopic ? topic!.Id : null, null);
+            return Results.Json(new { ok = true, scheduled = item.ProtocolId != null });
         });
 
         g.MapPut("/protocols/{id:int}/keeper", async (int id, HttpContext http, UserAccessService ua, LeadershipRepository repo, KeeperRequest r) =>
@@ -271,6 +348,8 @@ public static class LeadershipEndpoints
             var item = new LeadershipItem
             {
                 ProtocolId = p.Id, Circle = p.Circle, Title = r.Title.Trim(), OwnerMemberId = owner, Section = section,
+                TopicId = section == LeadershipItem.SectionAgenda ? null : r.TopicId,
+                AreaId = section == LeadershipItem.SectionAreas ? r.AreaId : null,
                 Notes = r.Notes?.Trim() ?? "",
                 SortOrder = section == LeadershipItem.SectionAgenda ? await svc.SortOrderBeforeMiscAsync(p.Id) : 0,
                 CreatedAt = DateTime.Now
@@ -423,7 +502,10 @@ public static class LeadershipEndpoints
 }
 
 public record TaskRequest(string? Title, string? Description, int? Circle, int? AssigneeMemberId, DateTime? DueDate, int? SourceItemId = null);
-public record ItemRequest(string? Title, int? OwnerMemberId, string? Notes = null, string? Decision = null, string? Status = null, int? Section = null);
+public record ItemRequest(string? Title, int? OwnerMemberId, string? Notes = null, string? Decision = null, string? Status = null, int? Section = null,
+    int? TopicId = null, int? AreaId = null);
+public record TopicRequest(string? Title, int? Circle, int? Kind, bool? IsArchived = null);
+public record TopicEntryRequest(string? Title, string? Notes, int? TopicId = null);
 public record ReorderRequest(List<int>? Ids);
 public record AttendanceRequest(int MemberId, int State);
 public record KeeperRequest(int? MemberId);

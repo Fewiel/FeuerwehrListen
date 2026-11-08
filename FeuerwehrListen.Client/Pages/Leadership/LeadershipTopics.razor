@@ -1,0 +1,125 @@
+@page "/fuehrungskreis/themen"
+@layout MainLayout
+@using System.Net.Http.Json
+@inject HttpClient Http
+
+<PageTitle>Führungskreis – Themen</PageTitle>
+
+@* Themenbereiche (Infos ueber mehrere Sitzungen, z. B. "Beschaffung HLF") und Bereiche (Abschnitt
+   "Aus den Bereichen", z. B. "Jugendfeuerwehr"). Neue Eintraege landen in der naechsten Sitzung des Kreises. *@
+<AuthGuard>
+    <div class="container-fluid mt-3" style="max-width:1000px;">
+        <div class="d-flex flex-wrap align-items-end mb-3" style="gap:10px;">
+            <div class="flex-grow-1">
+                <h1 class="h3 mb-1">Themen &amp; Bereiche</h1>
+                <p class="text-muted small mb-0">Neue Einträge erscheinen automatisch in der nächsten Sitzung des jeweiligen Kreises.</p>
+            </div>
+            <a href="/fuehrungskreis" class="btn btn-outline-secondary">Protokolle</a>
+        </div>
+
+        <div class="d-flex mb-3" style="gap:6px;">
+            <button class="btn flex-fill @(_kind == 1 ? "btn-dark" : "btn-outline-secondary")" @onclick="() => _kind = 1">Themenbereiche</button>
+            <button class="btn flex-fill @(_kind == 2 ? "btn-dark" : "btn-outline-secondary")" @onclick="() => _kind = 2">Bereiche</button>
+        </div>
+
+        <div class="card mb-3"><div class="card-body d-flex flex-wrap" style="gap:6px;">
+            <input class="form-control" style="flex:3 1 200px;" placeholder="@(_kind == 1 ? "Neuer Themenbereich, z. B. Beschaffung HLF" : "Neuer Bereich, z. B. Jugendfeuerwehr")" @bind="_newTitle" @bind:event="oninput" />
+            <select class="form-select" style="flex:1 1 150px;" @bind="_newCircle"><option value="1">Großer FK</option><option value="2">Kleiner FK</option></select>
+            <button class="btn btn-primary" @onclick="Create" disabled="@string.IsNullOrWhiteSpace(_newTitle)">Anlegen</button>
+        </div></div>
+        @if (_error is not null) { <div class="alert alert-danger py-2">@_error</div> }
+
+        @if (_topics is null) { <p><em>Lade…</em></p> }
+        else
+        {
+            var list = _topics.Where(t => t.Kind == _kind && (_showArchived || !t.IsArchived)).ToList();
+            @if (list.Count == 0) { <p class="text-muted">Noch nichts angelegt.</p> }
+            @foreach (var t in list)
+            {
+                <div class="card mb-2">
+                    <button class="card-header btn text-start d-flex align-items-center" style="gap:8px;" @onclick="() => _open = _open == t.Id ? null : t.Id">
+                        <strong class="flex-grow-1">@t.Title</strong>
+                        <span class="badge" style="background:#F1EAFA;color:#6B3FA0;">@(t.Circle == 2 ? "Klein" : "Groß")</span>
+                        <span class="badge bg-secondary">@t.Entries.Count</span>
+                        <i class="bi @(_open == t.Id ? "bi-chevron-up" : "bi-chevron-down")"></i>
+                    </button>
+                    @if (_open == t.Id)
+                    {
+                        <div class="card-body">
+                            <div class="mb-3">
+                                <input class="form-control mb-1" placeholder="Neue Info…" @bind="_entryTitle" @bind:event="oninput" />
+                                <textarea class="form-control mb-1" rows="2" placeholder="Notizen (optional)" @bind="_entryNotes"></textarea>
+                                @if (t.Kind == 2)
+                                {
+                                    <select class="form-select mb-1" @bind="_entryTopic">
+                                        <option value="0">– lose (ohne Themenbereich) –</option>
+                                        @foreach (var tp in _topics.Where(x => x.Kind == 1 && !x.IsArchived && x.Circle <= t.Circle)) { <option value="@tp.Id">@tp.Title</option> }
+                                    </select>
+                                }
+                                <button class="btn btn-outline-primary btn-sm" @onclick="() => AddEntry(t)" disabled="@string.IsNullOrWhiteSpace(_entryTitle)">+ Eintragen (nächste Sitzung)</button>
+                                @if (_msg is not null) { <span class="small text-success ms-2">@_msg</span> }
+                            </div>
+                            <h6 class="small text-muted text-uppercase">Verlauf</h6>
+                            @if (t.Entries.Count == 0) { <div class="small text-muted">Noch keine Einträge.</div> }
+                            @foreach (var e in t.Entries)
+                            {
+                                <div class="border-top py-2">
+                                    <div class="fw-semibold">@e.Title</div>
+                                    @if (!string.IsNullOrWhiteSpace(e.Notes)) { <div class="small" style="white-space:pre-line;">@e.Notes</div> }
+                                    <div class="small text-muted">@(e.Meeting is DateTime m ? $"Sitzung {m:dd.MM.yyyy}" : "wartet auf nächste Sitzung") · eingetragen @e.CreatedAt.ToString("dd.MM.yyyy")</div>
+                                </div>
+                            }
+                            <button class="btn btn-link btn-sm px-0 mt-2" @onclick="() => Archive(t)">@(t.IsArchived ? "Wieder aktivieren" : "Abschließen (archivieren)")</button>
+                        </div>
+                    }
+                </div>
+            }
+            <button class="btn btn-link btn-sm" @onclick="() => _showArchived = !_showArchived">@(_showArchived ? "Archivierte ausblenden" : "Archivierte anzeigen")</button>
+        }
+    </div>
+</AuthGuard>
+
+@code {
+    private List<TopicDto>? _topics;
+    private int _kind = 1, _newCircle = 1, _entryTopic;
+    private int? _open;
+    private bool _showArchived;
+    private string _newTitle = "", _entryTitle = "", _entryNotes = "";
+    private string? _error, _msg;
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load()
+    {
+        try { _topics = await Http.GetFromJsonAsync<List<TopicDto>>("client-api/leadership/topics") ?? new(); } catch { _topics = new(); }
+    }
+
+    private async Task Create()
+    {
+        _error = null;
+        var r = await Http.PostAsJsonAsync("client-api/leadership/topics", new { Title = _newTitle, Circle = _newCircle, Kind = _kind });
+        if (!r.IsSuccessStatusCode) { _error = "Anlegen fehlgeschlagen (Kreis nicht sichtbar?)."; return; }
+        _newTitle = "";
+        await Load();
+    }
+
+    private async Task AddEntry(TopicDto t)
+    {
+        var r = await Http.PostAsJsonAsync($"client-api/leadership/topics/{t.Id}/entries", new { Title = _entryTitle, Notes = _entryNotes, TopicId = _entryTopic == 0 ? (int?)null : _entryTopic });
+        if (!r.IsSuccessStatusCode) { _error = "Eintragen fehlgeschlagen."; return; }
+        var res = await r.Content.ReadFromJsonAsync<EntryResult>();
+        _msg = res?.Scheduled == true ? "In die nächste Sitzung übernommen." : "Vorgemerkt – erscheint, sobald eine Sitzung angelegt ist.";
+        _entryTitle = ""; _entryNotes = ""; _entryTopic = 0;
+        await Load();
+    }
+
+    private async Task Archive(TopicDto t)
+    {
+        await Http.PutAsJsonAsync($"client-api/leadership/topics/{t.Id}", new { IsArchived = !t.IsArchived });
+        await Load();
+    }
+
+    private record EntryDto(int Id, string Title, string Notes, DateTime CreatedAt, int? Topic, DateTime? Meeting);
+    private record TopicDto(int Id, string Title, int Kind, int Circle, string CircleLabel, bool IsArchived, List<EntryDto> Entries);
+    private record EntryResult(bool Ok, bool Scheduled);
+}

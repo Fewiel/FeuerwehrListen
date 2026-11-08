@@ -74,6 +74,10 @@ public class LeadershipItem
     [Column("Decision")] public string Decision { get; set; } = string.Empty;
     [Column("Status")] public LeadershipItemStatus Status { get; set; } = LeadershipItemStatus.Offen;
     [Column("SourceTaskId")] public int? SourceTaskId { get; set; }
+    /// <summary>Themenbereich (Info-Thema ueber mehrere Sitzungen, z. B. "Beschaffung HLF").</summary>
+    [Column("TopicId")] public int? TopicId { get; set; }
+    /// <summary>Bereich im Abschnitt "Aus den Bereichen" (z. B. "Jugendfeuerwehr").</summary>
+    [Column("AreaId")] public int? AreaId { get; set; }
     /// <summary>0 = Tagesordnung, 1 = Informationen (vorab, ohne Beschluss), 2 = Aus den Bereichen (danach).</summary>
     [Column("Section")] public int Section { get; set; }
     [Column("CreatedAt")] public DateTime CreatedAt { get; set; }
@@ -99,4 +103,18 @@ public class LeadershipTask
     [Column("CreatedBy")] public string CreatedBy { get; set; } = string.Empty;
     [Column("CreatedAt")] public DateTime CreatedAt { get; set; }
     [Column("CompletedAt")] public DateTime? CompletedAt { get; set; }
+}
+
+/// <summary>Themenbereich (Kind 1) oder Bereich (Kind 2) eines Kreises - besteht ueber Sitzungen hinweg.
+/// Neue Eintraege landen als Punkt in der naechsten Sitzung des Kreises.</summary>
+[Table("LeadershipTopic")]
+public class LeadershipTopic
+{
+    public const int KindTopic = 1, KindArea = 2;
+    [PrimaryKey, Identity, Column("Id")] public int Id { get; set; }
+    [Column("Circle")] public int Circle { get; set; }
+    [Column("Kind")] public int Kind { get; set; } = KindTopic;
+    [Column("Title")] public string Title { get; set; } = string.Empty;
+    [Column("IsArchived")] public bool IsArchived { get; set; }
+    [Column("CreatedAt")] public DateTime CreatedAt { get; set; }
 }
