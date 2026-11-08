@@ -108,7 +108,7 @@ public static class MemberAreaEndpoints
                     .Where(e => e.Type != CalendarEventType.Fahrzeugbuchung && e.Type != CalendarEventType.Raumbuchung
                         || (m != null && e.MemberId == m.Id))
                     .Where(e => e.UnitNumber is not int u || myUnits.Contains(u))
-                    .OrderBy(e => e.StartTime).Take(5);
+                    .OrderBy(e => e.StartTime).Take(4);
                 events.AddRange(list.Select(e => new
                 {
                     id = e.Id, title = e.Title, start = e.StartTime, location = e.Location,

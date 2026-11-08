@@ -35,3 +35,4 @@ Beim Erhöhen von MAJOR/MINOR wird der rechte Teil auf 0 gesetzt.
   versenden, Aufgaben an alle Mitglieder mit Notizen/Status im Mitgliedsbereich, Aufgabe → Tagespunkt,
   Protokollversand an die Anwesenden
 * **3.2.1** – Abwesenheiten landen nur auf der Liste der eigenen Einheit
+* **3.2.2** – Mitgliederbereich: Tab-Leiste fest unten (nicht hinter Android-Navigation), kein Scrollen ohne Inhalt, nächste 4 Termine
