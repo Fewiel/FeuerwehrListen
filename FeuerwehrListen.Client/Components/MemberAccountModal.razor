@@ -17,7 +17,11 @@
                 else
                 {
                     <div class="d-flex align-items-start mb-3">
-                        <img src="@PhotoUrl" alt="Lichtbild" style="width:80px;height:100px;object-fit:cover;border-radius:6px;background:#E3E0DB;margin-right:16px;" />
+                        <div style="margin-right:16px;text-align:center;">
+                            <img src="@PhotoUrl" alt="Lichtbild" style="width:80px;height:100px;object-fit:cover;border-radius:6px;background:#E3E0DB;display:block;" />
+                            <label for="mam-photo" class="btn btn-sm btn-outline-primary mt-1" style="cursor:pointer;">@(_a.HasPhoto ? "Ändern" : "Hochladen")</label>
+                            <input id="mam-photo" type="file" accept="image/*" style="display:none;" @onchange="UploadPhoto" />
+                        </div>
                         <div class="flex-grow-1">
                             <div><strong>Mitgliederbereich:</strong>
                                 @if (_a.HasPassword) { <span class="badge bg-success">Zugang aktiv</span> <small class="text-muted">seit @_a.PasswordSetAt?.ToString("dd.MM.yyyy")</small> }
@@ -149,6 +153,22 @@
         }
         catch { _msg = "Aktion fehlgeschlagen."; }
     }
+
+    // Lichtbild setzen: Browser schneidet auf 4:5 zu (wie im Mitgliederprofil).
+    private async Task UploadPhoto()
+    {
+        try
+        {
+            var dataUrl = await JS.InvokeAsync<string?>("fwPhoto.fromInput", "mam-photo");
+            if (string.IsNullOrEmpty(dataUrl)) return;
+            var resp = await Http.PostAsJsonAsync($"client-api/admin/members/{MemberId}/photo", new { DataUrl = dataUrl });
+            var r = await resp.Content.ReadFromJsonAsync<PhotoResult>();
+            _msg = r?.Ok == true ? "Lichtbild gespeichert." : r?.Error == "size" ? "Das Bild ist zu groß." : "Lichtbild konnte nicht gespeichert werden.";
+            await Load();
+        }
+        catch { _msg = "Lichtbild konnte nicht verarbeitet werden."; }
+    }
+    private record PhotoResult(bool Ok, string? Error = null);
 
     private Task Reissue() => Action("POST", $"client-api/admin/members/{MemberId}/card/reissue", "Ausweis neu ausstellen? Der bisherige QR-Code wird ungültig.", "Neuer Ausweis ausgestellt.");
     private Task Revoke() => Action("POST", $"client-api/admin/members/{MemberId}/card/revoke", "Ausweis sperren? Die Prüfseite zeigt dann „nicht gültig“.", "Ausweis gesperrt.");

@@ -45,3 +45,4 @@ Beim Erhöhen von MAJOR/MINOR wird der rechte Teil auf 0 gesetzt.
 * **3.5.0** – Führungskreis: Themenbereiche und Bereiche über Sitzungen hinweg, Infos aus dem kleinen in den großen Kreis weitergeben
 * **3.6.0** – Push-Benachrichtigungen (Mangel bearbeitet, neue Aufgabe, 1 h vor Dienstabend), „Meine gemeldeten Mängel“ im Mitgliederbereich
 * **3.7.0** – Mängel: Notizen ohne Statusänderung (mit Push an die meldende Person)
+* **3.8.0** – Mitgliederverwaltung: Lichtbild im Dialog „Zugang“ setzen (Admin/Benutzer)
