@@ -52,6 +52,8 @@ builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("Admin", p => p.RequireRole("Admin"));
+    // Verwaltung durch Admins UND einfache Benutzer (z. B. Mitglieder pflegen) - nicht Mitglieder/Geraete.
+    options.AddPolicy("Staff", p => p.RequireRole("Admin", "User"));
 });
 
 // Cookie-Auth fuer den WASM-Client (Admin-Bereich). Additiv - die bestehende
@@ -934,6 +936,8 @@ app.MapGet("/client-api/auth/me", (HttpContext ctx) =>
         authenticated = true,
         username = ctx.User.Identity!.Name,
         isAdmin = ctx.User.IsInRole("Admin"),
+        // Rolle fuer den Client (Admin/User/Member) - AuthorizeView Roles="Admin,User" braucht sie.
+        role = ctx.User.FindFirst(ClaimTypes.Role)?.Value,
         firstName = ctx.User.FindFirst("FirstName")?.Value,
         lastName = ctx.User.FindFirst("LastName")?.Value,
         // Admins haben implizit Listen-Zugriff; sonst entscheidet das ListAccess-Claim.
@@ -1145,6 +1149,8 @@ listMgmt.MapDelete("/list/{type}/{id:int}", async (string type, int id, Attendan
 
 // ================== ADMIN-CRUD (Cookie-Auth, Rolle Admin) ==================
 var admin = app.MapGroup("/client-api/admin").RequireAuthorization("Admin").DisableAntiforgery();
+// Mitgliederverwaltung: auch fuer einfache Benutzer (Zugang/Ausweis/Fuehrungskreis bleiben Admin).
+var staff = app.MapGroup("/client-api/admin").RequireAuthorization("Staff").DisableAntiforgery();
 
 // --- Fahrzeuge ---
 admin.MapGet("/vehicles", async (VehicleRepository repo) =>
@@ -1314,7 +1320,7 @@ admin.MapPost("/apikeys/{id:int}/toggle", async (int id, ApiKeyRepository repo) 
 admin.MapDelete("/apikeys/{id:int}", async (int id, ApiKeyRepository repo) => { await repo.DeleteAsync(id); return Results.Ok(); });
 
 // --- Mitglieder ---
-admin.MapGet("/members", async (MemberRepository repo) =>
+staff.MapGet("/members", async (MemberRepository repo) =>
 {
     var members = await repo.GetAllAsync();
     var units = await repo.GetUnitsForMembersAsync(members.Select(m => m.Id));
@@ -1327,20 +1333,20 @@ admin.MapGet("/members", async (MemberRepository repo) =>
 // Tag-Vorschau (SVG: Body blau + Inlay rot an SCAD-Positionen, echter QR).
 // Das eigentliche STL-Rendering (OpenSCAD) laeuft NICHT hier, sondern client-seitig
 // ueber einen lokalen Helfer (fwtag-helper) - die kleine VM soll nicht rendern.
-admin.MapGet("/members/{id:int}/tag-preview", async (int id, MemberRepository repo, TagRenderService tags) =>
+staff.MapGet("/members/{id:int}/tag-preview", async (int id, MemberRepository repo, TagRenderService tags) =>
 {
     var m = await repo.GetByIdAsync(id);
     if (m == null) return Results.NotFound();
     return Results.Content(tags.BuildPreviewSvg(m), "image/svg+xml");
 });
 // Name/Nummer fuer den lokalen Helfer (Client baut daraus die OpenSCAD-Parameter).
-admin.MapGet("/members/{id:int}/tag-info", async (int id, MemberRepository repo) =>
+staff.MapGet("/members/{id:int}/tag-info", async (int id, MemberRepository repo) =>
 {
     var m = await repo.GetByIdAsync(id);
     if (m == null) return Results.NotFound();
     return Results.Json(new { number = (m.MemberNumber ?? "").Trim(), name = TagRenderService.DisplayName(m) });
 });
-admin.MapPost("/members", async (MemberRepository repo, MemberReq r) =>
+staff.MapPost("/members", async (MemberRepository repo, MemberReq r) =>
 {
     var units = (r.Units ?? new()).Where(u => u >= 1 && u <= 9).OrderBy(u => u).ToList();
     int? primary = units.Count > 0 ? units.First() : null;
@@ -1348,7 +1354,7 @@ admin.MapPost("/members", async (MemberRepository repo, MemberReq r) =>
     await repo.SetUnitsForMemberAsync(id, units, primary);
     return Results.Json(new { id });
 });
-admin.MapPut("/members/{id:int}", async (int id, MemberRepository repo, MemberReq r) =>
+staff.MapPut("/members/{id:int}", async (int id, MemberRepository repo, MemberReq r) =>
 {
     var m = await repo.GetByIdAsync(id); if (m == null) return Results.NotFound();
     var units = (r.Units ?? new()).Where(u => u >= 1 && u <= 9).OrderBy(u => u).ToList();
@@ -1359,8 +1365,8 @@ admin.MapPut("/members/{id:int}", async (int id, MemberRepository repo, MemberRe
     await repo.SetUnitsForMemberAsync(id, units, primary);
     return Results.Ok();
 });
-admin.MapDelete("/members/{id:int}", async (int id, MemberRepository repo) => { await repo.DeleteAsync(id); return Results.Ok(); });
-admin.MapPost("/members/import-csv", async (MemberRepository repo, CsvReq r) =>
+staff.MapDelete("/members/{id:int}", async (int id, MemberRepository repo) => { await repo.DeleteAsync(id); return Results.Ok(); });
+staff.MapPost("/members/import-csv", async (MemberRepository repo, CsvReq r) =>
 {
     var lines = (r.Csv ?? "").Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
     if (lines.Length < 2) return Results.Json(new { imported = 0, skipped = 0, errors = new[] { "Keine Datenzeilen." } });

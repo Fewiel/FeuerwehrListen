@@ -21,6 +21,8 @@
 @code {
     [Parameter] public RenderFragment? ChildContent { get; set; }
     [Parameter] public bool RequireAdmin { get; set; }
+    /// <summary>Kommagetrennte Rollen, von denen eine noetig ist (z. B. "Admin,User").</summary>
+    [Parameter] public string? Roles { get; set; }
 
     // Kaskadierender Auth-State (aus CascadingAuthenticationState) -> ein geteilter Fetch.
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
@@ -40,7 +42,8 @@
         var state = await AuthState;
         var u = state.User;
         var authed = u.Identity?.IsAuthenticated == true;
-        _ok = authed && (!RequireAdmin || u.IsInRole("Admin"));
+        _ok = authed && (!RequireAdmin || u.IsInRole("Admin"))
+              && (string.IsNullOrWhiteSpace(Roles) || Roles.Split(',').Any(r => u.IsInRole(r.Trim())));
         _ready = true;
 
         if (!_ok && !authed)
