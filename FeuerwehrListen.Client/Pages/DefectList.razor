@@ -128,7 +128,7 @@
                     @foreach (var h in _history)
                     {
                         <li class="border-top py-2">
-                            <div class="d-flex align-items-center flex-wrap" style="gap:6px;">@Badge(h.OldStatus) <i class="bi bi-arrow-right"></i> @Badge(h.NewStatus)</div>
+                            <div class="d-flex align-items-center flex-wrap" style="gap:6px;">@if (h.OldStatus == h.NewStatus) { <span class="badge bg-secondary"><i class="bi bi-chat-left-text"></i> Notiz</span> } else { @Badge(h.OldStatus) <i class="bi bi-arrow-right"></i> @Badge(h.NewStatus) }</div>
                             <div class="small text-muted">@h.ChangedAt.ToString("dd.MM.yyyy HH:mm") · @h.ChangedByName</div>
                             @if (!string.IsNullOrEmpty(h.Comment)) { <div class="small" style="overflow-wrap:anywhere;">@h.Comment</div> }
                         </li>
@@ -160,7 +160,8 @@
                     }
                 </div>
                 @if (_scError is not null) { <div class="alert alert-danger py-2">@_scError</div> }
-                <button class="btn btn-primary" @onclick="ChangeStatus" disabled="@_scBusy">Speichern</button>
+                <button class="btn btn-primary" @onclick="ChangeStatus" disabled="@_scBusy">Status speichern</button>
+                <button class="btn btn-outline-secondary ms-1" @onclick="AddNote" disabled="@(_scBusy || string.IsNullOrWhiteSpace(_comment))">Nur Notiz speichern</button>
             }
         </div>
     </div></div></div>
@@ -323,6 +324,24 @@
     {
         _scNumber = m.Number;
         _statusResults = new();
+    }
+
+    // Notiz ohne Statuswechsel (Kommentarfeld + Mitgliedsnummer wie beim Statuswechsel).
+    private async Task AddNote()
+    {
+        _scError = null;
+        if (_detail is null || string.IsNullOrWhiteSpace(_comment)) return;
+        if (string.IsNullOrWhiteSpace(_scNumber)) { _scError = "Mitgliedsnummer erforderlich."; return; }
+        _scBusy = true;
+        try
+        {
+            var resp = await Http.PostAsJsonAsync($"client-api/defects/{_detail.Id}/note", new { NewStatus = _detail.Status, Comment = _comment, MemberNumber = _scNumber });
+            var r = await resp.Content.ReadFromJsonAsync<StatusDto>();
+            if (r?.Status == "ok") { _comment = ""; _history = await Http.GetFromJsonAsync<List<HistDto>>($"client-api/defects/{_detail.Id}/history") ?? new(); }
+            else _scError = "Mitglied nicht gefunden.";
+        }
+        catch { _scError = "Speichern fehlgeschlagen."; }
+        finally { _scBusy = false; }
     }
 
     private async Task ChangeStatus()

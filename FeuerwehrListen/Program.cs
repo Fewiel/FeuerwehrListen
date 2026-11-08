@@ -2362,6 +2362,20 @@ app.MapPost("/client-api/defects/{id:int}/status", async (int id, DefectReposito
     return Results.Json(new { status = "ok" });
 }).DisableAntiforgery();
 
+// Notiz zu einem Mangel ohne Statuswechsel (Verlaufseintrag mit gleichem Status).
+app.MapPost("/client-api/defects/{id:int}/note", async (int id, DefectRepository repo, MemberRepository mRepo, PushService push, DefectStatusRequest r) =>
+{
+    var d = await repo.GetByIdAsync(id); if (d == null) return Results.NotFound();
+    if (string.IsNullOrWhiteSpace(r.Comment)) return Results.BadRequest();
+    var member = await mRepo.GetByMemberNumberAsync((r.MemberNumber ?? "").Trim());
+    if (member == null) return Results.Json(new { status = "notfound" });
+    await repo.AddStatusChangeAsync(new DefectStatusChange { DefectId = id, OldStatus = d.Status, NewStatus = d.Status,
+        ChangedByName = $"{member.FirstName} {member.LastName} ({member.MemberNumber})", ChangedAt = DateTime.Now, Comment = r.Comment.Trim() });
+    if (d.ReportedByMemberId is int reporter && reporter != member.Id)
+        await push.SendToMemberAsync(reporter, $"Neue Notiz zu deinem Mangel: {d.VehicleName ?? d.CustomVehicle}", r.Comment.Trim(), "/mein/maengel");
+    return Results.Json(new { status = "ok" });
+}).DisableAntiforgery();
+
 // B18: Mitglieder-Namenssuche fuer den Maengel-Flow (Melden UND Status). Das Melden ist bewusst
 // anonym (Kiosk, keine Anmeldung), daher ist auch diese Suche anonym - analog zur bestehenden
 // anonymen Mitglieds-Aufloesung (z. B. /client-api/operation/{id}/resolve). Es werden nur wenige

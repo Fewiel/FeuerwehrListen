@@ -202,7 +202,7 @@ public static class MemberAreaEndpoints
                 result.Add(new
                 {
                     id = d.Id, vehicle = d.VehicleName ?? d.CustomVehicle, description = d.Description, status = d.Status.ToString(), reportedAt = d.ReportedAt,
-                    history = hist.OrderBy(h => h.ChangedAt).Select(h => new { at = h.ChangedAt, status = h.NewStatus.ToString(), by = h.ChangedByName, comment = h.Comment })
+                    history = hist.OrderBy(h => h.ChangedAt).Select(h => new { at = h.ChangedAt, status = h.NewStatus.ToString(), by = h.ChangedByName, comment = h.Comment, note = h.OldStatus == h.NewStatus })
                 });
             }
             return Results.Json(result);
