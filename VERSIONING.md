@@ -41,3 +41,4 @@ Beim Erhöhen von MAJOR/MINOR wird der rechte Teil auf 0 gesetzt.
 * **3.3.1** – Mängelliste mobil: Karten statt Tabelle, Filterleiste, Detail als Vollbild
 * **3.3.2** – Mängelliste zeigt standardmäßig nur offene und in Arbeit befindliche Mängel
 * **3.4.0** – Mängel mit Fotos (Nextcloud, <Basis Mängel>/JJJJ/<MangelID>), eigener Basisordner in den Einstellungen
+* **3.4.1** – Fix: Fotos beim Melden eines Mangels landen im richtigen Ordner
