@@ -367,7 +367,7 @@ public sealed class NetworkAccessService
         if (p == "/defects") return ModuleDefects;
         if (p == "/kalender") return ModuleCalendar;
         if (p == "/fuehrungskreis" || p.StartsWith("/fuehrungskreis/")) return ModuleLeadership;
-        if (p == "/admin/closed-lists" || p == "/admin/archive") return UserAccessService.FullAccess;
+        if (p == "/admin/closed-lists" || p == "/admin/archive" || p == "/admin/statistics") return UserAccessService.FullAccess;
         return null;
     }
 

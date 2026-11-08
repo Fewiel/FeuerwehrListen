@@ -7,9 +7,9 @@
 @inject NavigationManager Nav
 @inject FeuerwehrListen.Client.Services.AppContextService AppCtx
 
-<PageTitle>Statistiken - Admin</PageTitle>
+<PageTitle>Statistiken</PageTitle>
 
-<AuthGuard RequireAdmin="true">
+<AuthGuard Roles="Admin,User">
     <div class="container mt-4">
         <div class="row mb-3">
             <div class="col">

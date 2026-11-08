@@ -48,3 +48,4 @@ Beim Erhöhen von MAJOR/MINOR wird der rechte Teil auf 0 gesetzt.
 * **3.8.0** – Mitgliederverwaltung: Lichtbild im Dialog „Zugang“ setzen (Admin/Benutzer)
 * **3.8.1** – Bereich „Mängel“ für alle Mitglieder freigegeben (Migration 43), Standard für neue Mitglieder
 * **3.9.0** – Kalender für alle Mitglieder freigegeben (Migration 44); einfache Mitglieder können nur noch ansehen (Ausnahme: Führungskreis-Sitzungen)
+* **3.10.0** – Statistiken auch für Benutzer (nicht nur Admins)

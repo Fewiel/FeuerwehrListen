@@ -1103,7 +1103,7 @@ app.MapGet("/client-api/export/statistics/pdf", async (PdfExportService pdf,
         Unit = unit ?? 0
     };
     return Results.File(await pdf.ExportStatisticsReportAsync(filter), "application/pdf");
-}).RequireAuthorization("Admin");
+}).RequireAuthorization("Staff");
 
 // ================== Listen-Verwaltung (angemeldete Nutzer) ==================
 var listMgmt = app.MapGroup("/client-api").RequireAuthorization().DisableAntiforgery();
@@ -1608,7 +1608,7 @@ admin.MapDelete("/sso-clients/{id:int}", async (int id, SsoClientRepository repo
 // Funktions-, Atemschutz-, Stichwort-, Requirements- und Trend-Sektionen gelten nur fuer
 // Einsatzlisten (filter.IncludeOperations); bei anderem ListType liefern die Service-
 // Methoden leere Listen/Nullwerte - die UI blendet sie dann aus.
-admin.MapGet("/statistics", async (StatisticsService stats, int? listType, DateTime? from, DateTime? to, int? unit) =>
+staff.MapGet("/statistics", async (StatisticsService stats, int? listType, DateTime? from, DateTime? to, int? unit) =>
 {
     var lt = listType ?? 0;
     var filter = new StatsFilter
