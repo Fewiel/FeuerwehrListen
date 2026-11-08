@@ -19,7 +19,10 @@
             <button class="btn btn-sm @(_view == "grid" ? "btn-dark" : "btn-outline-secondary")" @onclick='() => _view = "grid"' title="Monat"><i class="bi bi-grid-3x3"></i><span class="d-none d-sm-inline ms-1">Monat</span></button>
             <button class="btn btn-sm @(_view == "list" ? "btn-dark" : "btn-outline-secondary")" @onclick='() => _view = "list"' title="Liste"><i class="bi bi-list-ul"></i><span class="d-none d-sm-inline ms-1">Liste</span></button>
         </div>
-        <button class="btn btn-primary" @onclick="OpenCreate"><i class="bi bi-plus-circle"></i><span class="d-none d-sm-inline ms-1">Neuer Termin</span></button>
+        @if (!_plainMember || _leadership)
+        {
+            <button class="btn btn-primary" @onclick="OpenCreate"><i class="bi bi-plus-circle"></i><span class="d-none d-sm-inline ms-1">@(_plainMember ? "Neue Sitzung" : "Neuer Termin")</span></button>
+        }
     </div>
 
     <div class="card mb-3"><div class="card-body py-2">
@@ -187,10 +190,13 @@
                     <div class="mb-2">
                         <label class="form-label">Art</label>
                         <select class="form-select" @bind="_fType">
-                            <option value="Veranstaltung">Veranstaltung</option>
-                            <option value="Dienst">Dienst (mit Anwesenheitsliste)</option>
-                            <option value="Fahrzeugbuchung">Fahrzeugbuchung</option>
-                            <option value="Raumbuchung">Raumbuchung</option>
+                            @if (!_plainMember)
+                            {
+                                <option value="Veranstaltung">Veranstaltung</option>
+                                <option value="Dienst">Dienst (mit Anwesenheitsliste)</option>
+                                <option value="Fahrzeugbuchung">Fahrzeugbuchung</option>
+                                <option value="Raumbuchung">Raumbuchung</option>
+                            }
                             @if (_leadership) { <option value="Fuehrungskreis">Sitzung Führungskreis</option> }
                         </select>
                     </div>
@@ -794,8 +800,21 @@
         7 => "Juli", 8 => "August", 9 => "September", 10 => "Oktober", 11 => "November", _ => "Dezember"
     };
 
+    // Mitglied ohne verknuepften Benutzer: darf nur Fuehrungskreis-Sitzungen anlegen (sofern im Kreis).
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+    private bool _plainMember;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (AuthState is null) return;
+        var u = (await AuthState).User;
+        _plainMember = (u.FindFirst("IsMember")?.Value == "true" || (u.Identity?.Name ?? "").StartsWith("member:"))
+                       && !u.IsInRole("User") && !u.IsInRole("Admin");
+    }
+
     private async Task OpenCreate()
     {
+        if (_plainMember) _fType = "Fuehrungskreis";
         _formError = null; _conflicts = null;
         _fTitle = ""; _fLocation = ""; _fDescription = ""; _fRequestedBy = ""; _fEmail = "";
         _fUnitNumber = ""; _fLeadMinutes = "";
