@@ -82,7 +82,7 @@ public class StatisticsService
         var fswIds = fsws.Select(w => w.Id).ToList();
 
         var operationEntryCount = opIds.Count == 0 ? 0 : await _db.OperationEntries.CountAsync(e => opIds.Contains(e.OperationListId));
-        var attendanceEntryCount = attIds.Count == 0 ? 0 : await _db.AttendanceEntries.CountAsync(e => attIds.Contains(e.AttendanceListId));
+        var attendanceEntryCount = attIds.Count == 0 ? 0 : await _db.AttendanceEntries.CountAsync(e => attIds.Contains(e.AttendanceListId) && !e.IsExcused);
         var fswEntryCount = fswIds.Count == 0 ? 0 : await _db.FireSafetyWatchEntries.CountAsync(e => fswIds.Contains(e.FireSafetyWatchId));
 
         var allLists = ops.Count + atts.Count + fsws.Count;
@@ -114,7 +114,7 @@ public class StatisticsService
         var attIds = filter.IncludeAttendance ? (await FilteredAttendanceListsAsync(filter)).Select(a => a.Id).ToList() : new List<int>();
         var fswIds = filter.IncludeFireSafetyWatch ? (await FilteredFswListsAsync(filter)).Select(w => w.Id).ToList() : new List<int>();
 
-        var attendanceEntries = attIds.Count == 0 ? new List<AttendanceEntry>() : await _db.AttendanceEntries.Where(e => attIds.Contains(e.AttendanceListId)).ToListAsync();
+        var attendanceEntries = attIds.Count == 0 ? new List<AttendanceEntry>() : await _db.AttendanceEntries.Where(e => attIds.Contains(e.AttendanceListId) && !e.IsExcused).ToListAsync();
         var operationEntries = opIds.Count == 0 ? new List<OperationEntry>() : await _db.OperationEntries.Where(e => opIds.Contains(e.OperationListId)).ToListAsync();
         var fswEntries = fswIds.Count == 0 ? new List<FireSafetyWatchEntry>() : await _db.FireSafetyWatchEntries.Where(e => fswIds.Contains(e.FireSafetyWatchId)).ToListAsync();
 
@@ -178,7 +178,7 @@ public class StatisticsService
         var opIds = operationLists.Select(o => o.Id).ToList();
         var fswIds = filter.IncludeFireSafetyWatch ? (await FilteredFswListsAsync(filter)).Select(w => w.Id).ToList() : new List<int>();
 
-        var attendanceEntries = attIds.Count == 0 ? new List<AttendanceEntry>() : await _db.AttendanceEntries.Where(e => attIds.Contains(e.AttendanceListId)).ToListAsync();
+        var attendanceEntries = attIds.Count == 0 ? new List<AttendanceEntry>() : await _db.AttendanceEntries.Where(e => attIds.Contains(e.AttendanceListId) && !e.IsExcused).ToListAsync();
         var operationEntries = opIds.Count == 0 ? new List<OperationEntry>() : await _db.OperationEntries.Where(e => opIds.Contains(e.OperationListId)).ToListAsync();
         var fswEntries = fswIds.Count == 0 ? new List<FireSafetyWatchEntry>() : await _db.FireSafetyWatchEntries.Where(e => fswIds.Contains(e.FireSafetyWatchId)).ToListAsync();
 
@@ -412,7 +412,7 @@ public class StatisticsService
         var attendanceListIds = attendanceLists.Select(l => l.Id).ToHashSet();
         var operationListIds = operationLists.Select(l => l.Id).ToHashSet();
 
-        var attendanceEntries = await _db.AttendanceEntries.Where(e => attendanceListIds.Contains(e.AttendanceListId)).ToListAsync();
+        var attendanceEntries = await _db.AttendanceEntries.Where(e => attendanceListIds.Contains(e.AttendanceListId) && !e.IsExcused).ToListAsync();
         var operationEntries = await _db.OperationEntries.Where(e => operationListIds.Contains(e.OperationListId)).ToListAsync();
 
         var attendanceEntryCountByList = attendanceEntries.GroupBy(e => e.AttendanceListId).ToDictionary(g => g.Key, g => g.Count());

@@ -684,7 +684,7 @@
 
 @code {
     // Filter-State (int fuer den Listentyp, damit Enum-Serialisierung robust bleibt).
-    private int _listType = 0;                 // 0 = Einsatzlisten (Default wie Original)
+    private int _listType = 3;                 // 3 = Gesamt (sonst bleibt die Anwesenheit leer)
     private DateTime? _from = new DateTime(DateTime.Now.Year, 1, 1, 0, 1, 0); // Jahresanfang
     private DateTime? _to;
     private int _unit = 0;                      // 0 = alle Einheiten
@@ -720,7 +720,7 @@
 
     private async Task ResetFilter()
     {
-        _listType = 0;
+        _listType = 3;
         _from = new DateTime(DateTime.Now.Year, 1, 1, 0, 1, 0);
         _to = null;
         _unit = 0;
