@@ -12,7 +12,7 @@
     </div>
     @* Filter als gleich breite Leiste - passt auch auf schmale Handys ohne Umbruch. *@
     <div class="d-flex mb-3" style="gap:6px;">
-        <button class="btn btn-sm flex-fill @(_filter is null ? "btn-dark" : "btn-outline-secondary")" style="min-height:40px;" @onclick="() => _filter = null">Alle</button>
+        <button class="btn btn-sm flex-fill @(_filter is null ? "btn-dark" : "btn-outline-secondary")" style="min-height:40px;" @onclick="() => _filter = null">Aktuell</button>
         <button class="btn btn-sm flex-fill @(_filter == "Open" ? "btn-danger" : "btn-outline-danger")" style="min-height:40px;" @onclick="@(() => _filter = "Open")">Offen</button>
         <button class="btn btn-sm flex-fill @(_filter == "InProgress" ? "btn-warning" : "btn-outline-warning")" style="min-height:40px;" @onclick="@(() => _filter = "InProgress")">In Arbeit</button>
         <button class="btn btn-sm flex-fill @(_filter == "Done" ? "btn-success" : "btn-outline-success")" style="min-height:40px;@(_filter == "Done" ? "" : "border-color:#198754;color:#198754;")" @onclick="@(() => _filter = "Done")">Erledigt</button>
@@ -27,8 +27,9 @@
         else if (_items is null) { <p><em>Lade…</em></p> }
         else
         {
-            var list = _filter is null ? _items : _items.Where(d => d.Status == _filter).ToList();
-            @if (list.Count == 0) { <p class="text-muted">Keine Mängel.</p> }
+            // Standard "Aktuell" = offen + in Arbeit; Erledigtes nur ueber den Filter (Liste bleibt kurz).
+            var list = _filter is null ? _items.Where(d => d.Status != "Done").ToList() : _items.Where(d => d.Status == _filter).ToList();
+            @if (list.Count == 0) { <p class="text-muted p-3 mb-0">@(_filter is null ? "Keine offenen Mängel." : "Keine Mängel.")</p> }
             else
             {
                 @* Karten-Liste statt Tabelle: auf dem Handy kein Quer-Scrollen, Beschreibung bricht um. *@

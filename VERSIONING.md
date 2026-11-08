@@ -39,3 +39,4 @@ Beim Erhöhen von MAJOR/MINOR wird der rechte Teil auf 0 gesetzt.
 * **3.2.3** – Mitgliederbereich: kein seitliches/leeres Scrollen, keine graue Fläche unter dem Inhalt
 * **3.3.0** – Protokoll: Abschnitte „Informationen“ (vorab) und „Aus den Bereichen“ (danach), Admin kann Protokolle endgültig löschen
 * **3.3.1** – Mängelliste mobil: Karten statt Tabelle, Filterleiste, Detail als Vollbild
+* **3.3.2** – Mängelliste zeigt standardmäßig nur offene und in Arbeit befindliche Mängel
