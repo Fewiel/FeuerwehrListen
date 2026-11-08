@@ -2669,6 +2669,10 @@ app.MapPost("/client-api/calendar/events", async (HttpContext http, CalendarEven
 {
     var viewer = ua.Get(http);
     var type = Enum.TryParse<CalendarEventType>(r.Type, true, out var parsedType) ? parsedType : CalendarEventType.Veranstaltung;
+    // Mitglieder ohne verknuepften Benutzer: nur ansehen, nichts eintragen. Ausnahme: Sitzungen des
+    // eigenen Fuehrungskreises (Berechtigung wird unten geprueft).
+    if (viewer is { IsMember: true, IsStaff: false } && type != CalendarEventType.Fuehrungskreis)
+        return Results.Json(new { status = "invalid", message = "Termine können nur Benutzer anlegen." }, statusCode: 403);
     int? circle = null;
     if (type == CalendarEventType.Fuehrungskreis)
     {
