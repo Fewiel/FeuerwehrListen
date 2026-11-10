@@ -350,7 +350,7 @@
                 <div class="mb-3">
                     <label class="form-label">Logo hochladen</label>
                     <InputFile class="form-control" OnChange="OnLogoFileSelected" accept=".png,.jpg,.jpeg,.svg" disabled="@_logoBusy" />
-                    <small class="text-muted">PNG, JPG oder SVG. Wird als App-Icon und Logo verwendet.</small>
+                    <small class="text-muted">PNG, JPG oder SVG. Wird als Logo verwendet – und als App-Icon, solange unten kein eigenes PWA-Icon hochgeladen ist (nur PNG/JPG, quadratisch, mind. 512&times;512px).</small>
                     @if (_logoBusy) { <div class="mt-2"><span class="spinner-border spinner-border-sm me-1"></span>Wird hochgeladen…</div> }
                     @if (!string.IsNullOrWhiteSpace(Get("Branding.LogoUrl")))
                     {
@@ -370,6 +370,10 @@
                     <small class="text-muted">PNG, empfohlen 512&times;512px für die PWA-Installation.</small>
                     @if (_iconBusy) { <div class="mt-2"><span class="spinner-border spinner-border-sm me-1"></span>Wird hochgeladen…</div> }
                     @if (_iconUploaded) { <div class="mt-2"><span class="badge bg-success"><i class="bi bi-check"></i> Icon hochgeladen</span></div> }
+                    <div class="mt-2 d-flex align-items-center gap-2">
+                        <img src="/icon-192.png?t=@_iconStamp" alt="App-Icon" style="width:48px;height:48px;border-radius:10px;border:1px solid #D6DBE1;object-fit:cover;" />
+                        <small class="text-muted">Aktuelles App-Icon. Bereits installierte Apps übernehmen ein neues Icon je nach Gerät erst nach einiger Zeit oder nach Neuinstallation.</small>
+                    </div>
                     @if (_iconError is not null) { <div class="text-danger mt-2"><i class="bi bi-exclamation-triangle-fill me-1"></i>@_iconError</div> }
                 </div>
 
@@ -537,6 +541,7 @@
             var result = await resp.Content.ReadFromJsonAsync<LogoResult>();
             if (!string.IsNullOrWhiteSpace(result?.logoUrl))
                 Set("Branding.LogoUrl", result.logoUrl);
+                _iconStamp = DateTime.UtcNow.Ticks;
         }
         catch
         {
@@ -561,6 +566,7 @@
                 return;
             }
             Set("Branding.LogoUrl", "");
+            _iconStamp = DateTime.UtcNow.Ticks;
         }
         catch
         {
@@ -571,6 +577,8 @@
             _logoBusy = false;
         }
     }
+
+    private long _iconStamp = DateTime.UtcNow.Ticks;
 
     private async Task OnIconFileSelected(InputFileChangeEventArgs e)
     {
@@ -599,6 +607,7 @@
                 return;
             }
             _iconUploaded = true;
+            _iconStamp = DateTime.UtcNow.Ticks;
         }
         catch
         {
