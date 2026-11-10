@@ -14,6 +14,7 @@
                 <h1 class="h3 mb-1">Themen &amp; Bereiche</h1>
                 <p class="text-muted small mb-0">Neue Einträge erscheinen automatisch in der nächsten Sitzung des jeweiligen Kreises.</p>
             </div>
+            <a href="/fuehrungskreis/suche" class="btn btn-outline-secondary"><i class="bi bi-search me-1"></i>Suche</a>
             <a href="/fuehrungskreis" class="btn btn-outline-secondary">Protokolle</a>
         </div>
 
@@ -87,7 +88,18 @@
     private string _newTitle = "", _entryTitle = "", _entryNotes = "";
     private string? _error, _msg;
 
-    protected override async Task OnInitializedAsync() => await Load();
+    // Aus der Suche: ?open=ID klappt den Eintrag auf (auch wenn er archiviert ist).
+    [SupplyParameterFromQuery(Name = "open")] public int? OpenId { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Load();
+        if (OpenId is int oid && _topics?.FirstOrDefault(t => t.Id == oid) is TopicDto hit)
+        {
+            _open = hit.Id; _kind = hit.Kind;
+            if (hit.IsArchived) _showArchived = true;
+        }
+    }
 
     private async Task Load()
     {

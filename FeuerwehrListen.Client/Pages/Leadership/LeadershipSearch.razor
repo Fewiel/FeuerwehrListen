@@ -1,0 +1,120 @@
+@page "/fuehrungskreis/suche"
+@layout MainLayout
+@using System.Net.Http.Json
+@inject HttpClient Http
+@inject NavigationManager Nav
+
+<PageTitle>Führungskreis – Suche</PageTitle>
+
+@* Suche ueber Protokolle, Punkte/Infos/Beschluesse, Themen und Bereiche sowie Aufgaben -
+   ausdruecklich auch Archiviertes und Erledigtes. Der Server liefert nur, was der Kreis sehen darf. *@
+<AuthGuard>
+    <div class="container-fluid mt-3" style="max-width:1000px;">
+        <div class="d-flex flex-wrap align-items-end mb-3" style="gap:10px;">
+            <div class="flex-grow-1">
+                <h1 class="h3 mb-1">Suche</h1>
+                <p class="text-muted small mb-0">Durchsucht Protokolle, Informationen, Beschlüsse, Themen, Bereiche und Aufgaben – auch archivierte und erledigte.</p>
+            </div>
+            <a href="/fuehrungskreis" class="btn btn-outline-secondary">Protokolle</a>
+            <a href="/fuehrungskreis/themen" class="btn btn-outline-secondary">Themen</a>
+        </div>
+
+        <div class="card mb-3"><div class="card-body d-flex" style="gap:6px;">
+            <input class="form-control" type="search" placeholder="Suchbegriff, z. B. HLF, Jugendfeuerwehr, Atemschutz …"
+                   @bind="_q" @bind:event="oninput" @onkeydown="OnKey" autofocus />
+            <button class="btn btn-primary" @onclick="Search" disabled="@(_q.Trim().Length < 2 || _busy)"><i class="bi bi-search"></i><span class="d-none d-sm-inline ms-1">Suchen</span></button>
+        </div></div>
+
+        @if (_busy) { <p><em>Suche…</em></p> }
+        else if (_results is not null)
+        {
+            @if (_results.Count == 0) { <p class="text-muted">Keine Treffer für „@_last“.</p> }
+            else
+            {
+                <div class="d-flex flex-wrap mb-2" style="gap:6px;">
+                    <button class="btn btn-sm @(_kind == null ? "btn-dark" : "btn-outline-secondary")" @onclick="() => _kind = null">Alle (@_results.Count)</button>
+                    @foreach (var g in _results.GroupBy(r => r.Kind))
+                    {
+                        var k = g.Key;
+                        <button class="btn btn-sm @(_kind == k ? "btn-dark" : "btn-outline-secondary")" @onclick="() => _kind = k">@KindName(k) (@g.Count())</button>
+                    }
+                </div>
+                @foreach (var r in _results.Where(r => _kind == null || r.Kind == _kind))
+                {
+                    <div class="card mb-2" role="@(r.Href is null ? null : "button")" @onclick="() => Open(r)">
+                        <div class="card-body py-2 px-3">
+                            <div class="d-flex flex-wrap align-items-center" style="gap:6px;">
+                                <span class="badge bg-secondary">@r.KindLabel</span>
+                                <span class="badge bg-light text-dark border">@r.CircleLabel</span>
+                                @if (r.Archived) { <span class="badge bg-warning text-dark">archiviert</span> }
+                                <span class="text-muted small ms-auto">@r.Date.ToString("dd.MM.yyyy")</span>
+                            </div>
+                            <div class="fw-semibold mt-1">@Highlight(r.Title)</div>
+                            @if (!string.IsNullOrEmpty(r.Snippet) && r.Snippet != r.Title) { <div class="small mt-1">@Highlight(r.Snippet)</div> }
+                            @if (!string.IsNullOrEmpty(r.Context)) { <div class="small text-muted mt-1">@r.Context</div> }
+                        </div>
+                    </div>
+                }
+            }
+        }
+    </div>
+</AuthGuard>
+
+@code {
+    [SupplyParameterFromQuery(Name = "q")] public string? Q { get; set; }
+
+    private string _q = "", _last = "";
+    private string? _kind;
+    private bool _busy;
+    private List<Hit>? _results;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!string.IsNullOrWhiteSpace(Q)) { _q = Q; await Search(); }
+    }
+
+    private async Task OnKey(KeyboardEventArgs e) { if (e.Key == "Enter") await Search(); }
+
+    private async Task Search()
+    {
+        var term = _q.Trim();
+        if (term.Length < 2) return;
+        _busy = true; _kind = null;
+        try
+        {
+            var r = await Http.GetFromJsonAsync<Response>($"client-api/leadership/search?q={Uri.EscapeDataString(term)}");
+            _results = r?.Results ?? new();
+            _last = term;
+            // Suchbegriff in die Adresse, damit "Zurueck" aus einem Treffer wieder hier landet.
+            Nav.NavigateTo($"/fuehrungskreis/suche?q={Uri.EscapeDataString(term)}", replace: true);
+        }
+        catch { _results = new(); }
+        finally { _busy = false; }
+    }
+
+    private void Open(Hit r) { if (r.Href is not null) Nav.NavigateTo(r.Href); }
+
+    private static string KindName(string k) => k switch
+    {
+        "protocol" => "Protokolle", "item" => "Punkte & Infos", "topic" => "Themen & Bereiche", "task" => "Aufgaben", _ => k
+    };
+
+    // Treffer im Text fett hervorheben (ohne HTML aus den Daten zu rendern).
+    private RenderFragment Highlight(string text) => b =>
+    {
+        var seq = 0;
+        if (string.IsNullOrEmpty(_last)) { b.AddContent(seq, text); return; }
+        var pos = 0;
+        while (true)
+        {
+            var i = text.IndexOf(_last, pos, StringComparison.CurrentCultureIgnoreCase);
+            if (i < 0) { b.AddContent(seq++, text[pos..]); break; }
+            b.AddContent(seq++, text[pos..i]);
+            b.OpenElement(seq++, "mark"); b.AddAttribute(seq++, "style", "padding:0;background:#FFE58A;"); b.AddContent(seq++, text.Substring(i, _last.Length)); b.CloseElement();
+            pos = i + _last.Length;
+        }
+    };
+
+    private record Hit(string Kind, string KindLabel, string Title, string Snippet, DateTime Date, string CircleLabel, string? Href, bool Archived, string? Context);
+    private record Response(List<Hit> Results);
+}
