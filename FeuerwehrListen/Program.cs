@@ -373,7 +373,11 @@ app.Use(async (ctx, next) =>
     var p = ctx.Request.Path.Value ?? "";
     if (!HttpMethods.IsGet(ctx.Request.Method) && !HttpMethods.IsHead(ctx.Request.Method)) { await next(); return; }
     var dir = Path.Combine(ctx.RequestServices.GetRequiredService<FeuerwehrListen.Services.DataPathService>().Root, "branding");
+    // App-Icon: eigenes PWA-Icon, sonst das hochgeladene Logo (nur Rastergrafik - iOS kann kein SVG).
     var icon = Path.Combine(dir, "icon.png");
+    if (!File.Exists(icon))
+        icon = new[] { "custom-logo.png", "custom-logo.jpg", "custom-logo.jpeg" }.Select(f => Path.Combine(dir, f)).FirstOrDefault(File.Exists) ?? icon;
+    var iconType = icon.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ? "image/png" : "image/jpeg";
     if (p.Equals("/manifest.json", StringComparison.OrdinalIgnoreCase))
     {
         var settings = ctx.RequestServices.GetRequiredService<SettingsService>();
@@ -389,8 +393,8 @@ app.Use(async (ctx, next) =>
             background_color = "#F5F6F8", theme_color = "#E4002B", orientation = "portrait",
             icons = new[]
             {
-                new { src = "icon-192.png" + v, sizes = "192x192", type = "image/png", purpose = "any" },
-                new { src = "icon-512.png" + v, sizes = "512x512", type = "image/png", purpose = "any" }
+                new { src = "icon-192.png" + v, sizes = "192x192", type = iconType, purpose = "any" },
+                new { src = "icon-512.png" + v, sizes = "512x512", type = iconType, purpose = "any" }
             }
         }, new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = null }, "application/manifest+json");
         return;
@@ -401,6 +405,7 @@ app.Use(async (ctx, next) =>
         file = Path.Combine(dir, p.TrimStart('/'));
     if (file != null)
     {
+        // Bei den Icon-Pfaden zaehlt der echte Dateityp (Logo kann ein JPG sein), nicht die Endung der URL.
         new Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider().TryGetContentType(file, out var ct);
         ctx.Response.Headers.CacheControl = "no-cache";
         await Results.File(file, ct ?? "application/octet-stream", lastModified: File.GetLastWriteTimeUtc(file), enableRangeProcessing: false).ExecuteAsync(ctx);
