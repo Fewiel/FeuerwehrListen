@@ -102,6 +102,8 @@ public static class MemberAreaEndpoints
                 var from = DateTime.Now;
                 var list = (await calendar.GetEventsInRangeAsync(from, from.AddDays(21)))
                     .Where(e => e.Status != CalendarEventStatus.Abgelehnt && e.Status != CalendarEventStatus.Storniert)
+                    // Dienst mit bereits geoeffneter Anwesenheitsliste: erscheint stattdessen unter "Listen".
+                    .Where(e => !(e.Type == CalendarEventType.Dienst && e.AttendanceListId != null))
                     .Where(e => e.Type == CalendarEventType.Fuehrungskreis
                         ? info.CanSeeCircle(e.LeadershipCircle ?? LeadershipCircles.Small)
                         : allowed.Contains(NetworkAccessService.ModuleCalendar))

@@ -57,3 +57,4 @@ Beim Erhöhen von MAJOR/MINOR wird der rechte Teil auf 0 gesetzt.
 * **3.12.3** – Buttons: einheitliche Farben für Hover/aktiv/gedrückt (kein weißer Text auf hellem Grund mehr)
 * **3.12.4** – App-Icon: ohne eigenes PWA-Icon wird das hochgeladene Logo verwendet; Vorschau des aktuellen Icons in den Einstellungen
 * **3.13.0** – Führungskreis: Suche über Protokolle, Punkte/Infos, Themen, Bereiche und Aufgaben (inkl. archiviert/erledigt)
+* **3.13.1** – Dashboard: Dienste mit geöffneter Anwesenheitsliste nicht mehr zusätzlich als Termin
