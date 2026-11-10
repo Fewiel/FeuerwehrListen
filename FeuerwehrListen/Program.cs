@@ -707,6 +707,8 @@ app.MapGet("/client-api/open-lists", async (
         var viewer = http.RequestServices.GetRequiredService<UserAccessService>().Get(http);
         var events = (await calRepo.GetEventsInRangeAsync(today, tomorrow))
             .Where(e => e.Status != CalendarEventStatus.Abgelehnt)
+            // Dienst mit bereits geoeffneter Anwesenheitsliste: die Liste steht schon im Dashboard.
+            .Where(e => !(e.Type == CalendarEventType.Dienst && e.AttendanceListId != null))
             .Where(e => e.Type != CalendarEventType.Fuehrungskreis || (viewer?.CanSeeCircle(LeadershipService.CircleOf(e)) ?? false))
             .OrderBy(e => e.StartTime)
             .Take(20)
