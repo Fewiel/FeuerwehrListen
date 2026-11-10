@@ -252,6 +252,71 @@ public static class LeadershipEndpoints
         });
 
         // ------------------------------------------------ Themenbereiche / Bereiche
+        // Suche ueber alles, was der Kreis sehen darf: Protokolle (auch alte), Punkte/Infos/Beschluesse,
+        // Themenbereiche und Bereiche (auch archivierte) sowie Aufgaben (auch erledigte).
+        g.MapGet("/search", async (string? q, HttpContext http, UserAccessService ua, LeadershipRepository repo, CalendarRepository calendar,
+            FeuerwehrListen.Data.AppDbConnection db) =>
+        {
+            var viewer = ua.Get(http)!;
+            var term = (q ?? "").Trim();
+            if (term.Length < 2) return Results.Json(new { results = Array.Empty<object>() });
+            bool Hit(string? s) => !string.IsNullOrEmpty(s) && s.Contains(term, StringComparison.CurrentCultureIgnoreCase);
+            string Snip(params string?[] texts)
+            {
+                foreach (var t in texts)
+                {
+                    if (!Hit(t)) continue;
+                    var flat = System.Text.RegularExpressions.Regex.Replace(t!, @"\s+", " ");
+                    var i = flat.IndexOf(term, StringComparison.CurrentCultureIgnoreCase);
+                    var from = Math.Max(0, i - 60); var len = Math.Min(flat.Length - from, term.Length + 140);
+                    return (from > 0 ? "…" : "") + flat.Substring(from, len) + (from + len < flat.Length ? "…" : "");
+                }
+                return "";
+            }
+
+            var protocols = (await repo.GetProtocolsAsync()).Where(p => viewer.CanSeeCircle(p.Circle)).ToList();
+            var events = new Dictionary<int, CalendarEvent>();
+            foreach (var p in protocols)
+                if (await calendar.GetEventAsync(p.CalendarEventId) is CalendarEvent e) events[p.Id] = e;
+            var topics = (await repo.GetTopicsAsync()).Where(t => viewer.CanSeeCircle(t.Circle)).ToDictionary(t => t.Id);
+            var results = new List<(DateTime Sort, object Dto)>();
+
+            foreach (var p in protocols)
+            {
+                if (!events.TryGetValue(p.Id, out var e) || !(Hit(e.Title) || Hit(e.Location) || Hit(e.Description))) continue;
+                results.Add((e.StartTime, new { kind = "protocol", kindLabel = "Protokoll", title = e.Title, snippet = Snip(e.Description, e.Location),
+                    date = e.StartTime, circleLabel = LeadershipCircles.Label(p.Circle), href = $"/fuehrungskreis/protokoll/{p.Id}", archived = false, context = (string?)null }));
+            }
+
+            var items = (await LinqToDB.AsyncExtensions.ToListAsync(db.LeadershipItems)).Where(i => viewer.CanSeeCircle(i.Circle))
+                .Where(i => Hit(i.Title) || Hit(i.Notes) || Hit(i.Decision)).ToList();
+            foreach (var i in items)
+            {
+                LeadershipProtocol? proto = i.ProtocolId is int pid ? protocols.FirstOrDefault(p => p.Id == pid) : null;
+                if (i.ProtocolId != null && proto == null) continue;
+                var e = proto != null && events.TryGetValue(proto.Id, out var ev) ? ev : null;
+                var topic = i.TopicId is int ti && topics.TryGetValue(ti, out var tt) ? tt : i.AreaId is int ai && topics.TryGetValue(ai, out var at) ? at : null;
+                var section = i.Section == LeadershipItem.SectionInfo ? "Information" : i.Section == LeadershipItem.SectionAreas ? "Aus den Bereichen" : "Tagesordnung";
+                var ctx = string.Join(" · ", new[] { e != null ? $"{e.Title} am {e.StartTime:dd.MM.yyyy}" : "wartet auf nächste Sitzung", topic?.Title,
+                    i.Status == LeadershipItemStatus.Abgelehnt ? "abgelehnt" : null }.Where(x => !string.IsNullOrEmpty(x)));
+                results.Add((e?.StartTime ?? i.CreatedAt, new { kind = "item", kindLabel = section, title = i.Title, snippet = Snip(i.Decision, i.Notes, i.Title),
+                    date = e?.StartTime ?? i.CreatedAt, circleLabel = LeadershipCircles.Label(i.Circle),
+                    href = proto != null ? $"/fuehrungskreis/protokoll/{proto.Id}" : topic != null ? $"/fuehrungskreis/themen?open={topic.Id}" : (string?)null,
+                    archived = topic?.IsArchived ?? false, context = (string?)ctx }));
+            }
+
+            foreach (var t in topics.Values.Where(t => Hit(t.Title)))
+                results.Add((t.CreatedAt, new { kind = "topic", kindLabel = t.Kind == LeadershipTopic.KindArea ? "Bereich" : "Themenbereich", title = t.Title, snippet = "",
+                    date = t.CreatedAt, circleLabel = LeadershipCircles.Label(t.Circle), href = $"/fuehrungskreis/themen?open={t.Id}", archived = t.IsArchived, context = (string?)null }));
+
+            foreach (var t in (await repo.GetTasksAsync()).Where(t => viewer.CanSeeCircle(t.Circle) && (Hit(t.Title) || Hit(t.Description) || Hit(t.Notes))))
+                results.Add((t.CreatedAt, new { kind = "task", kindLabel = "Aufgabe", title = t.Title, snippet = Snip(t.Description, t.Notes),
+                    date = t.CreatedAt, circleLabel = LeadershipCircles.Label(t.Circle), href = "/fuehrungskreis/aufgaben",
+                    archived = t.Status == LeadershipTaskStatus.Erledigt, context = (string?)(t.Status == LeadershipTaskStatus.Erledigt ? "erledigt" : null) }));
+
+            return Results.Json(new { results = results.OrderByDescending(r => r.Sort).Take(150).Select(r => r.Dto) });
+        });
+
         g.MapGet("/topics", async (HttpContext http, UserAccessService ua, LeadershipRepository repo, CalendarRepository calendar) =>
         {
             var viewer = ua.Get(http)!;
